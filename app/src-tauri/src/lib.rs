@@ -1,0 +1,113 @@
+mod project;
+
+use project::{Project, Document};
+use serde::Serialize;
+
+#[derive(Serialize)]
+struct ApiResponse<T> {
+    success: bool,
+    data: Option<T>,
+    error: Option<String>,
+}
+
+impl<T> ApiResponse<T> {
+    fn success(data: T) -> Self {
+        ApiResponse {
+            success: true,
+            data: Some(data),
+            error: None,
+        }
+    }
+
+    fn error(error: String) -> Self {
+        ApiResponse {
+            success: false,
+            data: None,
+            error: Some(error),
+        }
+    }
+}
+
+#[tauri::command]
+fn create_project(name: String) -> ApiResponse<Project> {
+    let project = Project::new(name);
+    match project.save() {
+        Ok(()) => ApiResponse::success(project),
+        Err(e) => ApiResponse::error(e),
+    }
+}
+
+#[tauri::command]
+fn save_project(project: Project) -> ApiResponse<()> {
+    match project.save() {
+        Ok(()) => ApiResponse::success(()),
+        Err(e) => ApiResponse::error(e),
+    }
+}
+
+#[tauri::command]
+fn load_project(project_id: String) -> ApiResponse<Project> {
+    match Project::load(&project_id) {
+        Ok(project) => ApiResponse::success(project),
+        Err(e) => ApiResponse::error(e),
+    }
+}
+
+#[tauri::command]
+fn list_projects() -> ApiResponse<Vec<Project>> {
+    match Project::list() {
+        Ok(projects) => ApiResponse::success(projects),
+        Err(e) => ApiResponse::error(e),
+    }
+}
+
+#[tauri::command]
+fn create_document(project_id: String, title: String, content: String) -> ApiResponse<Document> {
+    let doc = Document::new(title, content);
+    match doc.save(&project_id) {
+        Ok(()) => ApiResponse::success(doc),
+        Err(e) => ApiResponse::error(e),
+    }
+}
+
+#[tauri::command]
+fn save_document(project_id: String, document: Document) -> ApiResponse<()> {
+    match document.save(&project_id) {
+        Ok(()) => ApiResponse::success(()),
+        Err(e) => ApiResponse::error(e),
+    }
+}
+
+#[tauri::command]
+fn load_document(project_id: String, document_id: String) -> ApiResponse<Document> {
+    match Document::load(&project_id, &document_id) {
+        Ok(doc) => ApiResponse::success(doc),
+        Err(e) => ApiResponse::error(e),
+    }
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        .setup(|app| {
+            if cfg!(debug_assertions) {
+                app.handle().plugin(
+                    tauri_plugin_log::Builder::default()
+                        .level(log::LevelFilter::Info)
+                        .build(),
+                )?;
+            }
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            create_project,
+            save_project,
+            load_project,
+            list_projects,
+            create_document,
+            save_document,
+            load_document,
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}
