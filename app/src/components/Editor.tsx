@@ -7,7 +7,7 @@ import Italic from '@tiptap/extension-italic';
 import BulletList from '@tiptap/extension-bullet-list';
 import OrderedList from '@tiptap/extension-ordered-list';
 import ListItem from '@tiptap/extension-list-item';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { Document } from '../types';
 
@@ -34,18 +34,14 @@ function Editor({ projectId, document }: { projectId: string; document: Document
     },
   });
 
-  // Auto-save every 30 seconds
+  // Update editor content when document changes
   useEffect(() => {
-    if (!autoSaveEnabled || !editor) return;
+    if (editor && document.content !== editor.getHTML()) {
+      editor.commands.setContent(document.content);
+    }
+  }, [document, editor]);
 
-    const interval = setInterval(() => {
-      saveDocument();
-    }, 30000); // 30 seconds
-
-    return () => clearInterval(interval);
-  }, [autoSaveEnabled, editor]);
-
-  const saveDocument = async () => {
+  const saveDocument = useCallback(async () => {
     if (!editor) return;
     const content = editor.getHTML();
     const updatedDoc: Document = {
@@ -66,7 +62,18 @@ function Editor({ projectId, document }: { projectId: string; document: Document
     } catch (error) {
       console.error('Error saving document:', error);
     }
-  };
+  }, [editor, projectId, document]);
+
+  // Auto-save every 30 seconds
+  useEffect(() => {
+    if (!autoSaveEnabled || !editor) return;
+
+    const interval = setInterval(() => {
+      saveDocument();
+    }, 30000); // 30 seconds
+
+    return () => clearInterval(interval);
+  }, [autoSaveEnabled, editor, saveDocument]);
 
   const handleBold = () => editor?.chain().focus().toggleBold().run();
   const handleItalic = () => editor?.chain().focus().toggleItalic().run();

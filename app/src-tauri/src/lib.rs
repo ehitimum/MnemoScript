@@ -1,6 +1,6 @@
 mod project;
 
-use project::{Project, Document};
+use project::{Document, Project};
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -29,8 +29,8 @@ impl<T> ApiResponse<T> {
 }
 
 #[tauri::command]
-fn create_project(name: String) -> ApiResponse<Project> {
-    let project = Project::new(name);
+fn create_project(name: String, description: Option<String>) -> ApiResponse<Project> {
+    let project = Project::new(name, description);
     match project.save() {
         Ok(()) => ApiResponse::success(project),
         Err(e) => ApiResponse::error(e),

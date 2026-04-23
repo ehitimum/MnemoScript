@@ -7,6 +7,7 @@ use uuid::Uuid;
 pub struct Project {
     pub id: String,
     pub name: String,
+    pub description: Option<String>,
     pub created_at: String,
     pub documents: Vec<Document>,
 }
@@ -20,12 +21,13 @@ pub struct Document {
 }
 
 impl Project {
-    pub fn new(name: String) -> Self {
+    pub fn new(name: String, description: Option<String>) -> Self {
         let id = Uuid::new_v4().to_string();
         let created_at = chrono::Utc::now().to_rfc3339();
         Project {
             id,
             name,
+            description,
             created_at,
             documents: Vec::new(),
         }
@@ -46,7 +48,8 @@ impl Project {
         let project_dir = Self::projects_dir().join(project_id);
         let metadata_path = project_dir.join("project.json");
         let metadata_json = fs::read_to_string(metadata_path).map_err(|e| e.to_string())?;
-        let mut project: Project = serde_json::from_str(&metadata_json).map_err(|e| e.to_string())?;
+        let mut project: Project =
+            serde_json::from_str(&metadata_json).map_err(|e| e.to_string())?;
         project.documents = Self::load_documents(project_id)?;
         Ok(project)
     }
@@ -81,8 +84,10 @@ impl Project {
             if path.is_dir() {
                 let metadata_path = path.join("project.json");
                 if metadata_path.exists() {
-                    let metadata_json = fs::read_to_string(metadata_path).map_err(|e| e.to_string())?;
-                    let project: Project = serde_json::from_str(&metadata_json).map_err(|e| e.to_string())?;
+                    let metadata_json =
+                        fs::read_to_string(metadata_path).map_err(|e| e.to_string())?;
+                    let project: Project =
+                        serde_json::from_str(&metadata_json).map_err(|e| e.to_string())?;
                     projects.push(project);
                 }
             }

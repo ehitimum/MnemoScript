@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import Sidebar from './components/Sidebar';
 import Editor from './components/Editor';
@@ -8,37 +8,46 @@ import './App.css';
 function App() {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
-  const [documents, setDocuments] = useState<Document[]>([]);
-  const [newDocTitle, setNewDocTitle] = useState('');
 
-  // Load documents when project is selected
+  // Compute documents based on selected project
+  const documents = selectedProject?.documents || [];
+
+  // Update selected document when project changes
+  const prevProjectIdRef = useRef<string | null>(null);
   useEffect(() => {
-    if (selectedProject) {
-      setDocuments(selectedProject.documents);
-      if (selectedProject.documents.length > 0) {
-        setSelectedDocument(selectedProject.documents[0]);
+    const prevProjectId = prevProjectIdRef.current;
+    const currentProjectId = selectedProject?.id || null;
+    if (prevProjectId !== currentProjectId) {
+      // Project changed
+      if (selectedProject && selectedProject.documents.length > 0) {
+        // Try to keep the same document if it exists in new project
+        const existingDoc = selectedProject.documents.find(doc => doc.id === selectedDocument?.id);
+        if (existingDoc) {
+          // eslint-disable-next-line react-hooks/set-state-in-effect
+          setSelectedDocument(existingDoc);
+        } else {
+          // eslint-disable-next-line react-hooks/set-state-in-effect
+          setSelectedDocument(selectedProject.documents[0]);
+        }
       } else {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setSelectedDocument(null);
       }
-    } else {
-      setDocuments([]);
-      setSelectedDocument(null);
     }
-  }, [selectedProject]);
+    prevProjectIdRef.current = currentProjectId;
+  }, [selectedProject, selectedDocument]);
 
-  const handleCreateDocument = async () => {
-    if (!selectedProject || !newDocTitle.trim()) return;
+  const handleCreateDocument = async (title: string) => {
+    if (!selectedProject) return;
     try {
       const response = await invoke<{ success: boolean; data: Document; error?: string }>('create_document', {
         projectId: selectedProject.id,
-        title: newDocTitle.trim(),
+        title: title.trim(),
         content: '<p>Start writing...</p>',
       });
       if (response.success) {
         const newDoc = response.data;
-        setDocuments([...documents, newDoc]);
         setSelectedDocument(newDoc);
-        setNewDocTitle('');
         // Reload project to update documents list
         const projectResponse = await invoke<{ success: boolean; data: Project; error?: string }>('load_project', {
           projectId: selectedProject.id,
@@ -58,49 +67,37 @@ function App() {
     setSelectedDocument(doc);
   };
 
+  const handleBack = () => {
+    setSelectedProject(null);
+  };
+
   return (
     <div className="app">
       <div className="sidebar">
-        <Sidebar onSelectProject={setSelectedProject} />
+        <Sidebar
+          selectedProject={selectedProject}
+          selectedDocument={selectedDocument}
+          documents={documents}
+          onSelectProject={setSelectedProject}
+          onBack={handleBack}
+          onCreateDocument={handleCreateDocument}
+          onSelectDocument={handleSelectDocument}
+        />
       </div>
       <div className="main">
         {selectedProject ? (
           <>
             <div className="project-header">
               <h2>{selectedProject.name}</h2>
-              <div className="document-create">
-                <input
-                  type="text"
-                  placeholder="New document title"
-                  value={newDocTitle}
-                  onChange={(e) => setNewDocTitle(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleCreateDocument()}
-                />
-                <button onClick={handleCreateDocument}>Create Document</button>
-              </div>
-            </div>
-            <div className="document-list">
-              <h3>Documents</h3>
-              <ul>
-                {documents.map((doc) => (
-                  <li
-                    key={doc.id}
-                    className={selectedDocument?.id === doc.id ? 'active' : ''}
-                    onClick={() => handleSelectDocument(doc)}
-                  >
-                    {doc.title}
-                    <span className="doc-date">
-                      {new Date(doc.updated_at).toLocaleDateString()}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+              {selectedProject.description && (
+                <p className="project-description">{selectedProject.description}</p>
+              )}
             </div>
             <div className="editor-container">
               {selectedDocument ? (
                 <Editor projectId={selectedProject.id} document={selectedDocument} />
               ) : (
-                <p>No document selected. Create a new document to start writing.</p>
+                <p>Select a chapter from the sidebar or create a new one to start writing.</p>
               )}
             </div>
           </>
