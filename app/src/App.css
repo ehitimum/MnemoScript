@@ -24,38 +24,108 @@ body {
 
 /* Sidebar */
 .sidebar {
-  width: 300px;
+  width: 25%;
+  min-width: 12.5rem;
+  max-width: 18.75rem;
   background: #fff;
   border-right: 1px solid #ddd;
-  padding: 20px;
+  padding: 1.25rem;
   overflow-y: auto;
+  transition: width 0.2s ease;
 }
 
 .sidebar h2 {
-  margin-bottom: 15px;
+  margin-bottom: 0.9375rem;
   font-size: 1.2rem;
+}
+
+.sidebar-header {
+  margin-bottom: 0.9375rem;
+}
+
+.back-button {
+  background: none;
+  border: none;
+  color: #007acc;
+  cursor: pointer;
+  padding: 0;
+  margin-bottom: 0.625rem;
+  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.back-button:hover {
+  text-decoration: underline;
+}
+
+.project-description {
+  font-size: 0.9rem;
+  color: #666;
+  margin-top: 0.3125rem;
+  line-height: 1.4;
 }
 
 .project-create {
   display: flex;
-  gap: 8px;
-  margin-bottom: 20px;
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
 }
 
 .project-create input {
   flex: 1;
-  padding: 8px;
+  padding: 0.5rem;
   border: 1px solid #ccc;
-  border-radius: 4px;
+  border-radius: 0.25rem;
 }
 
 .project-create button {
-  padding: 8px 12px;
+  padding: 0.5rem 0.75rem;
   background: #007acc;
   color: white;
   border: none;
-  border-radius: 4px;
+  border-radius: 0.25rem;
   cursor: pointer;
+}
+
+.new-project-button {
+  width: 100%;
+  padding: 0.625rem;
+  background: #007acc;
+  color: white;
+  border: none;
+  border-radius: 0.25rem;
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: 500;
+}
+
+.new-project-button:hover {
+  background: #0066b3;
+}
+
+.project-info {
+  flex: 1;
+}
+
+.project-name {
+  font-weight: 500;
+}
+
+.project-description-small {
+  font-size: 0.85rem;
+  color: #666;
+  margin-top: 0.125rem;
+  line-height: 1.3;
+}
+
+.sidebar .document-create {
+  margin-bottom: 1.25rem;
+}
+
+.sidebar .document-create input {
+  width: 100%;
 }
 
 .project-list {
@@ -63,8 +133,8 @@ body {
 }
 
 .project-list li {
-  padding: 10px;
-  border-radius: 4px;
+  padding: 0.625rem;
+  border-radius: 0.25rem;
   cursor: pointer;
   display: flex;
   justify-content: space-between;
@@ -89,7 +159,7 @@ body {
 }
 
 .project-header {
-  padding: 20px;
+  padding: 1.25rem;
   border-bottom: 1px solid #ddd;
   background: #fff;
   display: flex;
@@ -103,54 +173,55 @@ body {
 
 .document-create {
   display: flex;
-  gap: 8px;
+  gap: 0.5rem;
 }
 
 .document-create input {
-  padding: 8px;
+  padding: 0.5rem;
   border: 1px solid #ccc;
-  border-radius: 4px;
-  width: 200px;
+  border-radius: 0.25rem;
+  width: 12.5rem;
 }
 
 .document-create button {
-  padding: 8px 12px;
+  padding: 0.5rem 0.75rem;
   background: #28a745;
   color: white;
   border: none;
-  border-radius: 4px;
+  border-radius: 0.25rem;
   cursor: pointer;
 }
 
 .document-list {
-  padding: 20px;
+  padding: 1.25rem;
   background: #fafafa;
   border-bottom: 1px solid #ddd;
-  max-height: 200px;
+  max-height: 30vh;
+  min-height: 9.375rem;
   overflow-y: auto;
 }
 
 .document-list h3 {
-  margin-bottom: 10px;
+  margin-bottom: 0.625rem;
 }
 
 .document-list ul {
   list-style: none;
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 0.625rem;
 }
 
 .document-list li {
-  padding: 10px 15px;
+  padding: 0.625rem 0.9375rem;
   background: #fff;
   border: 1px solid #ddd;
-  border-radius: 4px;
+  border-radius: 0.25rem;
   cursor: pointer;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  min-width: 200px;
+  min-width: 12.5rem;
 }
 
 .document-list li.active {
@@ -166,7 +237,7 @@ body {
 /* Editor container */
 .editor-container {
   flex: 1;
-  padding: 20px;
+  padding: 1.25rem;
   overflow-y: auto;
   background: #fff;
 }
@@ -180,18 +251,18 @@ body {
 
 .toolbar {
   display: flex;
-  gap: 8px;
-  padding: 10px;
+  gap: 0.5rem;
+  padding: 0.625rem;
   border-bottom: 1px solid #ddd;
   background: #f9f9f9;
   flex-wrap: wrap;
 }
 
 .toolbar button {
-  padding: 6px 12px;
+  padding: 0.375rem 0.75rem;
   border: 1px solid #ccc;
   background: #fff;
-  border-radius: 4px;
+  border-radius: 0.25rem;
   cursor: pointer;
 }
 
@@ -204,20 +275,20 @@ body {
 .toolbar label {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 0.3125rem;
   margin-left: auto;
 }
 
 .editor-content {
   flex: 1;
-  padding: 20px;
+  padding: 1.25rem;
   overflow-y: auto;
 }
 
 /* TipTap editor specific */
 .ProseMirror {
   outline: none;
-  min-height: 300px;
+  min-height: 18.75rem;
 }
 
 .ProseMirror p {
@@ -248,13 +319,147 @@ body {
 }
 
 .status-bar {
-  padding: 10px;
+  padding: 0.625rem;
   border-top: 1px solid #ddd;
   background: #f9f9f9;
   display: flex;
   justify-content: space-between;
   font-size: 0.9rem;
   color: #666;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .app {
+    flex-direction: column;
+  }
+  .sidebar {
+    width: 100%;
+    max-width: 100%;
+    min-width: auto;
+    border-right: none;
+    border-bottom: 1px solid #ddd;
+    padding: 0.9375rem;
+  }
+  .project-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.9375rem;
+  }
+  .document-create {
+    width: 100%;
+  }
+  .document-create input {
+    width: 100%;
+  }
+  .document-list ul {
+    flex-direction: column;
+  }
+  .document-list li {
+    min-width: auto;
+  }
+  .toolbar {
+    justify-content: center;
+    padding: 0.5rem;
+    gap: 0.375rem;
+  }
+  .toolbar button {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.9rem;
+  }
+  .editor-container {
+    padding: 0.625rem;
+  }
+  .editor-content {
+    padding: 0.625rem;
+  }
+  .status-bar {
+    font-size: 0.8rem;
+    padding: 0.5rem;
+  }
+}
+
+/* Modal styles */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal {
+  background: white;
+  border-radius: 0.5rem;
+  padding: 1.5rem;
+  width: 90%;
+  max-width: 31.25rem;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+}
+
+.modal h2 {
+  margin-top: 0;
+  margin-bottom: 1.25rem;
+  font-size: 1.5rem;
+}
+
+.form-group {
+  margin-bottom: 1rem;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 0.375rem;
+  font-weight: 500;
+}
+
+.form-group input,
+.form-group textarea {
+  width: 100%;
+  padding: 0.625rem;
+  border: 1px solid #ccc;
+  border-radius: 0.25rem;
+  font-family: inherit;
+  font-size: 1rem;
+}
+
+.form-group textarea {
+  resize: vertical;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+}
+
+.modal-actions button {
+  padding: 0.625rem 1.125rem;
+  border: none;
+  border-radius: 0.25rem;
+  cursor: pointer;
+  font-size: 1rem;
+}
+
+.modal-actions button[type="button"] {
+  background: #f0f0f0;
+  color: #333;
+}
+
+.modal-actions button[type="submit"] {
+  background: #007acc;
+  color: white;
+}
+
+.modal-actions button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 /* Welcome screen */
@@ -265,12 +470,12 @@ body {
   justify-content: center;
   height: 100%;
   text-align: center;
-  padding: 40px;
+  padding: 2.5rem;
 }
 
 .welcome h1 {
   font-size: 2.5rem;
-  margin-bottom: 20px;
+  margin-bottom: 1.25rem;
 }
 
 .welcome p {
