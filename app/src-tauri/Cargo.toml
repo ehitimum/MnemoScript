@@ -26,3 +26,5 @@ tauri-plugin-log = "2"
 uuid = { version = "1", features = ["v4", "serde"] }
 chrono = "0.4"
 dirs = "5"
+rfd = "0.15"
+

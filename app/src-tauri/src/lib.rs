@@ -29,8 +29,35 @@ impl<T> ApiResponse<T> {
 }
 
 #[tauri::command]
-fn create_project(name: String, description: Option<String>) -> ApiResponse<Project> {
-    let project = Project::new(name, description);
+fn select_directory() -> ApiResponse<Option<String>> {
+    let folder = rfd::FileDialog::new().pick_folder();
+    ApiResponse::success(folder.map(|p| p.to_string_lossy().to_string()))
+}
+
+#[tauri::command]
+fn open_project_by_path(path: String) -> ApiResponse<Project> {
+    let path_buf = std::path::PathBuf::from(&path);
+    match Project::load_from_path(&path_buf) {
+        Ok(project) => ApiResponse::success(project),
+        Err(e) => ApiResponse::error(e),
+    }
+}
+
+#[tauri::command]
+fn create_project(
+    name: String,
+    description: Option<String>,
+    path: Option<String>,
+) -> ApiResponse<Project> {
+    let final_path = if let Some(ref p) = path {
+        let mut pb = std::path::PathBuf::from(p);
+        pb.push(&name);
+        Some(pb.to_string_lossy().to_string())
+    } else {
+        None
+    };
+
+    let project = Project::new(name, description, final_path);
     match project.save() {
         Ok(()) => ApiResponse::success(project),
         Err(e) => ApiResponse::error(e),
@@ -107,6 +134,8 @@ pub fn run() {
             create_document,
             save_document,
             load_document,
+            select_directory,
+            open_project_by_path,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
