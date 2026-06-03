@@ -651,3 +651,143 @@ body.theme-light .vscode-statusbar {
   font-size: 11px;
   color: var(--text-muted);
 }
+
+
+/* ── Rich Text Dynamic Target Deadzone Configuration ──────── */
+.editor-workspace {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--bg-editor);
+  overflow: hidden;
+  cursor: text; /* Forces cursor prompt indicators globally across text panel */
+}
+
+.editor-body-scroll-container {
+  flex: 1;
+  overflow-y: auto;
+  padding-top: 20px;
+  padding-bottom: 40px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Structural scaling behavior: stretches the inner input zone box to fill the window */
+.ProseMirror {
+  flex: 1;
+  min-height: 100%;
+  outline: none;
+}
+
+/* ── Modern Technical Modal Dialog Box Panel Style Profile ── */
+.modal-overlay-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background-color: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+.vscode-modal-box {
+  background-color: #252526;
+  border: 1px solid #007acc;
+  width: 480px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  display: flex;
+  flex-direction: column;
+}
+
+.vscode-modal-header {
+  background-color: #2d2d2d;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid #333333;
+}
+
+.vscode-modal-header h3 {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e1e1e1;
+}
+
+.vscode-modal-form {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.modal-form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.modal-form-row label {
+  font-size: 11px;
+  font-weight: 500;
+  color: #aaaaaa;
+  text-transform: uppercase;
+}
+
+.required-star {
+  color: #f14c4c;
+}
+
+.modal-textarea {
+  resize: none;
+  font-family: inherit;
+}
+
+.location-picker-inline-row {
+  display: flex;
+  gap: 6px;
+}
+
+.path-display-locked {
+  background-color: #1e1e1e;
+  opacity: 0.8;
+  cursor: not-allowed;
+}
+
+.vscode-browse-btn {
+  background-color: #333333;
+  color: #cccccc;
+  border: 1px solid #444444;
+  padding: 0 12px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.vscode-browse-btn:hover {
+  background-color: #444444;
+  color: #ffffff;
+}
+
+.vscode-modal-actions-bar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.modal-action-secondary-btn {
+  background-color: transparent;
+  color: #cccccc;
+  border: 1px solid #444444;
+  padding: 6px 14px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.modal-action-secondary-btn:hover {
+  background-color: #333333;
+  color: #ffffff;
+}
