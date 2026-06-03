@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import type { Project, Document } from '../types';
 
 interface HeaderProps {
@@ -6,7 +6,6 @@ interface HeaderProps {
   selectedDocument: Document | null;
   onCloseProject: () => void;
   onSaveDocument?: () => void;
-  isSaved?: boolean;
   theme: 'dark' | 'light' | 'glass';
   setTheme: (theme: 'dark' | 'light' | 'glass') => void;
   isLeftSidebarOpen: boolean;
@@ -26,8 +25,6 @@ function Header({
   selectedDocument,
   onCloseProject,
   onSaveDocument,
-  isSaved = true,
-  theme,
   setTheme,
   isLeftSidebarOpen,
   setIsLeftSidebarOpen,
@@ -41,154 +38,127 @@ function Header({
   onChangeAutoSave,
 }: HeaderProps) {
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
+  const menubarRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (menubarRef.current && !menubarRef.current.contains(e.target as Node)) {
+        setActiveMenu(null);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, []);
+
+  const toggleMenu = (menuName: string) => {
+    setActiveMenu(activeMenu === menuName ? null : menuName);
+  };
+
+  const handleMenuHover = (menuName: string) => {
+    if (activeMenu !== null) {
+      setActiveMenu(menuName);
+    }
+  };
+
+  const executeAction = (action: () => void) => {
+    action();
+    setActiveMenu(null);
+  };
 
   const menuItems = [
     {
       label: 'File',
       options: [
-        { label: '✨ New Project', action: onOpenCreateModal },
-        { label: '📂 Open Project Folder', action: onOpenProjectFolder },
-        { label: '💾 Save Document', action: onSaveDocument, disabled: !selectedDocument },
-        { label: '🚪 Close Project', action: onCloseProject, disabled: !selectedProject },
+        { label: 'New Project', action: onOpenCreateModal, enabled: true },
+        { label: 'Open Project Folder', action: onOpenProjectFolder, enabled: true },
+        { label: 'Save File', action: onSaveDocument || (() => {}), enabled: !!selectedDocument },
+        { label: 'Close Project Workspace', action: onCloseProject, enabled: !!selectedProject },
       ],
     },
     {
       label: 'Edit',
       options: [
-        { label: '📋 Copy Plain Text', action: onCopyText, disabled: !selectedDocument },
+        { label: 'Copy Document Text', action: onCopyText, enabled: !!selectedDocument },
       ],
     },
     {
       label: 'View',
       options: [
-        { label: isLeftSidebarOpen ? '📁 Collapse Explorer' : '📁 Expand Explorer', action: () => setIsLeftSidebarOpen(!isLeftSidebarOpen), disabled: !selectedProject },
-        { label: isRightSidebarOpen ? '⚙️ Collapse Controller' : '⚙️ Expand Controller', action: () => setIsRightSidebarOpen(!isRightSidebarOpen), disabled: !selectedDocument },
+        { label: 'Toggle Left Explorer', action: () => setIsLeftSidebarOpen(!isLeftSidebarOpen), enabled: true },
+        { label: 'Toggle Right Controller', action: () => setIsRightSidebarOpen(!isRightSidebarOpen), enabled: true },
       ],
     },
     {
       label: 'Tools',
       options: [
-        { label: '⚙️ Settings Tab', action: onOpenSettings },
-        { label: autoSaveEnabled ? '☑️ Auto-Save Active' : '⬜ Enable Auto-Save', action: () => onChangeAutoSave(!autoSaveEnabled), disabled: !selectedDocument },
+        { label: autoSaveEnabled ? 'Disable Auto-Save' : 'Enable Auto-Save', action: () => onChangeAutoSave(!autoSaveEnabled), enabled: true },
+        { label: 'Preferences / Custom Config', action: onOpenSettings, enabled: true },
       ],
     },
     {
       label: 'Theme',
       options: [
-        { label: '🌌 Midnight Dark', action: () => setTheme('dark') },
-        { label: '📜 Parchment Light', action: () => setTheme('light') },
-        { label: '🔮 Nebula Glass', action: () => setTheme('glass') },
+        { label: 'Midnight Dark', action: () => setTheme('dark'), enabled: true },
+        { label: 'Parchment Light', action: () => setTheme('light'), enabled: true },
+        { label: 'Nebula Glass', action: () => setTheme('glass'), enabled: true },
       ],
     },
     {
       label: 'Help',
       options: [
-        { label: 'ℹ️ About MnemoScript', action: () => alert('MnemoScript v2.0.0\nA modern distraction-free software for writers, developed with Tauri and React.') },
+        { label: 'Quick Guide & Version Info', action: () => alert('MnemoScript IDE v2.0.0 - VSCode Core Architecture Upgrade'), enabled: true },
       ],
     },
   ];
 
   return (
-    <header className="vscode-header">
-      <div className="header-left">
-        {/* Dropdown Menu Links */}
-        <div className="vscode-menubar">
-          {menuItems.map((menu) => (
-            <div
-              key={menu.label}
-              className="menubar-item-container"
-              onMouseEnter={() => activeMenu && setActiveMenu(menu.label)}
+    <nav className="vscode-menubar" ref={menubarRef}>
+      <div className="menubar-left">
+        {menuItems.map((menu) => (
+          <div key={menu.label} className={`menu-item-wrapper ${activeMenu === menu.label ? 'active' : ''}`}>
+            <button
+              className="menu-trigger"
+              onClick={() => toggleMenu(menu.label)}
+              onMouseEnter={() => handleMenuHover(menu.label)}
             >
-              <button
-                className={`menubar-btn ${activeMenu === menu.label ? 'active' : ''}`}
-                onClick={() => setActiveMenu(activeMenu === menu.label ? null : menu.label)}
-              >
-                {menu.label}
-              </button>
-
-              {activeMenu === menu.label && (
-                <div 
-                  className="menubar-dropdown"
-                  onMouseLeave={() => setActiveMenu(null)}
-                >
-                  {menu.options.map((option, idx) => (
+              {menu.label}
+            </button>
+            {activeMenu === menu.label && (
+              <ul className="menu-dropdown-list">
+                {menu.options.map((opt, i) => (
+                  <li key={i}>
                     <button
-                      key={idx}
-                      className="dropdown-option-btn"
-                      onClick={() => {
-                        if (option.action && !option.disabled) {
-                          option.action();
-                        }
-                        setActiveMenu(null);
-                      }}
-                      disabled={option.disabled}
+                      className="dropdown-item-btn"
+                      disabled={!opt.enabled}
+                      onClick={() => executeAction(opt.action)}
                     >
-                      {option.label}
+                      <span>{opt.label}</span>
                     </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ))}
       </div>
 
-      {/* Center Label for Document Name */}
-      <div className="header-center">
-        {selectedProject && (
-          <span className="header-filename-tag">
-            {selectedProject.name} {selectedDocument ? `— ${selectedDocument.title}` : ''}
-          </span>
-        )}
-      </div>
-
-      <div className="header-right">
-        {/* Toggle Toggles */}
-        {selectedProject && (
-          <button 
-            className={`sidebar-toggle-btn ${isLeftSidebarOpen ? 'active' : ''}`}
-            onClick={() => setIsLeftSidebarOpen(!isLeftSidebarOpen)}
-            title={isLeftSidebarOpen ? "Toggle Explorer (Left)" : "Toggle Explorer (Left)"}
-          >
-            <span className="toggle-icon-layout left-sidebar-icon"></span>
-          </button>
-        )}
-
-        {selectedProject && selectedDocument && (
-          <button 
-            className={`sidebar-toggle-btn ${isRightSidebarOpen ? 'active' : ''}`}
-            onClick={() => setIsRightSidebarOpen(!isRightSidebarOpen)}
-            title={isRightSidebarOpen ? "Toggle Text Controller (Right)" : "Toggle Text Controller (Right)"}
-          >
-            <span className="toggle-icon-layout right-sidebar-icon"></span>
-          </button>
-        )}
-
+      <div className="menubar-right">
         <button 
-          className="header-btn settings-btn" 
-          onClick={onOpenSettings} 
-          title="Open Settings Tab"
+          className={`layout-toggle-btn ${isLeftSidebarOpen ? 'active' : ''}`}
+          onClick={() => setIsLeftSidebarOpen(!isLeftSidebarOpen)}
+          title="Toggle Left Explorer"
         >
-          ⚙️ Settings
+          📂
         </button>
-
-        {selectedProject && (
-          <button 
-            className="header-btn close-project-btn" 
-            onClick={onCloseProject}
-            title="Close Active Project Workspace"
-          >
-            🚪 Close
-          </button>
-        )}
-
-        {selectedProject && selectedDocument && (
-          <span className={`save-badge ${isSaved ? 'saved' : 'unsaved'}`}>
-            {isSaved ? '●' : '○'}
-          </span>
-        )}
+        <button 
+          className={`layout-toggle-btn ${isRightSidebarOpen ? 'active' : ''}`}
+          onClick={() => setIsRightSidebarOpen(!isRightSidebarOpen)}
+          title="Toggle Right Controller"
+        >
+          ⚙️
+        </button>
       </div>
-    </header>
+    </nav>
   );
 }
 

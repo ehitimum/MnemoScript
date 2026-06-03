@@ -20,6 +20,15 @@ function Sidebar({
   const [isAddingDoc, setIsAddingDoc] = useState(false);
   const [isFolderExpanded, setIsFolderExpanded] = useState(true);
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      handleCreateDocument();
+    } else if (e.key === 'Escape') {
+      setIsAddingDoc(false);
+      setNewDocumentTitle('');
+    }
+  };
+
   const handleCreateDocument = () => {
     if (!newDocumentTitle.trim()) {
       setIsAddingDoc(false);
@@ -32,36 +41,33 @@ function Sidebar({
 
   return (
     <aside className="workspace-sidebar">
-      {/* Explorer Header */}
       <div className="sidebar-explorer-header">
         <span className="explorer-header-title">EXPLORER</span>
         <button
           className="add-doc-icon-btn"
           onClick={() => setIsAddingDoc(!isAddingDoc)}
-          title="Create New Chapter (Press Enter after typing)"
+          title="Create New Chapter (Press Enter)"
         >
           ＋
         </button>
       </div>
 
-      {/* Inline Creation Input (VSCode-like inline file creation) */}
       {isAddingDoc && (
         <div className="sidebar-inline-create">
           <span className="inline-icon">📄</span>
           <input
+            className="inline-create-input"
             type="text"
-            className="sidebar-inline-input"
-            placeholder="Chapter title..."
+            autoFocus
+            placeholder="chapter-name.md"
             value={newDocumentTitle}
             onChange={(e) => setNewDocumentTitle(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleCreateDocument()}
+            onKeyDown={handleKeyDown}
             onBlur={handleCreateDocument}
-            autoFocus
           />
         </div>
       )}
 
-      {/* Explorer Tree View */}
       <div className="sidebar-tree-container">
         <div className="tree-project-node">
           <div 
@@ -71,9 +77,8 @@ function Sidebar({
             <span className={`folder-chevron ${isFolderExpanded ? 'expanded' : ''}`}>
               ▶
             </span>
-            <span className="folder-icon">📂</span>
             <span className="project-name-text" title={selectedProject.name}>
-              {selectedProject.name}
+              {selectedProject.name.toUpperCase()}
             </span>
           </div>
 
@@ -81,7 +86,7 @@ function Sidebar({
             <ul className="project-document-list">
               {documents.length === 0 ? (
                 <li className="document-item-empty">
-                  No chapters yet. Click ＋ above.
+                  Empty workspace workspace.
                 </li>
               ) : (
                 documents.map((doc) => (
