@@ -1,6 +1,9 @@
+import type { ThemeType } from '../App';
+
 interface RightSidebarProps {
   editor: any | null;
   isOpen: boolean;
+  theme: ThemeType;
   editorFont: string;
   setEditorFont: (font: string) => void;
   editorSize: number;
@@ -10,6 +13,7 @@ interface RightSidebarProps {
 function RightSidebar({
   editor,
   isOpen,
+  theme,
   editorFont,
   setEditorFont,
   editorSize,
@@ -17,8 +21,29 @@ function RightSidebar({
 }: RightSidebarProps) {
   if (!isOpen) return null;
 
+  // Theme-aware button styling logic
+  const getBtnStyle = (isActive: boolean) => {
+    const isLight = theme === 'light';
+    const activeBg = isLight ? '#0078d4' : 'rgba(66, 153, 225, 0.6)';
+    const activeColor = '#fff';
+    const baseBg = isLight ? '#f0f0f0' : 'rgba(255,255,255,0.05)';
+    const baseBorder = isLight ? '#d0d0d0' : 'rgba(255,255,255,0.1)';
+    const textColor = isLight && !isActive ? '#333' : 'inherit';
+
+    return {
+      padding: '8px 12px',
+      background: isActive ? activeBg : baseBg,
+      border: `1px solid ${isActive ? 'transparent' : baseBorder}`,
+      color: isActive ? activeColor : textColor,
+      cursor: 'pointer',
+      borderRadius: '8px',
+      transition: 'all 0.2s ease',
+      fontWeight: isActive ? 'bold' : 'normal'
+    };
+  };
+
   return (
-    <aside className="text-controller-sidebar">
+    <aside className="text-controller-sidebar" style={{ borderRadius: '12px 0 0 12px' }}>
       <div className="right-sidebar-header">
         {/* ICON REF UPGRADE: Replaces old header configurations with requested technical settings icon symbol alignment */}
         <span className="controller-header-icon">🔧</span>
@@ -34,25 +59,25 @@ function RightSidebar({
                 className={`format-btn ${editor.isActive('bold') ? 'active' : ''}`}
                 onClick={() => editor.chain().focus().toggleBold().run()}
                 title="Bold (Ctrl+B)"
-                style={{ padding: '6px 10px', background: editor.isActive('bold') ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'inherit', cursor: 'pointer', borderRadius: '4px' }}
+                style={getBtnStyle(editor.isActive('bold'))}
               ><strong>B</strong></button>
               <button 
                 className={`format-btn ${editor.isActive('italic') ? 'active' : ''}`}
                 onClick={() => editor.chain().focus().toggleItalic().run()}
                 title="Italic (Ctrl+I)"
-                style={{ padding: '6px 10px', background: editor.isActive('italic') ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'inherit', cursor: 'pointer', borderRadius: '4px' }}
+                style={getBtnStyle(editor.isActive('italic'))}
               ><em>I</em></button>
               <button 
                 className={`format-btn ${editor.isActive('bulletList') ? 'active' : ''}`}
                 onClick={() => editor.chain().focus().toggleBulletList().run()}
                 title="Bullet List"
-                style={{ padding: '6px 10px', background: editor.isActive('bulletList') ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'inherit', cursor: 'pointer', borderRadius: '4px' }}
+                style={getBtnStyle(editor.isActive('bulletList'))}
               >• List</button>
               <button 
                 className={`format-btn ${editor.isActive('orderedList') ? 'active' : ''}`}
                 onClick={() => editor.chain().focus().toggleOrderedList().run()}
                 title="Numbered List"
-                style={{ padding: '6px 10px', background: editor.isActive('orderedList') ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'inherit', cursor: 'pointer', borderRadius: '4px' }}
+                style={getBtnStyle(editor.isActive('orderedList'))}
               >1. List</button>
             </div>
             <div className="format-headings-row" style={{ display: 'flex', gap: '4px' }}>
@@ -62,7 +87,7 @@ function RightSidebar({
                   className={`format-btn ${editor.isActive('heading', { level }) ? 'active' : ''}`}
                   onClick={() => editor.chain().focus().toggleHeading({ level: level as any }).run()}
                   title={`Heading ${level} (Ctrl+${level})`}
-                  style={{ flex: 1, padding: '4px', background: editor.isActive('heading', { level }) ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'inherit', cursor: 'pointer', borderRadius: '4px', fontSize: '0.75rem' }}
+                  style={{ ...getBtnStyle(editor.isActive('heading', { level })), flex: 1, fontSize: '0.75rem', padding: '4px' }}
                 >H{level}</button>
               ))}
             </div>

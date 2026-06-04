@@ -2,6 +2,7 @@ import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { useEffect } from 'react';
 import type { Document } from '../types';
+import type { ThemeType } from '../App';
 
 interface EditorProps {
   projectId: string;
@@ -29,8 +30,8 @@ interface EditorProps {
   setAutoSaveInterval: (interval: number) => void;
   defaultSavePath: string;
   setDefaultSavePath: (path: string) => void;
-  theme: 'dark' | 'light' | 'glass';
-  setTheme: (theme: 'dark' | 'light' | 'glass') => void;
+  theme: ThemeType;
+  setTheme: (theme: ThemeType) => void;
 }
 
 function Editor({
@@ -152,20 +153,23 @@ function Editor({
           <h2 className="settings-pane-title">Global IDE Settings</h2>
           
           <div className="settings-grid-layout">
-            <div className="settings-card-block">
+            <div className="settings-card-block" style={{ borderRadius: '12px', padding: '20px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
               <h3>Workspace Color Scheme Theme Profile</h3>
               <select 
                 className="sidebar-select" 
                 value={theme} 
-                onChange={(e) => setTheme(e.target.value as 'dark' | 'light' | 'glass')}
+                onChange={(e) => setTheme(e.target.value as ThemeType)}
               >
                 <option value="dark">Midnight Dark (Technical)</option>
                 <option value="light">Parchment Light (High Contrast)</option>
                 <option value="glass">Nebula Glass (Translucent)</option>
+                <option value="ocean">Deep Ocean (Calm Blue)</option>
+                <option value="forest">Emerald Forest (Natural)</option>
+                <option value="sunset">Crimson Sunset (Warm)</option>
               </select>
             </div>
 
-            <div className="settings-card-block">
+            <div className="settings-card-block" style={{ borderRadius: '12px', padding: '20px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
               <h3>Typography Layout Tuning</h3>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 <label>Line Height Index Ratio ({lineHeight})</label>
@@ -181,7 +185,7 @@ function Editor({
               </div>
             </div>
 
-            <div className="settings-card-block">
+            <div className="settings-card-block" style={{ borderRadius: '12px', padding: '20px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
               <h3>Background Automated Engine Loop</h3>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 <label className="checkbox-label">
@@ -197,7 +201,7 @@ function Editor({
               </div>
             </div>
 
-            <div className="settings-card-block">
+            <div className="settings-card-block" style={{ borderRadius: '12px', padding: '20px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
               <h3>Repository Default Registration File Path Location</h3>
               <input 
                 type="text" className="settings-input-text" 
@@ -240,6 +244,19 @@ function Editor({
         <EditorContent editor={editor} />
         
         <style>{`
+          :root {
+            --selection-color: ${
+              theme === 'light' ? '#add6ff' : 
+              theme === 'sunset' ? '#ff8c00' :
+              theme === 'forest' ? '#2d5a27' :
+              'rgba(66, 153, 225, 0.4)'
+            };
+          }
+
+          .ProseMirror ::selection {
+            background-color: var(--selection-color) !important;
+          }
+
           .ProseMirror ul, .ProseMirror ol {
             margin-left: 4px !important;
             padding-left: 24px;

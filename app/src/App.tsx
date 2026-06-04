@@ -7,6 +7,8 @@ import ProjectCreationModal from './components/ProjectCreationModal';
 import type { Project, Document } from './types';
 import './App.css';
 
+export type ThemeType = 'dark' | 'light' | 'glass' | 'ocean' | 'forest' | 'sunset';
+
 function App() {
   const [wordCount, setWordCount] = useState(0);
   const [charCount, setCharCount] = useState(0);
@@ -26,7 +28,7 @@ function App() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditingSettings, setIsEditingSettings] = useState(false);
   
-  const [theme, setTheme] = useState<'dark' | 'light' | 'glass'>(() => (localStorage.getItem('mnemo_theme') as any) || 'dark');
+  const [theme, setTheme] = useState<ThemeType>(() => (localStorage.getItem('mnemo_theme') as any) || 'dark');
   const [editorFont, setEditorFont] = useState(() => localStorage.getItem('mnemo_font') || 'Inter');
   const [editorSize, setEditorSize] = useState(() => Number(localStorage.getItem('mnemo_size')) || 14);
   const [lineHeight, setLineHeight] = useState(() => Number(localStorage.getItem('mnemo_lineheight')) || 1.5);
@@ -210,6 +212,7 @@ function App() {
             <RightSidebar
               editor={activeEditor}
               isOpen={isRightSidebarOpen}
+              theme={theme}
               editorFont={editorFont}
               setEditorFont={setEditorFont}
               editorSize={editorSize}

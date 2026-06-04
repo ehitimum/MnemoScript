@@ -1,13 +1,14 @@
 import { useState, useRef, useEffect } from 'react';
 import type { Project, Document } from '../types';
+import type { ThemeType } from '../App';
 
 interface HeaderProps {
   selectedProject: Project | null;
   selectedDocument: Document | null;
   onCloseProject: () => void;
   onSaveDocument?: () => void;
-  theme: 'dark' | 'light' | 'glass';
-  setTheme: (theme: 'dark' | 'light' | 'glass') => void;
+  theme: ThemeType;
+  setTheme: (theme: ThemeType) => void;
   isLeftSidebarOpen: boolean;
   setIsLeftSidebarOpen: (open: boolean) => void;
   isRightSidebarOpen: boolean;
@@ -101,6 +102,9 @@ function Header({
         { label: 'Midnight Dark', action: () => setTheme('dark'), enabled: true },
         { label: 'Parchment Light', action: () => setTheme('light'), enabled: true },
         { label: 'Nebula Glass', action: () => setTheme('glass'), enabled: true },
+        { label: 'Deep Ocean', action: () => setTheme('ocean'), enabled: true },
+        { label: 'Emerald Forest', action: () => setTheme('forest'), enabled: true },
+        { label: 'Crimson Sunset', action: () => setTheme('sunset'), enabled: true },
       ],
     },
     {
