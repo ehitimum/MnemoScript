@@ -251,10 +251,23 @@ function Editor({
               theme === 'forest' ? '#2d5a27' :
               'rgba(66, 153, 225, 0.4)'
             };
+            --editor-text-color: ${
+              theme === 'light' ? '#2c2c2c' : 
+              theme === 'ocean' ? '#e1efff' :
+              theme === 'forest' ? '#e6f4ea' :
+              theme === 'sunset' ? '#fff1e6' :
+              '#e0e0e0'
+            };
           }
 
           .ProseMirror ::selection {
             background-color: var(--selection-color) !important;
+          }
+
+          .ProseMirror {
+            color: var(--editor-text-color);
+            caret-color: var(--editor-text-color);
+            outline: none;
           }
 
           .ProseMirror ul, .ProseMirror ol {
