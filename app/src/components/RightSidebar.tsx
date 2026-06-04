@@ -8,6 +8,7 @@ interface RightSidebarProps {
 }
 
 function RightSidebar({
+  editor,
   isOpen,
   editorFont,
   setEditorFont,
@@ -25,6 +26,49 @@ function RightSidebar({
       </div>
 
       <div className="sidebar-section-body">
+        {editor && (
+          <div className="control-group">
+            <h4 className="sidebar-group-title">Text Formatting</h4>
+            <div className="format-buttons-grid" style={{ display: 'flex', gap: '4px', marginBottom: '10px', flexWrap: 'wrap' }}>
+              <button 
+                className={`format-btn ${editor.isActive('bold') ? 'active' : ''}`}
+                onClick={() => editor.chain().focus().toggleBold().run()}
+                title="Bold (Ctrl+B)"
+                style={{ padding: '6px 10px', background: editor.isActive('bold') ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'inherit', cursor: 'pointer', borderRadius: '4px' }}
+              ><strong>B</strong></button>
+              <button 
+                className={`format-btn ${editor.isActive('italic') ? 'active' : ''}`}
+                onClick={() => editor.chain().focus().toggleItalic().run()}
+                title="Italic (Ctrl+I)"
+                style={{ padding: '6px 10px', background: editor.isActive('italic') ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'inherit', cursor: 'pointer', borderRadius: '4px' }}
+              ><em>I</em></button>
+              <button 
+                className={`format-btn ${editor.isActive('bulletList') ? 'active' : ''}`}
+                onClick={() => editor.chain().focus().toggleBulletList().run()}
+                title="Bullet List"
+                style={{ padding: '6px 10px', background: editor.isActive('bulletList') ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'inherit', cursor: 'pointer', borderRadius: '4px' }}
+              >• List</button>
+              <button 
+                className={`format-btn ${editor.isActive('orderedList') ? 'active' : ''}`}
+                onClick={() => editor.chain().focus().toggleOrderedList().run()}
+                title="Numbered List"
+                style={{ padding: '6px 10px', background: editor.isActive('orderedList') ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'inherit', cursor: 'pointer', borderRadius: '4px' }}
+              >1. List</button>
+            </div>
+            <div className="format-headings-row" style={{ display: 'flex', gap: '4px' }}>
+              {[1, 2, 3].map((level) => (
+                <button
+                  key={level}
+                  className={`format-btn ${editor.isActive('heading', { level }) ? 'active' : ''}`}
+                  onClick={() => editor.chain().focus().toggleHeading({ level: level as any }).run()}
+                  title={`Heading ${level} (Ctrl+${level})`}
+                  style={{ flex: 1, padding: '4px', background: editor.isActive('heading', { level }) ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'inherit', cursor: 'pointer', borderRadius: '4px', fontSize: '0.75rem' }}
+                >H{level}</button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="control-group">
           <h4 className="sidebar-group-title">Typography Configuration</h4>
           

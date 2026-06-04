@@ -1,11 +1,5 @@
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
-import Heading from '@tiptap/extension-heading';
-import Bold from '@tiptap/extension-bold';
-import Italic from '@tiptap/extension-italic';
-import BulletList from '@tiptap/extension-bullet-list';
-import OrderedList from '@tiptap/extension-ordered-list';
-import ListItem from '@tiptap/extension-list-item';
 import { useEffect } from 'react';
 import type { Document } from '../types';
 
@@ -65,19 +59,58 @@ function Editor({
   
   const editor = useEditor({
     extensions: [
+      // FIX: Leave default extensions unblocked so their internal schema rules interconnect seamlessly
       StarterKit.configure({
-        heading: false, bold: false, italic: false,
-        bulletList: false, orderedList: false, listItem: false,
+        heading: {
+          levels: [1, 2, 3],
+        },
+      }).extend({
+        addKeyboardShortcuts() {
+          return {
+            'Mod-1': () => this.editor.commands.toggleHeading({ level: 1 }),
+            'Mod-2': () => this.editor.commands.toggleHeading({ level: 2 }),
+            'Mod-3': () => this.editor.commands.toggleHeading({ level: 3 }),
+            
+            // NESTED INDENTATION HOOKS: Wire up structural tab actions directly with the active schema chain
+            'Tab': () => {
+              if (this.editor.isActive('bulletList') || this.editor.isActive('orderedList')) {
+                return this.editor.commands.sinkListItem('listItem');
+              }
+              return false; // Let standard layout tabs function outside of list states
+            },
+            'Shift-Tab': () => {
+              if (this.editor.isActive('bulletList') || this.editor.isActive('orderedList')) {
+                return this.editor.commands.liftListItem('listItem');
+              }
+              return false;
+            },
+          };
+        },
       }),
-      Heading.configure({ levels: [1, 2, 3] }),
-      Bold, Italic, BulletList, OrderedList, ListItem,
     ],
-    content: doc ? doc.content : '',
+    content: doc?.content || '<h2></h2><p></p>',
+    editorProps: {
+      attributes: {
+        spellcheck: spellcheckActive ? 'true' : 'false',
+      },
+    },
     onUpdate: ({ editor }) => {
-      // Direct notification hook down directly to root state array sequence
       onUpdateDocumentContent(editor.getHTML());
     }
   });
+
+  // Reactive sync for spellcheck attribute on the editable DOM element
+  useEffect(() => {
+    if (editor) {
+      editor.setOptions({
+        editorProps: {
+          attributes: {
+            spellcheck: spellcheckActive ? 'true' : 'false',
+          },
+        },
+      });
+    }
+  }, [editor, spellcheckActive]);
 
   useEffect(() => {
     if (editor) {
@@ -87,8 +120,9 @@ function Editor({
 
   useEffect(() => {
     if (editor && doc) {
-      if (editor.getHTML() !== doc.content) {
-        editor.commands.setContent(doc.content, { emitUpdate: false });
+      const targetContent = doc.content || '<h2></h2><p></p>';
+      if (editor.getHTML() !== targetContent) {
+        editor.commands.setContent(targetContent, { emitUpdate: false });
       }
     }
   }, [doc, editor]);
@@ -99,7 +133,6 @@ function Editor({
     }
   }, [manualSaveRequested, editor, onSaveSuccess]);
 
-  // Click handler forwarding to trigger focus mapping directly at historical character nodes
   const handleWrapperAreaClick = () => {
     if (editor && !editor.isFocused) {
       editor.commands.focus();
@@ -188,7 +221,7 @@ function Editor({
       {doc && (
         <div className="editor-tab-bar">
           <div className="editor-tab active">
-            <span className="tab-icon">⚙️</span>
+            <span className="tab-icon">📄</span>
             <span className="tab-title">{doc.title}</span>
           </div>
         </div>
@@ -204,7 +237,39 @@ function Editor({
           paddingRight: `${editorPadding}px`,
         }}
       >
-        <EditorContent editor={editor} spellCheck={spellcheckActive} />
+        <EditorContent editor={editor} />
+        
+        <style>{`
+          .ProseMirror ul, .ProseMirror ol {
+            margin-left: 4px !important;
+            padding-left: 24px;
+          }
+          
+          /* Visual color depth indicators for nested bullet levels */
+          .ProseMirror ul li { color: inherit; }
+          .ProseMirror ul ul li { color: #58a6ff; }     /* Level 2 nested: Blue */
+          .ProseMirror ul ul ul li { color: #7ee787; }  /* Level 3 nested: Green */
+          
+          /* Ensure child levels maintain standard numeric progression styles */
+          .ProseMirror ol {
+            list-style-type: decimal;
+          }
+          .ProseMirror ol ol {
+            list-style-type: lower-alpha; /* Changes nested numbers to a/b/c style for visibility */
+          }
+          .ProseMirror ol ol ol {
+            list-style-type: lower-roman; /* Level 3 nested: i/ii/iii style */
+          }
+          
+          .ProseMirror p {
+            tab-size: 4px;
+          }
+          
+          .ProseMirror blockquote {
+            border-left: 3px solid rgba(255,255,255,0.1);
+            padding-left: 1rem;
+          }
+        `}</style>
       </div>
     </div>
   );
