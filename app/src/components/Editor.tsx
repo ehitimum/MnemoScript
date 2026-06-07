@@ -3,6 +3,7 @@ import StarterKit from '@tiptap/starter-kit';
 import { useEffect } from 'react';
 import type { Document } from '../types';
 import type { ThemeType } from '../App';
+import listIcon1 from '../assets/microphone.png';
 
 interface EditorProps {
   projectId: string;
@@ -223,10 +224,15 @@ function Editor({
   return (
     <div className="editor-workspace" onClick={handleWrapperAreaClick}>
       {doc && (
-        <div className="editor-tab-bar">
+        <div className="editor-tab-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div className="editor-tab active">
             <span className="tab-icon">📄</span>
             <span className="tab-title">{doc.title}</span>
+          </div>
+          <div className="editor-actions active">
+            <button className="editor-action speechtotext-btn" title="Speech-to-Text Dictation (Experimental)" onClick={() => alert('Speech-to-Text Dictation feature is currently in development. Stay tuned for updates!')}>
+              <img src={listIcon1} alt="Speech-to-Text" style={{ width: '16px' }} />
+            </button>  
           </div>
         </div>
       )}

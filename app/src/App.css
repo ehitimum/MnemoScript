@@ -317,6 +317,25 @@ body {
   border-top: 2px solid var(--accent-color);
 }
 
+.editor-actions.active {
+  display: flex;
+  align-items: center;
+  padding: 5px 5px;
+  border-radius: 50px;
+  background-color: var(--tab-active);
+  color: var(--text-main);
+  border: 2px solid var(--border-color);
+
+}
+.editor-action.speechtotext-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-main);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 2px;
+}
+
 .editor-body {
   flex: 1;
   overflow-y: auto;
