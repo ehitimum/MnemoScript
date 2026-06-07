@@ -1,5 +1,6 @@
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
+import Placeholder from '@tiptap/extension-placeholder';
 import { useEffect } from 'react';
 import type { Document } from '../types';
 import type { ThemeType } from '../App';
@@ -89,6 +90,14 @@ function Editor({
           };
         },
       }),
+      Placeholder.configure({
+        placeholder: ({ node }) => {
+          if (node.type.name === 'heading' && node.attrs.level === 2) {
+            return 'Title...';
+          }
+          return '';
+        },
+      }),
     ],
     content: doc?.content || '<h2></h2><p></p>',
     editorProps: {
@@ -122,12 +131,17 @@ function Editor({
 
   useEffect(() => {
     if (editor && doc) {
+      // OPTIMIZATION: Only update content if the editor isn't focused or the ID changed.
+      // This prevents "cursor jumping" or "flickering" while the user is actively typing
+      // and the parent state is syncing back.
       const targetContent = doc.content || '<h2></h2><p></p>';
-      if (editor.getHTML() !== targetContent) {
+      const currentContent = editor.getHTML();
+      
+      if (currentContent !== targetContent && !editor.isFocused) {
         editor.commands.setContent(targetContent, { emitUpdate: false });
       }
     }
-  }, [doc, editor]);
+  }, [doc?.id, editor]); // Depend on ID rather than the whole doc object for stability
 
   useEffect(() => {
     if (manualSaveRequested > 0 && editor) {
@@ -245,6 +259,8 @@ function Editor({
           lineHeight: lineHeight,
           paddingLeft: `${editorPadding}px`,
           paddingRight: `${editorPadding}px`,
+          transition: 'padding 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), font-size 0.2s ease',
+          scrollBehavior: 'smooth',
         }}
       >
         <EditorContent editor={editor} />
@@ -273,7 +289,14 @@ function Editor({
           .ProseMirror {
             color: var(--editor-text-color);
             caret-color: var(--editor-text-color);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            text-rendering: optimizeLegibility;
+            text-rendering: geometricPrecision;
+            font-variant-ligatures: common-ligatures;
+            font-feature-settings: "kern" 1, "ss01" 1, "ss02" 1, "cv01" 1;
             outline: none;
+            transition: color 0.3s ease;
           }
 
           .ProseMirror ul, .ProseMirror ol {
@@ -304,6 +327,16 @@ function Editor({
           .ProseMirror blockquote {
             border-left: 3px solid rgba(255,255,255,0.1);
             padding-left: 1rem;
+          }
+
+          .ProseMirror h2.is-empty::before {
+            content: attr(data-placeholder);
+            float: left;
+            color: var(--editor-text-color);
+            opacity: 0.3;
+            pointer-events: none;
+            height: 0;
+            transition: opacity 0.2s ease-in-out;
           }
         `}</style>
       </div>
