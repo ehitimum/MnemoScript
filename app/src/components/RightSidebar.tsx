@@ -1,6 +1,4 @@
 import type { ThemeType } from '../App';
-import listIcon1 from '../assets/list.png'; 
-import listIcon2 from '../assets/list1.png';// Path relative to the .tsx file
 
 interface RightSidebarProps {
   editor: any | null;
@@ -45,7 +43,7 @@ function RightSidebar({
   };
 
   return (
-    <aside className="text-controller-sidebar">
+    <aside className="text-controller-sidebar" style={{ borderRadius: '12px 0 0 12px' }}>
       <div className="right-sidebar-header">
         {/* ICON REF UPGRADE: Replaces old header configurations with requested technical settings icon symbol alignment */}
         <span className="controller-header-icon">🔧</span>
@@ -74,13 +72,13 @@ function RightSidebar({
                 onClick={() => editor.chain().focus().toggleBulletList().run()}
                 title="Bullet List"
                 style={getBtnStyle(editor.isActive('bulletList'))}
-              ><img src={listIcon1} alt="Bullet List" style={{ width: '14px' }} /></button>
+              >• List</button>
               <button 
                 className={`format-btn ${editor.isActive('orderedList') ? 'active' : ''}`}
                 onClick={() => editor.chain().focus().toggleOrderedList().run()}
                 title="Numbered List"
                 style={getBtnStyle(editor.isActive('orderedList'))}
-              ><img src={listIcon2} alt="Bullet List" style={{ width: '14px' }} /></button>
+              >1. List</button>
             </div>
             <div className="format-headings-row" style={{ display: 'flex', gap: '4px' }}>
               {[1, 2, 3].map((level) => (

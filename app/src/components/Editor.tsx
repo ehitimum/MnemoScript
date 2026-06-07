@@ -292,11 +292,12 @@ function Editor({
             -webkit-font-smoothing: antialiased;
             -moz-osx-font-smoothing: grayscale;
             text-rendering: optimizeLegibility;
-            text-rendering: geometricPrecision;
             font-variant-ligatures: common-ligatures;
             font-feature-settings: "kern" 1, "ss01" 1, "ss02" 1, "cv01" 1;
             outline: none;
-            transition: color 0.3s ease;
+            transition: color 0.3s ease, padding 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+            letter-spacing: -0.01em;
+            word-spacing: 0.05em;
           }
 
           .ProseMirror ul, .ProseMirror ol {
@@ -321,7 +322,9 @@ function Editor({
           }
           
           .ProseMirror p {
-            tab-size: 4px;
+            margin-bottom: 1.25em;
+            tab-size: 4;
+            transition: all 0.2s ease;
           }
           
           .ProseMirror blockquote {
@@ -336,7 +339,13 @@ function Editor({
             opacity: 0.3;
             pointer-events: none;
             height: 0;
-            transition: opacity 0.2s ease-in-out;
+            transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s ease;
+            transform: translateY(0);
+          }
+
+          .ProseMirror h2.is-empty:focus::before {
+            opacity: 0.15;
+            transform: translateX(4px);
           }
         `}</style>
       </div>
