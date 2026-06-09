@@ -5,6 +5,12 @@ import { useEffect } from 'react';
 import type { Document } from '../types';
 import type { ThemeType } from '../App';
 import listIcon1 from '../assets/microphone.png';
+import { LinguisticCheck } from './LinguisticCheck';
+
+
+import { useEditor, EditorContent, BubbleMenu } from '@tiptap/react';
+import { LinguisticCheck, getActiveGrammarError } from './LinguisticCheck';
+import { useState } from 'react'; // If not already imported
 
 interface EditorProps {
   projectId: string;
@@ -98,6 +104,7 @@ function Editor({
           return '';
         },
       }),
+      LinguisticCheck,
     ],
     content: doc?.content || '<h2></h2><p></p>',
     editorProps: {
@@ -347,6 +354,16 @@ function Editor({
             opacity: 0.15;
             transform: translateX(4px);
           }
+          
+          .lt-match {
+            /* Toggle the background and underlines based on settings control */
+            display: ${spellcheckActive ? 'inline' : 'initial'};
+            border-bottom-width: ${spellcheckActive ? '2px' : '0px'} !important;
+            background-color: ${spellcheckActive ? 'initial' : 'transparent'} !important;
+            border-bottom-style: solid !important;
+            cursor: pointer !important;
+          }
+
         `}</style>
       </div>
     </div>

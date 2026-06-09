@@ -411,6 +411,8 @@ body {
   accent-color: var(--accent-color);
 }
 
+
+
 .sidebar-select {
   background-color: var(--bg-editor);
   border: 1px solid var(--border-color);
