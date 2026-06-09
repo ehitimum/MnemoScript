@@ -1,16 +1,11 @@
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import type { Document } from '../types';
 import type { ThemeType } from '../App';
 import listIcon1 from '../assets/microphone.png';
-import { LinguisticCheck } from './LinguisticCheck';
-
-
-import { useEditor, EditorContent, BubbleMenu } from '@tiptap/react';
 import { LinguisticCheck, getActiveGrammarError } from './LinguisticCheck';
-import { useState } from 'react'; // If not already imported
 
 interface EditorProps {
   projectId: string;
@@ -65,10 +60,10 @@ function Editor({
   theme,
   setTheme,
 }: EditorProps) {
+  const [grammarError, setGrammarError] = useState<any>(null);
   
   const editor = useEditor({
     extensions: [
-      // FIX: Leave default extensions unblocked so their internal schema rules interconnect seamlessly
       StarterKit.configure({
         heading: {
           levels: [1, 2, 3],
@@ -114,10 +109,31 @@ function Editor({
     },
     onUpdate: ({ editor }) => {
       onUpdateDocumentContent(editor.getHTML());
+    },
+    onSelectionUpdate: ({ editor }) => {
+      const errorData = getActiveGrammarError(editor);
+      
+      if (errorData) {
+        try{
+          const coords = editor.view.coordsAtPos(errorData.from);
+        
+          setGrammarError({
+            ...errorData,
+            coords: {
+              top: coords.bottom + 5, 
+              left: coords.left,
+            }
+          });
+        } catch (e) {
+          setGrammarError(null);
+        }
+        
+      } else {
+        setGrammarError(null);
+      }
     }
   });
 
-  // Reactive sync for spellcheck attribute on the editable DOM element
   useEffect(() => {
     if (editor) {
       editor.setOptions({
@@ -139,8 +155,6 @@ function Editor({
   useEffect(() => {
     if (editor && doc) {
       // OPTIMIZATION: Only update content if the editor isn't focused or the ID changed.
-      // This prevents "cursor jumping" or "flickering" while the user is actively typing
-      // and the parent state is syncing back.
       const targetContent = doc.content || '<h2></h2><p></p>';
       const currentContent = editor.getHTML();
       
@@ -148,7 +162,7 @@ function Editor({
         editor.commands.setContent(targetContent, { emitUpdate: false });
       }
     }
-  }, [doc?.id, editor]); // Depend on ID rather than the whole doc object for stability
+  }, [doc?.id, editor]); 
 
   useEffect(() => {
     if (manualSaveRequested > 0 && editor) {
@@ -156,6 +170,17 @@ function Editor({
     }
   }, [manualSaveRequested, editor, onSaveSuccess]);
 
+  const applyGrammarFix = (replacement: string) => {
+    if (!grammarError || !editor) return;
+    
+    editor
+      .chain()
+      .focus()
+      // Replaces the specific range of the error with the new suggestion
+      .insertContentAt({ from: grammarError.from, to: grammarError.to }, replacement) 
+      .run();
+  };
+  
   const handleWrapperAreaClick = () => {
     if (editor && !editor.isFocused) {
       editor.commands.focus();
@@ -272,6 +297,75 @@ function Editor({
       >
         <EditorContent editor={editor} />
         
+        {/* NEW: Native React Popover Menu (No Tiptap BubbleMenu needed) */}
+        {editor && grammarError && spellcheckActive && (
+          <div 
+            className="grammar-popover"
+            style={{
+              position: 'fixed',
+              top: `${grammarError.coords.top}px`,
+              left: `${grammarError.coords.left}px`,
+              zIndex: 9999,
+              background: theme === 'light' ? '#ffffff' : '#1e1e1e',
+              border: `1px solid ${theme === 'light' ? '#e5e7eb' : '#333'}`,
+              boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1)',
+              borderRadius: '8px',
+              padding: '12px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '10px',
+              maxWidth: '320px',
+              // Prevent the menu from disappearing if the user clicks inside it
+              pointerEvents: 'auto', 
+            }}
+            // Stop clicks inside the menu from unfocusing the editor
+            onMouseDown={(e) => e.preventDefault()} 
+          >
+            {/* The Error Reason */}
+            <span style={{ fontSize: '0.85rem', color: theme === 'light' ? '#4b5563' : '#a1a1aa', lineHeight: '1.4', fontWeight: '500' }}>
+              {grammarError.match.message}
+            </span>
+            
+            {/* The Suggestion Buttons */}
+            {grammarError.match.replacements.length > 0 ? (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                {grammarError.match.replacements.slice(0, 5).map((rep: any, idx: number) => (
+                  <button
+                    key={idx}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      applyGrammarFix(rep.value);
+                    }}
+                    style={{
+                      background: 'rgba(59, 130, 246, 0.15)',
+                      color: '#3b82f6',
+                      border: '1px solid rgba(59, 130, 246, 0.3)',
+                      padding: '6px 12px',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      fontSize: '0.85rem',
+                      fontWeight: '600',
+                      transition: 'all 0.2s ease',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = '#3b82f6';
+                      e.currentTarget.style.color = '#ffffff';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'rgba(59, 130, 246, 0.15)';
+                      e.currentTarget.style.color = '#3b82f6';
+                    }}
+                  >
+                    {rep.value}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <span style={{ fontSize: '0.8rem', fontStyle: 'italic', color: '#9ca3af' }}>No quick fixes available.</span>
+            )}
+          </div>
+        )}
+
         <style>{`
           :root {
             --selection-color: ${
