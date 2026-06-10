@@ -7,6 +7,13 @@ import type { ThemeType } from '../App';
 import listIcon1 from '../assets/microphone.png';
 import { LinguisticCheck, getActiveGrammarError } from './LinguisticCheck';
 
+interface CaretCoords {
+  top: number;
+  left: number;
+  height: number;
+  visible: boolean;
+}
+
 interface EditorProps {
   projectId: string;
   document: Document | null;
@@ -61,7 +68,27 @@ function Editor({
   setTheme,
 }: EditorProps) {
   const [grammarError, setGrammarError] = useState<any>(null);
-  
+  const [caretCoords, setCaretCoords] = useState<CaretCoords>({ top: 0, left: 0, height: 20, visible: false });
+
+  const updateCaret = (editorInstance: any) => {
+    try {
+      const { state, view } = editorInstance;
+      const { selection } = state;
+      if (selection.empty && view.hasFocus()) {
+        const coords = view.coordsAtPos(selection.head);
+        setCaretCoords({
+          top: coords.top,
+          left: coords.left,
+          height: coords.bottom - coords.top,
+          visible: true
+        });
+      } else {
+        setCaretCoords(prev => ({ ...prev, visible: false }));
+      }
+    } catch {
+       setCaretCoords(prev => ({ ...prev, visible: false }));
+    }
+  };
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -109,8 +136,10 @@ function Editor({
     },
     onUpdate: ({ editor }) => {
       onUpdateDocumentContent(editor.getHTML());
+      updateCaret(editor);
     },
     onSelectionUpdate: ({ editor }) => {
+      updateCaret(editor);
       const errorData = getActiveGrammarError(editor);
       
       if (errorData) {
@@ -124,7 +153,7 @@ function Editor({
               left: coords.left,
             }
           });
-        } catch (e) {
+        } catch {
           setGrammarError(null);
         }
         
@@ -141,6 +170,10 @@ function Editor({
           attributes: {
             spellcheck: spellcheckActive ? 'true' : 'false',
           },
+          handleDOMEvents: {
+            focus: (view) => { updateCaret({ state: view.state, view }); return false; },
+            blur: () => { setCaretCoords(prev => ({ ...prev, visible: false })); return false; },
+          }
         },
       });
     }
@@ -297,7 +330,26 @@ function Editor({
       >
         <EditorContent editor={editor} />
         
-        {/* NEW: Native React Popover Menu (No Tiptap BubbleMenu needed) */}
+        {/* Native MS Word Style Smooth Caret */}
+        {editor && caretCoords.visible && (
+          <div
+            className="smooth-caret"
+            style={{
+              position: 'fixed',
+              top: `${caretCoords.top}px`,
+              left: `${caretCoords.left}px`,
+              height: `${caretCoords.height}px`,
+              width: '2px',
+              backgroundColor: 'var(--accent-color)',
+              transition: 'all 0.08s cubic-bezier(0.2, 0, 0, 1)',
+              pointerEvents: 'none',
+              zIndex: 50,
+              boxShadow: '0 0 4px var(--accent-color)'
+            }}
+          />
+        )}
+
+        {/* Native React Popover Menu */}
         {editor && grammarError && spellcheckActive && (
           <div 
             className="grammar-popover"
@@ -389,7 +441,7 @@ function Editor({
 
           .ProseMirror {
             color: var(--editor-text-color);
-            caret-color: var(--editor-text-color);
+            caret-color: transparent !important;
             -webkit-font-smoothing: antialiased;
             -moz-osx-font-smoothing: grayscale;
             text-rendering: optimizeLegibility;
@@ -449,13 +501,30 @@ function Editor({
             transform: translateX(4px);
           }
           
-          .lt-match {
-            /* Toggle the background and underlines based on settings control */
+          .lt-match.typo-match {
             display: ${spellcheckActive ? 'inline' : 'initial'};
             border-bottom-width: ${spellcheckActive ? '2px' : '0px'} !important;
-            background-color: ${spellcheckActive ? 'initial' : 'transparent'} !important;
+            background-color: ${spellcheckActive ? 'var(--color-typo-bg)' : 'transparent'} !important;
             border-bottom-style: solid !important;
+            border-bottom-color: var(--color-typo) !important;
             cursor: pointer !important;
+          }
+          
+          .lt-match.grammar-match {
+            display: ${spellcheckActive ? 'inline' : 'initial'};
+            border-bottom-width: ${spellcheckActive ? '2px' : '0px'} !important;
+            background-color: ${spellcheckActive ? 'var(--color-grammar-bg)' : 'transparent'} !important;
+            border-bottom-style: solid !important;
+            border-bottom-color: var(--color-grammar) !important;
+            cursor: pointer !important;
+          }
+
+          @keyframes smooth-blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0; }
+          }
+          .smooth-caret {
+            animation: smooth-blink 1s cubic-bezier(0.4, 0, 0.6, 1) infinite;
           }
 
         `}</style>

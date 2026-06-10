@@ -43,7 +43,7 @@ function RightSidebar({
   };
 
   return (
-    <aside className="text-controller-sidebar" style={{ borderRadius: '12px 0 0 12px' }}>
+    <aside className="text-controller-sidebar">
       <div className="right-sidebar-header">
         {/* ICON REF UPGRADE: Replaces old header configurations with requested technical settings icon symbol alignment */}
         <span className="controller-header-icon">🔧</span>

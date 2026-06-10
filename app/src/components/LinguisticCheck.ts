@@ -150,8 +150,8 @@ export const LinguisticCheck = Extension.create({
                     match.rule.category.id === 'TYPOS' ||
                     match.rule.category.id === 'SPELLING';
                   const className = isTypo
-                    ? 'border-b-2 border-red-500 bg-red-500/10'
-                    : 'border-b-2 border-blue-500 bg-blue-500/10';
+                    ? 'typo-match'
+                    : 'grammar-match';
 
                   decorations.push(
                     Decoration.inline(

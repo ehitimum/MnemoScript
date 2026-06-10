@@ -58,8 +58,11 @@ function App() {
 
   useEffect(() => {
     if (!activeEditor) {
-      setWordCount(0);
-      setCharCount(0);
+      // Defer state update to avoid synchronous cascading renders warning
+      setTimeout(() => {
+        setWordCount(0);
+        setCharCount(0);
+      }, 0);
       return;
     }
 
