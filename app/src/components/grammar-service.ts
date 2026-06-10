@@ -20,6 +20,7 @@ class GrammarService {
     const params = new URLSearchParams();
     params.append('text', text);
     params.append('language', lang);
+    params.append('level', 'picky');
 
     try {
       const response = await fetch(this.apiUrl, {
