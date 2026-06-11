@@ -280,6 +280,99 @@ body {
   border-radius: 3px;
 }
 
+/* ── Sidebar Add Doc Dropdown Menu ──────────────────────── */
+.add-doc-dropdown-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background-color: var(--bg-panels);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-premium);
+  border-radius: 6px;
+  padding: 4px 0;
+  min-width: 140px;
+  z-index: 1050;
+  animation: dropdown-fade 0.15s ease-out;
+}
+
+.theme-glass .add-doc-dropdown-menu {
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.menu-item-btn {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 6px 12px;
+  background: transparent;
+  border: none;
+  color: var(--text-main);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.menu-item-btn:hover {
+  background-color: var(--accent-color);
+  color: #fff;
+}
+
+.menu-icon {
+  margin-right: 8px;
+  font-size: 14px;
+}
+
+.menu-separator {
+  height: 1px;
+  background-color: var(--border-color);
+  margin: 4px 0;
+}
+
+/* ── Sidebar Filter ─────────────────────────────────────── */
+.sidebar-filter-container {
+  display: flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border-color);
+  position: relative;
+}
+
+.sidebar-filter-input {
+  width: 100%;
+  background-color: var(--bg-editor);
+  border: 1px solid transparent;
+  color: var(--text-main);
+  border-radius: 4px;
+  padding: 4px 24px 4px 8px;
+  font-family: inherit;
+  font-size: 12px;
+  outline: none;
+  transition: border-color 0.2s, background-color 0.2s;
+}
+
+.sidebar-filter-input:focus {
+  border-color: var(--accent-color);
+  background-color: var(--bg-panels);
+}
+
+.clear-filter-btn {
+  position: absolute;
+  right: 18px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.clear-filter-btn:hover {
+  color: var(--text-main);
+}
+
 .sidebar-inline-create {
   display: flex;
   align-items: center;
