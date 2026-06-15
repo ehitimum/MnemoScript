@@ -10,9 +10,15 @@ pub struct Project {
     pub description: Option<String>,
     pub created_at: String,
     #[serde(default)]
+    pub author: Option<String>,
+    #[serde(default)]
     pub path: Option<String>,
     #[serde(default)]
     pub documents: Vec<Document>,
+}
+
+fn default_doc_type() -> String {
+    "text".to_string()
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -21,6 +27,12 @@ pub struct Document {
     pub title: String,
     pub content: String,
     pub updated_at: String,
+    /// "text" (rich-text chapter) or "mindmap" (React Flow {nodes,edges} JSON in `content`).
+    #[serde(default = "default_doc_type", rename = "docType")]
+    pub doc_type: String,
+    /// Ordering index for the sidebar / PDF book compiler.
+    #[serde(default)]
+    pub order: i32,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -91,6 +103,7 @@ impl Project {
             name,
             description,
             created_at,
+            author: None,
             path,
             documents: Vec::new(),
         }
@@ -158,8 +171,8 @@ impl Project {
                 documents.push(doc);
             }
         }
-        // Keep order consistent based on updated time
-        documents.sort_by(|a, b| a.updated_at.cmp(&b.updated_at));
+        // Order by explicit index first, then fall back to updated time.
+        documents.sort_by(|a, b| a.order.cmp(&b.order).then(a.updated_at.cmp(&b.updated_at)));
         Ok(documents)
     }
 
@@ -187,10 +200,20 @@ impl Project {
         let home = dirs::home_dir().expect("Could not find home directory");
         home.join(".mnemoscript").join("projects")
     }
+
+    /// Resolve the on-disk directory for a project id, preferring the registered
+    /// custom path and falling back to the default app storage location.
+    pub fn resolve_dir(project_id: &str) -> PathBuf {
+        if let Some(path_str) = Registry::get_path(project_id) {
+            PathBuf::from(path_str)
+        } else {
+            Self::projects_dir().join(project_id)
+        }
+    }
 }
 
 impl Document {
-    pub fn new(title: String, content: String) -> Self {
+    pub fn new(title: String, content: String, doc_type: String, order: i32) -> Self {
         let id = Uuid::new_v4().to_string();
         let updated_at = chrono::Utc::now().to_rfc3339();
         Document {
@@ -198,16 +221,14 @@ impl Document {
             title,
             content,
             updated_at,
+            doc_type,
+            order,
         }
     }
 
     pub fn save(&self, project_id: &str) -> Result<(), String> {
-        let project_dir = if let Some(path_str) = Registry::get_path(project_id) {
-            PathBuf::from(path_str)
-        } else {
-            Project::projects_dir().join(project_id)
-        };
-        
+        let project_dir = Project::resolve_dir(project_id);
+
         let doc_dir = project_dir.join("documents");
         fs::create_dir_all(&doc_dir).map_err(|e| e.to_string())?;
         let doc_path = doc_dir.join(format!("{}.json", self.id));
@@ -217,12 +238,8 @@ impl Document {
     }
 
     pub fn load(project_id: &str, document_id: &str) -> Result<Self, String> {
-        let project_dir = if let Some(path_str) = Registry::get_path(project_id) {
-            PathBuf::from(path_str)
-        } else {
-            Project::projects_dir().join(project_id)
-        };
-        
+        let project_dir = Project::resolve_dir(project_id);
+
         let doc_path = project_dir
             .join("documents")
             .join(format!("{}.json", document_id));

@@ -2,6 +2,8 @@ mod project;
 
 use project::{Document, Project};
 use serde::Serialize;
+use std::fs;
+use uuid::Uuid;
 
 #[derive(Serialize)]
 struct ApiResponse<T> {
@@ -89,11 +91,54 @@ fn list_projects() -> ApiResponse<Vec<Project>> {
 }
 
 #[tauri::command]
-fn create_document(project_id: String, title: String, content: String) -> ApiResponse<Document> {
-    let doc = Document::new(title, content);
+fn create_document(
+    project_id: String,
+    title: String,
+    content: String,
+    doc_type: Option<String>,
+    order: Option<i32>,
+) -> ApiResponse<Document> {
+    let doc = Document::new(
+        title,
+        content,
+        doc_type.unwrap_or_else(|| "text".to_string()),
+        order.unwrap_or(0),
+    );
     match doc.save(&project_id) {
         Ok(()) => ApiResponse::success(doc),
         Err(e) => ApiResponse::error(e),
+    }
+}
+
+/// Open a native image picker, copy the chosen file into the project's
+/// `assets/` folder under a fresh uuid name, and return its absolute path.
+/// The frontend renders it through Tauri's asset protocol (`convertFileSrc`).
+#[tauri::command]
+fn import_image(project_id: String) -> ApiResponse<Option<String>> {
+    let picked = rfd::FileDialog::new()
+        .add_filter("Images", &["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp"])
+        .pick_file();
+
+    let source = match picked {
+        Some(p) => p,
+        None => return ApiResponse::success(None), // user cancelled
+    };
+
+    let ext = source
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("png")
+        .to_lowercase();
+
+    let assets_dir = Project::resolve_dir(&project_id).join("assets");
+    if let Err(e) = fs::create_dir_all(&assets_dir) {
+        return ApiResponse::error(e.to_string());
+    }
+
+    let dest = assets_dir.join(format!("{}.{}", Uuid::new_v4(), ext));
+    match fs::copy(&source, &dest) {
+        Ok(_) => ApiResponse::success(Some(dest.to_string_lossy().to_string())),
+        Err(e) => ApiResponse::error(e.to_string()),
     }
 }
 
@@ -134,6 +179,7 @@ pub fn run() {
             create_document,
             save_document,
             load_document,
+            import_image,
             select_directory,
             open_project_by_path,
         ])

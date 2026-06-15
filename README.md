@@ -4,16 +4,26 @@ MnemoScript is a desktop application for writers to write, organize, and plan th
 
 ## Overview
 
-This prototype is built using **Tauri** (Rust backend + Web frontend) with a React + TypeScript frontend, featuring a rich text editor, project management, and auto-save functionality.
+This is built using **Tauri** (Rust backend + Web frontend) with a React + TypeScript frontend,
+featuring a rich text editor, a visual mind map, a Notion-style slash menu, image embedding, and a
+project-to-PDF book compiler. Projects, documents, and images are stored on disk via the Rust
+backend. For architecture details see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); for the change
+history see [docs/DEVLOG.md](docs/DEVLOG.md).
 
-### Features Implemented (Sprint 1)
+### Features
 
-- **Create a new writing project** – name, date, empty document list
-- **Open an existing project** – loads with all documents and metadata intact
-- **Create a new document within a project** – auto‑generated title and empty content
-- **Write and edit text in a rich text editor** – basic formatting (bold, italic, headings, lists)
-- **Live word count** – updates in real‑time as you type
-- **Auto‑save** – changes saved automatically every 30 seconds
+- **Projects on disk** – create/open projects; each is a real folder with per-document files and an
+  `assets/` image folder. Auto-save + manual save persist to disk.
+- **Rich text editor** – bold, italic, headings, lists, live word count, grammar checking.
+- **Slash "/" menu** – Notion-style block inserter: headings, lists, quote, code block, divider,
+  and image.
+- **Image embedding** – `/image` opens a native picker; the file is copied into the project and
+  embedded, rendered through Tauri's asset protocol.
+- **Mind map** – a draw.io-style canvas (React Flow): draggable nodes, drawn connectors, colors,
+  pan/zoom. Created from the explorer's "New MindMap".
+- **Compile to PDF book** – File → "Compile to PDF Book": set title/author, pick & reorder
+  chapters, toggle cover/table-of-contents, export via Save-as-PDF.
+- **Themes** – six color profiles, typography controls.
 
 ## Getting Started
 
@@ -61,11 +71,16 @@ MnemoScript/
 ├── app/                            # Main application (frontend + backend)
 │   ├── src/                        # Frontend React source
 │   │   ├── components/             # React components
-│   │   │   ├── Sidebar.tsx        # Project list and creation
-│   │   │   └── Editor.tsx         # Rich text editor with toolbar
+│   │   │   ├── Sidebar.tsx        # File explorer / document creation
+│   │   │   ├── Editor.tsx         # Rich text editor (TipTap)
+│   │   │   ├── MindMap.tsx        # React Flow mind-map canvas
+│   │   │   ├── BookCompiler.tsx   # Project → PDF book modal
+│   │   │   ├── SlashMenu.tsx      # "/" command palette UI
+│   │   │   └── extensions/        # TipTap: SlashCommand, ImageWithAsset, slashItems
+│   │   ├── lib/                   # api.ts (backend wrapper), assets.ts (asset URLs)
 │   │   ├── types.ts               # TypeScript interfaces (Project, Document)
-│   │   ├── App.tsx                # Main application layout
-│   │   ├── App.css                # Application styles
+│   │   ├── App.tsx                # Main application layout + persistence
+│   │   ├── index.css             # Themes + component styles (App.css is legacy/unused)
 │   │   └── main.tsx               # Entry point
 │   ├── src‑tauri/                 # Rust backend
 │   │   ├── src/
@@ -128,14 +143,19 @@ Data is stored as JSON in the user’s home directory, preserving the hierarchy:
 
 | Command | Parameters | Returns |
 |---------|------------|---------|
-| `create_project` | `name: String` | `Project` |
+| `create_project` | `name`, `description?`, `path?` | `Project` |
+| `save_project` | `project: Project` | `()` |
 | `load_project` | `project_id: String` | `Project` |
 | `list_projects` | – | `Vec<Project>` |
-| `create_document` | `project_id: String`, `title: String`, `content: String` | `Document` |
+| `open_project_by_path` | `path: String` | `Project` |
+| `create_document` | `project_id`, `title`, `content`, `doc_type?`, `order?` | `Document` |
 | `save_document` | `project_id: String`, `document: Document` | `()` |
 | `load_document` | `project_id: String`, `document_id: String` | `Document` |
+| `import_image` | `project_id: String` | `Option<String>` (copied image path) |
+| `select_directory` | – | `Option<String>` |
 
-All commands return an `ApiResponse<T>` wrapper with `success`, `data`, and optional `error` fields.
+All commands return an `ApiResponse<T>` wrapper with `success`, `data`, and optional `error`
+fields. The frontend calls them through the typed wrapper in `app/src/lib/api.ts`.
 
 ## Building for Windows
 
