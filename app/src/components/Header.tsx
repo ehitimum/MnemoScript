@@ -8,6 +8,7 @@ interface HeaderProps {
   selectedDocument: Document | null;
   onCloseProject: () => void;
   onSaveDocument?: () => void;
+  onCompileBook: () => void;
   theme: ThemeType;
   setTheme: (theme: ThemeType) => void;
   isLeftSidebarOpen: boolean;
@@ -27,6 +28,7 @@ function Header({
   selectedDocument,
   onCloseProject,
   onSaveDocument,
+  onCompileBook,
   setTheme,
   isLeftSidebarOpen,
   setIsLeftSidebarOpen,
@@ -74,6 +76,7 @@ function Header({
         { label: 'New Project', action: onOpenCreateModal, enabled: true },
         { label: 'Open Project Folder', action: onOpenProjectFolder, enabled: true },
         { label: 'Save File', action: onSaveDocument || (() => {}), enabled: !!selectedDocument },
+        { label: 'Compile to PDF Book', action: onCompileBook, enabled: !!selectedProject },
         { label: 'Close Project', action: onCloseProject, enabled: !!selectedProject },
       ],
     },
@@ -100,12 +103,12 @@ function Header({
     {
       label: 'Theme',
       options: [
-        { label: 'Midnight Dark', action: () => setTheme('dark'), enabled: true },
-        { label: 'Parchment Light', action: () => setTheme('light'), enabled: true },
-        { label: 'Nebula Glass', action: () => setTheme('glass'), enabled: true },
-        { label: 'Deep Ocean', action: () => setTheme('ocean'), enabled: true },
-        { label: 'Emerald Forest', action: () => setTheme('forest'), enabled: true },
-        { label: 'Crimson Sunset', action: () => setTheme('sunset'), enabled: true },
+        { label: 'Midnight', action: () => setTheme('dark'), enabled: true },
+        { label: 'Parchment', action: () => setTheme('light'), enabled: true },
+        { label: 'Nebula', action: () => setTheme('glass'), enabled: true },
+        { label: 'Ocean', action: () => setTheme('ocean'), enabled: true },
+        { label: 'Forest', action: () => setTheme('forest'), enabled: true },
+        { label: 'Sunset', action: () => setTheme('sunset'), enabled: true },
       ],
     },
     {

@@ -2,11 +2,15 @@ import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import { useEffect, useState } from 'react';
+import type { Editor as CoreEditor, Range } from '@tiptap/core';
 import type { Document } from '../types';
 import type { ThemeType } from '../App';
 import type { Editor as TiptapEditor } from '@tiptap/react';
 import listIcon1 from '../assets/microphone.png';
 import { LinguisticCheck, getActiveGrammarError } from './LinguisticCheck';
+import { SlashCommand } from './extensions/SlashCommand';
+import { ImageWithAsset } from './extensions/ImageWithAsset';
+import { api } from '../lib/api';
 import type { LTMatch } from './grammar-service';
 
 interface CaretCoords {
@@ -29,11 +33,6 @@ interface GrammarErrorData {
 interface EditorProps {
   projectId: string;
   document: Document | null;
-  autoSaveEnabled: boolean;
-  onChangeAutoSave: (enabled: boolean) => void;
-  manualSaveRequested: number;
-  onSaveSuccess: (lastSaved: string) => void;
-  onContentDirty: () => void;
   onUpdateDocumentContent: (updatedText: string) => void;
   onEditorReady: (editor: TiptapEditor) => void;
   isEditingSettings: boolean;
@@ -57,9 +56,8 @@ interface EditorProps {
 }
 
 function Editor({
+  projectId,
   document: doc,
-  manualSaveRequested,
-  onSaveSuccess,
   onEditorReady,
   onUpdateDocumentContent,
   isEditingSettings,
@@ -81,6 +79,21 @@ function Editor({
 }: EditorProps) {
   const [grammarError, setGrammarError] = useState<GrammarErrorData | null>(null);
   const [caretCoords, setCaretCoords] = useState<CaretCoords>({ top: 0, left: 0, height: 20, visible: false });
+
+  // "/image": remove the slash text, open the native picker, then embed the file.
+  // `projectId` is stable for the editor's lifetime (switching projects unmounts
+  // the editor), so capturing it directly here is safe.
+  const handleSlashImage = async (ed: CoreEditor, range: Range) => {
+    ed.chain().focus().deleteRange(range).run();
+    try {
+      const path = await api.importImage(projectId);
+      if (path) {
+        ed.chain().focus().setImage({ src: path }).run();
+      }
+    } catch (e) {
+      console.error('Image import failed:', e);
+    }
+  };
 
   const updateCaret = (editorInstance: TiptapEditor) => {
     try {
@@ -139,6 +152,8 @@ function Editor({
         },
       }),
       LinguisticCheck,
+      ImageWithAsset,
+      SlashCommand.configure({ onImage: handleSlashImage }),
     ],
     content: doc?.content || '<h2></h2><p></p>',
     editorProps: {
@@ -208,12 +223,6 @@ function Editor({
     }
   }, [doc, editor]); 
 
-  useEffect(() => {
-    if (manualSaveRequested > 0 && editor) {
-      onSaveSuccess(new Date().toLocaleTimeString());
-    }
-  }, [manualSaveRequested, editor, onSaveSuccess]);
-
   const applyGrammarFix = (replacement: string) => {
     if (!grammarError || !editor) return;
     
@@ -258,12 +267,12 @@ function Editor({
                   value={theme} 
                   onChange={(e) => setTheme(e.target.value as ThemeType)}
                 >
-                  <option value="dark">Midnight Dark (Technical)</option>
-                  <option value="light">Parchment Light (High Contrast)</option>
-                  <option value="glass">Nebula Glass (Translucent)</option>
-                  <option value="ocean">Deep Ocean (Calm Blue)</option>
-                  <option value="forest">Emerald Forest (Natural)</option>
-                  <option value="sunset">Crimson Sunset (Warm)</option>
+                  <option value="dark">Midnight — slate & periwinkle</option>
+                  <option value="light">Parchment — warm paper</option>
+                  <option value="glass">Nebula — deep violet</option>
+                  <option value="ocean">Ocean — deep blue</option>
+                  <option value="forest">Forest — emerald pine</option>
+                  <option value="sunset">Sunset — warm coral</option>
                 </select>
               </div>
             </div>

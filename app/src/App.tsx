@@ -1,10 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import Sidebar from './components/Sidebar';
 import Editor from './components/Editor';
+import MindMap from './components/MindMap';
 import Header from './components/Header';
 import RightSidebar from './components/RightSidebar';
 import ProjectCreationModal from './components/ProjectCreationModal';
-import type { Project, Document } from './types';
+import BookCompiler from './components/BookCompiler';
+import { api } from './lib/api';
+import type { Project, Document, DocType } from './types';
 import type { Editor as TiptapEditor } from '@tiptap/react';
 import { Plus, Settings, FolderOpen, ArrowRight, BookOpen, Save } from 'lucide-react';
 
@@ -16,18 +19,12 @@ function App() {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
   const [documents, setDocuments] = useState<Document[]>([]);
-  const [projects, setProjects] = useState<Project[]>(() => {
-    try {
-      const saved = localStorage.getItem('mnemo_projects');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [projects, setProjects] = useState<Project[]>([]);
 
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isCompilerOpen, setIsCompilerOpen] = useState(false);
   const [isEditingSettings, setIsEditingSettings] = useState(false);
-  
+
   const [theme, setTheme] = useState<ThemeType>(() => (localStorage.getItem('mnemo_theme') as ThemeType) || 'dark');
   const [editorFont, setEditorFont] = useState(() => localStorage.getItem('mnemo_font') || 'Inter');
   const [editorSize, setEditorSize] = useState(() => Number(localStorage.getItem('mnemo_size')) || 14);
@@ -41,14 +38,22 @@ function App() {
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
 
   const [activeEditor, setActiveEditor] = useState<TiptapEditor | null>(null);
-  const [manualSaveRequested, setManualSaveRequested] = useState(0);
   const [isSaved, setIsSaved] = useState(true);
   const [autoSaveEnabled, setAutoSaveEnabled] = useState(true);
 
-  // Sync state pipelines
-  useEffect(() => { 
-    localStorage.setItem('mnemo_theme', theme); 
-    document.body.className = `theme-${theme}`; 
+  const isMindMap = selectedDocument?.docType === 'mindmap';
+
+  // Load all projects from disk on startup (metadata only; documents are loaded on open).
+  useEffect(() => {
+    api.listProjects()
+      .then(setProjects)
+      .catch((e) => console.error('Failed to list projects:', e));
+  }, []);
+
+  // Sync UI-preference state to localStorage (projects/documents live on disk via the backend).
+  useEffect(() => {
+    localStorage.setItem('mnemo_theme', theme);
+    document.body.className = `theme-${theme}`;
   }, [theme]);
   useEffect(() => { localStorage.setItem('mnemo_font', editorFont); }, [editorFont]);
   useEffect(() => { localStorage.setItem('mnemo_size', String(editorSize)); }, [editorSize]);
@@ -57,7 +62,36 @@ function App() {
   useEffect(() => { localStorage.setItem('mnemo_spellcheck', String(spellcheckActive)); }, [spellcheckActive]);
   useEffect(() => { localStorage.setItem('mnemo_interval', String(autoSaveInterval)); }, [autoSaveInterval]);
   useEffect(() => { localStorage.setItem('mnemo_path', defaultSavePath); }, [defaultSavePath]);
-  useEffect(() => { localStorage.setItem('mnemo_projects', JSON.stringify(projects)); }, [projects]);
+
+  // ── Persistence: keep refs of the live doc/project/dirty flag so the auto-save
+  // interval and manual-save handlers always read current values (no stale closures).
+  const selectedProjectRef = useRef(selectedProject);
+  const selectedDocumentRef = useRef(selectedDocument);
+  const isSavedRef = useRef(isSaved);
+  useEffect(() => { selectedProjectRef.current = selectedProject; }, [selectedProject]);
+  useEffect(() => { selectedDocumentRef.current = selectedDocument; }, [selectedDocument]);
+  useEffect(() => { isSavedRef.current = isSaved; }, [isSaved]);
+
+  const persistCurrent = useCallback(async () => {
+    const proj = selectedProjectRef.current;
+    const doc = selectedDocumentRef.current;
+    if (!proj || !doc) return;
+    try {
+      await api.saveDocument(proj.id, doc);
+      setIsSaved(true);
+    } catch (e) {
+      console.error('Save failed:', e);
+    }
+  }, []);
+
+  // Auto-save loop: persists the open document whenever it is dirty.
+  useEffect(() => {
+    if (!autoSaveEnabled) return;
+    const id = setInterval(() => {
+      if (!isSavedRef.current) persistCurrent();
+    }, Math.max(5, autoSaveInterval) * 1000);
+    return () => clearInterval(id);
+  }, [autoSaveEnabled, autoSaveInterval, persistCurrent]);
 
   useEffect(() => {
     if (!activeEditor) {
@@ -85,27 +119,58 @@ function App() {
   }, [activeEditor]);
 
   const handleProjectCreated = (newProj: Project) => {
-    setProjects(prev => [...prev, newProj]);
+    setProjects(prev => [newProj, ...prev.filter(p => p.id !== newProj.id)]);
     setSelectedProject(newProj);
-    setDocuments([]);
+    setDocuments(newProj.documents || []);
     setSelectedDocument(null);
     setIsCreateModalOpen(false);
   };
 
-  const handleUpdateDocumentContent = (updatedHtml: string) => {
-    if (!selectedDocument) return;
-    setIsSaved(false);
-    
-    setSelectedDocument(prev => prev ? { ...prev, content: updatedHtml, updated_at: new Date().toISOString() } : null);
-    setDocuments(prevDocs => prevDocs.map(d => d.id === selectedDocument.id ? { ...d, content: updatedHtml, updated_at: new Date().toISOString() } : d));
+  // Load a project's documents from disk before opening it.
+  const handleOpenProject = async (proj: Project) => {
+    try {
+      const full = await api.loadProject(proj.id);
+      setSelectedProject(full);
+      setDocuments(full.documents || []);
+    } catch (e) {
+      console.error('Failed to open project, using cached metadata:', e);
+      setSelectedProject(proj);
+      setDocuments(proj.documents || []);
+    }
+    setSelectedDocument(null);
+    setIsEditingSettings(false);
   };
 
-  const handleCloseProject = () => {
-    if (selectedProject) {
-      setProjects(prev => prev.map(p => p.id === selectedProject.id ? { ...p, documents } : p));
+  const handleCreateDocument = async (title: string, docType: DocType = 'text') => {
+    if (!selectedProject) return;
+    const initialContent = docType === 'mindmap' ? '{"nodes":[],"edges":[]}' : '';
+    try {
+      const newDoc = await api.createDocument(selectedProject.id, title, initialContent, docType, documents.length);
+      setDocuments(prev => [...prev, newDoc]);
+      setSelectedDocument(newDoc);
+      setIsEditingSettings(false);
+    } catch (e) {
+      console.error('Failed to create document:', e);
     }
+  };
+
+  const handleUpdateDocumentContent = (updatedContent: string) => {
+    if (!selectedDocument) return;
+    setIsSaved(false);
+
+    const stamped = { ...selectedDocument, content: updatedContent, updated_at: new Date().toISOString() };
+    setSelectedDocument(stamped);
+    selectedDocumentRef.current = stamped;
+    setDocuments(prevDocs => prevDocs.map(d => d.id === stamped.id ? stamped : d));
+  };
+
+  const handleCloseProject = async () => {
+    if (!isSavedRef.current) await persistCurrent();
     setSelectedProject(null);
     setSelectedDocument(null);
+    setDocuments([]);
+    // Refresh the project list so the welcome screen reflects any new projects.
+    api.listProjects().then(setProjects).catch(() => {});
   };
 
   return (
@@ -114,7 +179,8 @@ function App() {
         selectedProject={selectedProject}
         selectedDocument={selectedDocument}
         onCloseProject={handleCloseProject}
-        onSaveDocument={() => { setIsSaved(true); setManualSaveRequested(p => p + 1); } }
+        onSaveDocument={persistCurrent}
+        onCompileBook={() => setIsCompilerOpen(true)}
         setTheme={setTheme}
         isLeftSidebarOpen={isLeftSidebarOpen}
         setIsLeftSidebarOpen={setIsLeftSidebarOpen}
@@ -156,7 +222,7 @@ function App() {
                 </div>
                 <div className="flex-1">
                   <h3 className="text-lg font-medium text-foreground mb-1 group-hover:text-primary transition-colors">Create New Project</h3>
-                  <p className="text-sm text-muted-foreground leading-relaxed">Initialize a new technical writing folder repository on your disk drive.</p>
+                  <p className="text-sm text-muted-foreground leading-relaxed">Start a fresh novel, screenplay, or notebook — saved locally on your device.</p>
                 </div>
               </button>
 
@@ -183,13 +249,8 @@ function App() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-h-[280px] overflow-y-auto pr-1">
                   {projects.map(proj => (
                     <button 
-                      key={proj.id} 
-                      onClick={() => {
-                        setSelectedProject(proj);
-                        setDocuments(proj.documents || []);
-                        setSelectedDocument(null);
-                        setIsEditingSettings(false);
-                      }}
+                      key={proj.id}
+                      onClick={() => handleOpenProject(proj)}
                       className="group flex items-center justify-between p-4 text-left rounded-lg bg-secondary/20 border border-border/30 hover:border-primary/45 hover:bg-secondary/45 transition-all duration-200 cursor-pointer"
                     >
                       <div className="flex items-center gap-3 truncate">
@@ -214,46 +275,47 @@ function App() {
               selectedProject={selectedProject}
               selectedDocument={selectedDocument}
               documents={documents}
-              onCreateDocument={(title) => {
-                const newDoc: Document = { id: crypto.randomUUID(), title, content: '', updated_at: new Date().toISOString() };
-                setDocuments([...documents, newDoc]);
-                setSelectedDocument(newDoc);
-              }}
+              onCreateDocument={handleCreateDocument}
               onSelectDocument={(doc) => { setSelectedDocument(doc); setIsEditingSettings(false); }}
             />
           )}
 
-          <Editor
-            projectId={selectedProject.id}
-            document={selectedDocument}
-            autoSaveEnabled={autoSaveEnabled}
-            onChangeAutoSave={setAutoSaveEnabled}
-            manualSaveRequested={manualSaveRequested}
-            onSaveSuccess={() => setIsSaved(true)}
-            onContentDirty={() => setIsSaved(false)}
-            onUpdateDocumentContent={handleUpdateDocumentContent}
-            onEditorReady={setActiveEditor}
-            isEditingSettings={isEditingSettings}
-            onCloseSettings={() => setIsEditingSettings(false)}
-            editorFont={editorFont}
-            setEditorFont={setEditorFont}
-            editorSize={editorSize}
-            setEditorSize={setEditorSize}
-            lineHeight={lineHeight}
-            setLineHeight={setLineHeight}
-            editorPadding={editorPadding}
-            setEditorPadding={setEditorPadding}
-            spellcheckActive={spellcheckActive}
-            setSpellcheckActive={setSpellcheckActive}
-            autoSaveInterval={autoSaveInterval}
-            setAutoSaveInterval={setAutoSaveInterval}
-            defaultSavePath={defaultSavePath}
-            setDefaultSavePath={setDefaultSavePath}
-            theme={theme}
-            setTheme={setTheme}
-          />
+          {isMindMap && selectedDocument && !isEditingSettings ? (
+            <MindMap
+              key={selectedDocument.id}
+              document={selectedDocument}
+              onUpdateContent={handleUpdateDocumentContent}
+              onRequestSave={persistCurrent}
+              theme={theme}
+            />
+          ) : (
+            <Editor
+              projectId={selectedProject.id}
+              document={selectedDocument}
+              onUpdateDocumentContent={handleUpdateDocumentContent}
+              onEditorReady={setActiveEditor}
+              isEditingSettings={isEditingSettings}
+              onCloseSettings={() => setIsEditingSettings(false)}
+              editorFont={editorFont}
+              setEditorFont={setEditorFont}
+              editorSize={editorSize}
+              setEditorSize={setEditorSize}
+              lineHeight={lineHeight}
+              setLineHeight={setLineHeight}
+              editorPadding={editorPadding}
+              setEditorPadding={setEditorPadding}
+              spellcheckActive={spellcheckActive}
+              setSpellcheckActive={setSpellcheckActive}
+              autoSaveInterval={autoSaveInterval}
+              setAutoSaveInterval={setAutoSaveInterval}
+              defaultSavePath={defaultSavePath}
+              setDefaultSavePath={setDefaultSavePath}
+              theme={theme}
+              setTheme={setTheme}
+            />
+          )}
 
-          {isRightSidebarOpen && !isEditingSettings && (
+          {isRightSidebarOpen && !isEditingSettings && !isMindMap && (
             <RightSidebar
               editor={activeEditor}
               isOpen={isRightSidebarOpen}
@@ -282,14 +344,20 @@ function App() {
           {selectedProject && (
             <>
               <div className="h-3 w-px bg-accent-foreground/20" />
-              <span><strong>{wordCount}</strong> words</span>
-              <span><strong>{charCount}</strong> characters</span>
+              {isMindMap ? (
+                <span className="opacity-90">Mind Map Canvas</span>
+              ) : (
+                <>
+                  <span><strong>{wordCount}</strong> words</span>
+                  <span><strong>{charCount}</strong> characters</span>
+                </>
+              )}
             </>
           )}
-          <button 
-            className="flex items-center gap-1 bg-primary text-primary-foreground hover:opacity-90 active:scale-95 px-2 py-0.5 rounded text-[11px] font-medium transition-all cursor-pointer"
-            disabled={!selectedDocument} 
-            onClick={() => { setIsSaved(true); setManualSaveRequested(p => p + 1); }}
+          <button
+            className="flex items-center gap-1 bg-primary text-primary-foreground hover:opacity-90 active:scale-95 px-2 py-0.5 rounded text-[11px] font-medium transition-all cursor-pointer disabled:opacity-40"
+            disabled={!selectedDocument}
+            onClick={persistCurrent}
           >
             <Save className="w-3 h-3" />
             Save Target
@@ -301,7 +369,16 @@ function App() {
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
         onProjectCreated={handleProjectCreated}
+        defaultSavePath={defaultSavePath}
       />
+
+      {selectedProject && isCompilerOpen && (
+        <BookCompiler
+          onClose={() => setIsCompilerOpen(false)}
+          project={selectedProject}
+          documents={documents}
+        />
+      )}
     </div>
   );
 }
