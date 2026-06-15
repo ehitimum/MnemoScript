@@ -135,10 +135,10 @@ function RightSidebar({
               value={editorFont}
               onChange={(e) => setEditorFont(e.target.value)}
             >
-              <option value="Inter">Inter (Engine Default)</option>
-              <option value="Outfit">Outfit (Geometric Smooth)</option>
-              <option value="Georgia">Georgia (Classic Text Serif)</option>
-              <option value="Courier New">Courier New (Technical Monospace)</option>
+              <option value="Inter">Inter — clean sans</option>
+              <option value="Georgia">Georgia — classic serif</option>
+              <option value="'Times New Roman', serif">Times — manuscript serif</option>
+              <option value="'Courier New', monospace">Courier — typewriter</option>
             </select>
           </div>
         </div>

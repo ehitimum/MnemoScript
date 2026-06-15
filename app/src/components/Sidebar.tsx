@@ -1,12 +1,12 @@
 import { useState, useRef, useEffect } from 'react';
-import type { Project, Document } from '../types';
+import type { Project, Document, DocType } from '../types';
 import { ChevronDown, FolderOpen, Plus, FileText, BookOpen, Layers, Edit3, File, Search, X } from 'lucide-react';
 
 interface SidebarProps {
   selectedProject: Project;
   selectedDocument: Document | null;
   documents: Document[];
-  onCreateDocument: (title: string) => void;
+  onCreateDocument: (title: string, docType?: DocType) => void;
   onSelectDocument: (doc: Document) => void;
 }
 
@@ -58,7 +58,7 @@ function Sidebar({
     setIsAddingDoc(false);
   };
 
-  const handleAutoCreate = (type: string) => {
+  const handleAutoCreate = (type: string, docType: DocType = 'text') => {
     const pattern = new RegExp(`^${type} (\\d+)$`);
     let maxNum = 0;
 
@@ -70,7 +70,7 @@ function Sidebar({
       }
     });
 
-    onCreateDocument(`${type} ${maxNum + 1}`);
+    onCreateDocument(`${type} ${maxNum + 1}`, docType);
     setIsMenuOpen(false);
   };
 
@@ -119,7 +119,7 @@ function Sidebar({
               </button>
               <button 
                 className="w-full text-left bg-transparent border-none text-xs text-foreground/90 hover:bg-primary hover:text-primary-foreground px-2.5 py-1.5 rounded-md cursor-pointer transition-all flex items-center gap-2" 
-                onClick={() => handleAutoCreate('MindMap')}
+                onClick={() => handleAutoCreate('MindMap', 'mindmap')}
               >
                 <Layers className="w-3.5 h-3.5" />
                 <span>New MindMap</span>

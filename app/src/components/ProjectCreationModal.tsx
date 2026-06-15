@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { api } from '../lib/api';
 import type { Project } from '../types';
 import { FolderPlus } from 'lucide-react';
 
@@ -7,24 +7,24 @@ interface ProjectCreationModalProps {
   isOpen: boolean;
   onClose: () => void;
   onProjectCreated: (project: Project) => void;
+  defaultSavePath?: string;
 }
 
-function ProjectCreationModal({ isOpen, onClose, onProjectCreated }: ProjectCreationModalProps) {
+function ProjectCreationModal({ isOpen, onClose, onProjectCreated, defaultSavePath }: ProjectCreationModalProps) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [location, setLocation] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
   const handleBrowseLocation = async () => {
     try {
-      const response = await invoke<{ success: boolean; data: string | null; error?: string }>('select_directory');
-      if (response.success && response.data) {
-        setLocation(response.data);
-      }
-    } catch (error) {
-      console.error('Error selecting directory:', error);
+      const dir = await api.selectDirectory();
+      if (dir) setLocation(dir);
+    } catch (err) {
+      console.error('Error selecting directory:', err);
     }
   };
 
@@ -32,16 +32,24 @@ function ProjectCreationModal({ isOpen, onClose, onProjectCreated }: ProjectCrea
     e.preventDefault();
     if (!name.trim()) return;
     setIsSubmitting(true);
+    setError(null);
 
-    const mockCreatedProject: Project = {
-      id: crypto.randomUUID(),
-      name: name.trim(),
-      path: location.trim() || 'C:/Users/Workspace/MnemoScript/' + name.trim(),
-      created_at: new Date().toISOString(),
-      documents: []
-    };
-    onProjectCreated(mockCreatedProject);
-    setIsSubmitting(false);
+    try {
+      const project = await api.createProject(
+        name.trim(),
+        description.trim() || undefined,
+        location.trim() || undefined,
+      );
+      onProjectCreated(project);
+      setName('');
+      setDescription('');
+      setLocation('');
+    } catch (err) {
+      console.error('Failed to create project:', err);
+      setError((err as Error).message || 'Failed to create project.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -94,7 +102,7 @@ function ProjectCreationModal({ isOpen, onClose, onProjectCreated }: ProjectCrea
               <input
                 type="text"
                 className="flex-1 bg-secondary/15 border border-border/20 text-muted-foreground/75 text-xs rounded-lg px-3 py-2.5 outline-none truncate"
-                placeholder="Default: App Internal Sandbox Storage"
+                placeholder={defaultSavePath ? `Default: ${defaultSavePath}` : 'Default: ~/.mnemoscript/projects'}
                 value={location}
                 readOnly
               />
@@ -107,6 +115,12 @@ function ProjectCreationModal({ isOpen, onClose, onProjectCreated }: ProjectCrea
               </button>
             </div>
           </div>
+
+          {error && (
+            <p className="text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2">
+              {error}
+            </p>
+          )}
 
           {/* Modal Actions */}
           <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-border/20">
