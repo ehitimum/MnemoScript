@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import type { Project, Document } from '../types';
+import { ChevronDown, FolderOpen, Plus, FileText, BookOpen, Layers, Edit3, File, Search, X } from 'lucide-react';
 
 interface SidebarProps {
   selectedProject: Project;
@@ -58,7 +59,6 @@ function Sidebar({
   };
 
   const handleAutoCreate = (type: string) => {
-    // Scans titles like "Chapter 1", "Note 2" etc.
     const pattern = new RegExp(`^${type} (\\d+)$`);
     let maxNum = 0;
 
@@ -74,47 +74,73 @@ function Sidebar({
     setIsMenuOpen(false);
   };
 
+  const getIconForDoc = (title: string) => {
+    const t = title.toLowerCase();
+    if (t.includes('chapter')) return <BookOpen className="w-3.5 h-3.5 text-amber-500/80" />;
+    if (t.includes('note')) return <Edit3 className="w-3.5 h-3.5 text-emerald-500/80" />;
+    if (t.includes('mindmap')) return <Layers className="w-3.5 h-3.5 text-purple-500/80" />;
+    if (t.includes('scene')) return <FileText className="w-3.5 h-3.5 text-sky-500/80" />;
+    return <File className="w-3.5 h-3.5 text-muted-foreground/80" />;
+  };
+
   return (
-    <aside className="workspace-sidebar">
-      <div className="sidebar-explorer-header">
-        <span className="explorer-header-title">EXPLORER</span>
-        <div className="add-doc-menu-container" ref={menuRef} style={{ position: 'relative' }}>
+    <aside className="w-64 bg-sidebar border-r border-border/40 flex flex-col select-none transition-all duration-200">
+      {/* Sidebar Header */}
+      <div className="h-10 flex items-center justify-between px-4 border-b border-border/30">
+        <span className="text-2xs font-semibold tracking-wider text-muted-foreground uppercase">
+          Explorer
+        </span>
+        <div className="relative" ref={menuRef}>
           <button
-            className={`add-doc-icon-btn ${isMenuOpen ? 'active' : ''}`}
+            className={`w-6 h-6 flex items-center justify-center rounded-md text-foreground/80 hover:bg-secondary/60 active:scale-95 cursor-pointer transition-all ${
+              isMenuOpen ? 'bg-secondary text-primary' : ''
+            }`}
             onClick={() => setIsMenuOpen(!isMenuOpen)}
             title="Add Document..."
           >
-            ＋
+            <Plus className="w-4 h-4" />
           </button>
           
           {isMenuOpen && (
-            <div className="add-doc-dropdown-menu">
-              <button className="menu-item-btn" onClick={() => handleAutoCreate('Note')}>
-                <span className="menu-icon">📝</span>
-                <span>Note</span>
-              </button>
-              <button className="menu-item-btn" onClick={() => handleAutoCreate('Chapter')}>
-                <span className="menu-icon">📖</span>
-                <span>Chapter</span>
-              </button>
-              <button className="menu-item-btn" onClick={() => handleAutoCreate('MindMap')}>
-                <span className="menu-icon">🧠</span>
-                <span>MindMap</span>
-              </button>
-              <button className="menu-item-btn" onClick={() => handleAutoCreate('Scene')}>
-                <span className="menu-icon">🎬</span>
-                <span>Scene</span>
-              </button>
-              <div className="menu-separator" />
+            <div className="absolute right-0 mt-1.5 w-44 bg-popover text-popover-foreground border border-border/40 shadow-xl rounded-lg p-1.5 z-1050 flex flex-col gap-0.5 animate-in fade-in slide-in-from-top-1 duration-150 backdrop-blur-lg">
               <button 
-                className="menu-item-btn" 
+                className="w-full text-left bg-transparent border-none text-xs text-foreground/90 hover:bg-primary hover:text-primary-foreground px-2.5 py-1.5 rounded-md cursor-pointer transition-all flex items-center gap-2" 
+                onClick={() => handleAutoCreate('Note')}
+              >
+                <Edit3 className="w-3.5 h-3.5" />
+                <span>New Note</span>
+              </button>
+              <button 
+                className="w-full text-left bg-transparent border-none text-xs text-foreground/90 hover:bg-primary hover:text-primary-foreground px-2.5 py-1.5 rounded-md cursor-pointer transition-all flex items-center gap-2" 
+                onClick={() => handleAutoCreate('Chapter')}
+              >
+                <BookOpen className="w-3.5 h-3.5" />
+                <span>New Chapter</span>
+              </button>
+              <button 
+                className="w-full text-left bg-transparent border-none text-xs text-foreground/90 hover:bg-primary hover:text-primary-foreground px-2.5 py-1.5 rounded-md cursor-pointer transition-all flex items-center gap-2" 
+                onClick={() => handleAutoCreate('MindMap')}
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span>New MindMap</span>
+              </button>
+              <button 
+                className="w-full text-left bg-transparent border-none text-xs text-foreground/90 hover:bg-primary hover:text-primary-foreground px-2.5 py-1.5 rounded-md cursor-pointer transition-all flex items-center gap-2" 
+                onClick={() => handleAutoCreate('Scene')}
+              >
+                <FileText className="w-3.5 h-3.5" />
+                <span>New Scene</span>
+              </button>
+              <div className="h-px bg-border/40 my-1" />
+              <button 
+                className="w-full text-left bg-transparent border-none text-xs text-foreground/90 hover:bg-primary hover:text-primary-foreground px-2.5 py-1.5 rounded-md cursor-pointer transition-all flex items-center gap-2 font-medium" 
                 onClick={() => { 
                   setIsAddingDoc(true); 
                   setIsMenuOpen(false); 
                   setNewDocumentTitle('');
                 }}
               >
-                <span className="menu-icon">➕</span>
+                <Plus className="w-3.5 h-3.5" />
                 <span>Custom...</span>
               </button>
             </div>
@@ -122,14 +148,15 @@ function Sidebar({
         </div>
       </div>
 
+      {/* Inline Document Creation */}
       {isAddingDoc && (
-        <div className="sidebar-inline-create">
-          <span className="inline-icon">📄</span>
+        <div className="flex items-center gap-2 px-3 py-2 bg-background/50 border-b border-border/20">
+          <File className="w-3.5 h-3.5 text-primary/70 animate-pulse" />
           <input
-            className="inline-create-input"
+            className="flex-1 min-w-0 bg-secondary/40 border border-primary/50 text-foreground text-xs rounded px-2 py-1 outline-none placeholder:text-muted-foreground/60"
             type="text"
             autoFocus
-            placeholder="chapter-name.md"
+            placeholder="document-title.md"
             value={newDocumentTitle}
             onChange={(e) => setNewDocumentTitle(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -138,48 +165,63 @@ function Sidebar({
         </div>
       )}
 
-      <div className="sidebar-filter-container">
+      {/* Search Filter Box */}
+      <div className="relative flex items-center px-3 py-2 border-b border-border/20">
+        <Search className="w-3.5 h-3.5 text-muted-foreground/50 absolute left-5.5 pointer-events-none" />
         <input
-          className="sidebar-filter-input"
+          className="w-full bg-secondary/35 border border-border/25 text-foreground rounded px-2.5 py-1.5 pl-7 text-xs outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/20 placeholder:text-muted-foreground/60 transition-all"
           type="text"
-          placeholder="Filter items..."
+          placeholder="Filter workspace items..."
           value={filterText}
           onChange={(e) => setFilterText(e.target.value)}
         />
         {filterText && (
-          <button className="clear-filter-btn" onClick={() => setFilterText('')}>✕</button>
+          <button 
+            className="absolute right-5 bg-transparent border-none text-muted-foreground/60 hover:text-foreground cursor-pointer text-xs flex items-center justify-center p-0.5 rounded-full hover:bg-secondary" 
+            onClick={() => setFilterText('')}
+          >
+            <X className="w-3 h-3" />
+          </button>
         )}
       </div>
 
-      <div className="sidebar-tree-container">
-        <div className="tree-project-node">
+      {/* Project/Documents Directory Tree */}
+      <div className="flex-1 overflow-y-auto py-2 px-2 scrollbar-thin">
+        <div>
+          {/* Project Header Row */}
           <div 
-            className="project-folder-row"
+            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-secondary/40 rounded-md cursor-pointer transition-all duration-150 group"
             onClick={() => setIsFolderExpanded(!isFolderExpanded)}
           >
-            <span className={`folder-chevron ${isFolderExpanded ? 'expanded' : ''}`}>
-              ▶
+            <span className={`text-muted-foreground/60 group-hover:text-foreground transition-transform duration-200 ${isFolderExpanded ? 'rotate-0' : '-rotate-90'}`}>
+              <ChevronDown className="w-3.5 h-3.5" />
             </span>
-            <span className="project-name-text" title={selectedProject.name}>
-              {selectedProject.name.toUpperCase()}
+            <FolderOpen className="w-4 h-4 text-amber-500/80 group-hover:text-amber-500 transition-colors flex-shrink-0" />
+            <span className="text-xs font-semibold text-foreground/90 truncate uppercase tracking-wider" title={selectedProject.name}>
+              {selectedProject.name}
             </span>
           </div>
 
+          {/* Child Documents List */}
           {isFolderExpanded && (
-            <ul className="project-document-list">
+            <ul className="list-none mt-1 pl-4 flex flex-col gap-0.5">
               {filteredDocuments.length === 0 ? (
-                <li className="document-item-empty">
-                  {filterText ? 'No matching items.' : 'Empty workspace.'}
+                <li className="text-xs text-muted-foreground/60 italic px-3 py-2 pl-6">
+                  {filterText ? 'No matching items' : 'Empty workspace'}
                 </li>
               ) : (
                 filteredDocuments.map((doc) => (
                   <li
                     key={doc.id}
-                    className={`document-item-row ${selectedDocument?.id === doc.id ? 'active' : ''}`}
+                    className={`flex items-center gap-2.5 px-3 py-2 rounded-md cursor-pointer transition-all duration-150 text-xs font-medium border-l-2 ${
+                      selectedDocument?.id === doc.id 
+                        ? 'bg-primary/10 text-primary border-primary' 
+                        : 'text-foreground/80 hover:bg-secondary/35 hover:text-foreground border-transparent'
+                    }`}
                     onClick={() => onSelectDocument(doc)}
                   >
-                    <span className="document-icon">📄</span>
-                    <span className="document-title-text" title={doc.title}>
+                    {getIconForDoc(doc.title)}
+                    <span className="truncate flex-1" title={doc.title}>
                       {doc.title}
                     </span>
                   </li>

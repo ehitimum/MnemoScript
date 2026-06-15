@@ -1,4 +1,4 @@
-import { Extension } from '@tiptap/core';
+import { Extension, Editor } from '@tiptap/core';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import { Node as ProsemirrorNode } from '@tiptap/pm/model';
@@ -196,7 +196,7 @@ export const LinguisticCheck = Extension.create({
   },
 });
 
-export function getActiveGrammarError(editor: any) {
+export function getActiveGrammarError(editor: Editor) {
   if (!editor || !editor.state) return null;
 
   const decos: DecorationSet | undefined = linguisticPluginKey.getState(editor.state);
@@ -209,11 +209,15 @@ export function getActiveGrammarError(editor: any) {
   // Read the match straight off the decoration spec set above. Because we use
   // the decoration's live from/to (not the stale match.offset), the fix range
   // stays correct even after subsequent edits.
-  const decoration = found.find((d: any) => d.spec && d.spec.match);
+  const decoration = found.find((d) => {
+    const spec = d.spec as Record<string, unknown> | undefined;
+    return !!(spec && spec.match);
+  });
   if (!decoration) return null;
 
+  const spec = decoration.spec as { match: LTMatch };
   return {
-    match: (decoration as any).spec.match as LTMatch,
+    match: spec.match,
     from: decoration.from,
     to: decoration.to,
   };

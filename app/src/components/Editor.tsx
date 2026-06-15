@@ -4,14 +4,26 @@ import Placeholder from '@tiptap/extension-placeholder';
 import { useEffect, useState } from 'react';
 import type { Document } from '../types';
 import type { ThemeType } from '../App';
+import type { Editor as TiptapEditor } from '@tiptap/react';
 import listIcon1 from '../assets/microphone.png';
 import { LinguisticCheck, getActiveGrammarError } from './LinguisticCheck';
+import type { LTMatch } from './grammar-service';
 
 interface CaretCoords {
   top: number;
   left: number;
   height: number;
   visible: boolean;
+}
+
+interface GrammarErrorData {
+  match: LTMatch;
+  from: number;
+  to: number;
+  coords: {
+    top: number;
+    left: number;
+  };
 }
 
 interface EditorProps {
@@ -23,7 +35,7 @@ interface EditorProps {
   onSaveSuccess: (lastSaved: string) => void;
   onContentDirty: () => void;
   onUpdateDocumentContent: (updatedText: string) => void;
-  onEditorReady: (editor: any) => void;
+  onEditorReady: (editor: TiptapEditor) => void;
   isEditingSettings: boolean;
   onCloseSettings: () => void;
   editorFont: string;
@@ -67,10 +79,10 @@ function Editor({
   theme,
   setTheme,
 }: EditorProps) {
-  const [grammarError, setGrammarError] = useState<any>(null);
+  const [grammarError, setGrammarError] = useState<GrammarErrorData | null>(null);
   const [caretCoords, setCaretCoords] = useState<CaretCoords>({ top: 0, left: 0, height: 20, visible: false });
 
-  const updateCaret = (editorInstance: any) => {
+  const updateCaret = (editorInstance: TiptapEditor) => {
     try {
       const { state, view } = editorInstance;
       const { selection } = state;
@@ -89,6 +101,7 @@ function Editor({
        setCaretCoords(prev => ({ ...prev, visible: false }));
     }
   };
+
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -102,12 +115,11 @@ function Editor({
             'Mod-2': () => this.editor.commands.toggleHeading({ level: 2 }),
             'Mod-3': () => this.editor.commands.toggleHeading({ level: 3 }),
             
-            // NESTED INDENTATION HOOKS: Wire up structural tab actions directly with the active schema chain
             'Tab': () => {
               if (this.editor.isActive('bulletList') || this.editor.isActive('orderedList')) {
                 return this.editor.commands.sinkListItem('listItem');
               }
-              return false; // Let standard layout tabs function outside of list states
+              return false;
             },
             'Shift-Tab': () => {
               if (this.editor.isActive('bulletList') || this.editor.isActive('orderedList')) {
@@ -134,20 +146,21 @@ function Editor({
         spellcheck: spellcheckActive ? 'true' : 'false',
       },
     },
-    onUpdate: ({ editor }) => {
-      onUpdateDocumentContent(editor.getHTML());
-      updateCaret(editor);
+    onUpdate: ({ editor: ed }) => {
+      onUpdateDocumentContent(ed.getHTML());
+      updateCaret(ed as TiptapEditor);
     },
-    onSelectionUpdate: ({ editor }) => {
-      updateCaret(editor);
-      const errorData = getActiveGrammarError(editor);
+    onSelectionUpdate: ({ editor: ed }) => {
+      updateCaret(ed as TiptapEditor);
+      const errorData = getActiveGrammarError(ed);
       
       if (errorData) {
-        try{
-          const coords = editor.view.coordsAtPos(errorData.from);
-        
+        try {
+          const coords = ed.view.coordsAtPos(errorData.from);
           setGrammarError({
-            ...errorData,
+            match: errorData.match,
+            from: errorData.from,
+            to: errorData.to,
             coords: {
               top: coords.bottom + 5, 
               left: coords.left,
@@ -156,7 +169,6 @@ function Editor({
         } catch {
           setGrammarError(null);
         }
-        
       } else {
         setGrammarError(null);
       }
@@ -171,7 +183,7 @@ function Editor({
             spellcheck: spellcheckActive ? 'true' : 'false',
           },
           handleDOMEvents: {
-            focus: (view) => { updateCaret({ state: view.state, view }); return false; },
+            focus: (view) => { updateCaret({ state: view.state, view } as TiptapEditor); return false; },
             blur: () => { setCaretCoords(prev => ({ ...prev, visible: false })); return false; },
           }
         },
@@ -181,13 +193,12 @@ function Editor({
 
   useEffect(() => {
     if (editor) {
-      onEditorReady(editor);
+      onEditorReady(editor as TiptapEditor);
     }
   }, [editor, onEditorReady]);
 
   useEffect(() => {
     if (editor && doc) {
-      // OPTIMIZATION: Only update content if the editor isn't focused or the ID changed.
       const targetContent = doc.content || '<h2></h2><p></p>';
       const currentContent = editor.getHTML();
       
@@ -195,7 +206,7 @@ function Editor({
         editor.commands.setContent(targetContent, { emitUpdate: false });
       }
     }
-  }, [doc?.id, editor]); 
+  }, [doc, editor]); 
 
   useEffect(() => {
     if (manualSaveRequested > 0 && editor) {
@@ -209,7 +220,6 @@ function Editor({
     editor
       .chain()
       .focus()
-      // Replaces the specific range of the error with the new suggestion
       .insertContentAt({ from: grammarError.from, to: grammarError.to }, replacement) 
       .run();
   };
@@ -222,77 +232,119 @@ function Editor({
 
   if (isEditingSettings) {
     return (
-      <div className="editor-workspace" style={{ overflowY: 'auto' }}>
-        <div className="editor-tab-bar">
-          <div className="editor-tab active">
-            <span>⚙️ Settings Preferences Configuration</span>
+      <div className="flex-1 flex flex-col bg-background overflow-y-auto">
+        {/* Settings Tab Bar */}
+        <div className="h-10 bg-secondary/25 border-b border-border/30 flex">
+          <div className="flex items-center px-4 gap-2 text-xs font-semibold text-foreground bg-background border-t-2 border-primary border-r border-border/20 select-none">
+            <span>⚙️ Workspace Preferences</span>
           </div>
         </div>
         
-        <div className="settings-tab-workspace">
-          <h2 className="settings-pane-title">Global IDE Settings</h2>
+        {/* Settings Workspace Grid */}
+        <div className="flex-1 max-w-4xl w-full mx-auto p-6 md:p-10 flex flex-col gap-8">
+          <div className="flex flex-col gap-2">
+            <h2 className="text-2xl font-semibold tracking-tight text-foreground">Global Preferences</h2>
+            <p className="text-xs text-muted-foreground">Adjust styling themes, typography scales, autosave rules, and folder routes.</p>
+          </div>
           
-          <div className="settings-grid-layout">
-            <div className="settings-card-block" style={{ borderRadius: '12px', padding: '20px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
-              <h3>Workspace Color Scheme Theme Profile</h3>
-              <select 
-                className="sidebar-select" 
-                value={theme} 
-                onChange={(e) => setTheme(e.target.value as ThemeType)}
-              >
-                <option value="dark">Midnight Dark (Technical)</option>
-                <option value="light">Parchment Light (High Contrast)</option>
-                <option value="glass">Nebula Glass (Translucent)</option>
-                <option value="ocean">Deep Ocean (Calm Blue)</option>
-                <option value="forest">Emerald Forest (Natural)</option>
-                <option value="sunset">Crimson Sunset (Warm)</option>
-              </select>
-            </div>
-
-            <div className="settings-card-block" style={{ borderRadius: '12px', padding: '20px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
-              <h3>Typography Layout Tuning</h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                <label>Line Height Index Ratio ({lineHeight})</label>
-                <input 
-                  type="range" min="1" max="2" step="0.1" 
-                  value={lineHeight} onChange={(e) => setLineHeight(parseFloat(e.target.value))} 
-                />
-                <label>Workspace Structural Horizontal Margin Padding ({editorPadding}px)</label>
-                <input 
-                  type="range" min="10" max="100" step="5" 
-                  value={editorPadding} onChange={(e) => setEditorPadding(parseInt(e.target.value))} 
-                />
-              </div>
-            </div>
-
-            <div className="settings-card-block" style={{ borderRadius: '12px', padding: '20px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
-              <h3>Background Automated Engine Loop</h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <label className="checkbox-label">
-                  <input type="checkbox" checked={spellcheckActive} onChange={(e) => setSpellcheckActive(e.target.checked)} />
-                  <span>Activate Realtime Spellcheck Highlighting Rules</span>
-                </label>
-                <label>Storage Flushing Sync Sequence Delays</label>
-                <select className="sidebar-select" value={autoSaveInterval} onChange={(e) => setAutoSaveInterval(parseInt(e.target.value))}>
-                  <option value={15}>15 Seconds Window Execution</option>
-                  <option value={30}>30 Seconds Window Execution</option>
-                  <option value={60}>60 Seconds Window Execution</option>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Theme Card */}
+            <div className="bg-secondary/10 border border-border/30 rounded-xl p-5 shadow-xs flex flex-col gap-3">
+              <h3 className="text-sm font-semibold text-primary">Workspace Color Profile</h3>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs text-muted-foreground">Choose your theme context</label>
+                <select 
+                  className="w-full bg-secondary/40 border border-border/30 text-foreground text-sm rounded-lg px-3 py-2 focus:border-primary/50 focus:ring-1 focus:ring-primary/20 outline-none cursor-pointer transition-all duration-200" 
+                  value={theme} 
+                  onChange={(e) => setTheme(e.target.value as ThemeType)}
+                >
+                  <option value="dark">Midnight Dark (Technical)</option>
+                  <option value="light">Parchment Light (High Contrast)</option>
+                  <option value="glass">Nebula Glass (Translucent)</option>
+                  <option value="ocean">Deep Ocean (Calm Blue)</option>
+                  <option value="forest">Emerald Forest (Natural)</option>
+                  <option value="sunset">Crimson Sunset (Warm)</option>
                 </select>
               </div>
             </div>
 
-            <div className="settings-card-block" style={{ borderRadius: '12px', padding: '20px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
-              <h3>Repository Default Registration File Path Location</h3>
-              <input 
-                type="text" className="settings-input-text" 
-                value={defaultSavePath} onChange={(e) => setDefaultSavePath(e.target.value)} 
-              />
+            {/* Typography Tuning Card */}
+            <div className="bg-secondary/10 border border-border/30 rounded-xl p-5 shadow-xs flex flex-col gap-3">
+              <h3 className="text-sm font-semibold text-primary">Typography Tuning</h3>
+              <div className="flex flex-col gap-3">
+                <div className="flex flex-col gap-1">
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <label>Line Height Index</label>
+                    <span className="font-mono text-primary font-medium">{lineHeight}</span>
+                  </div>
+                  <input 
+                    type="range" min="1" max="2" step="0.1" 
+                    className="w-full accent-primary h-1.5 bg-secondary rounded-lg cursor-pointer"
+                    value={lineHeight} onChange={(e) => setLineHeight(parseFloat(e.target.value))} 
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <label>Horizontal Margin Padding</label>
+                    <span className="font-mono text-primary font-medium">{editorPadding}px</span>
+                  </div>
+                  <input 
+                    type="range" min="10" max="100" step="5" 
+                    className="w-full accent-primary h-1.5 bg-secondary rounded-lg cursor-pointer"
+                    value={editorPadding} onChange={(e) => setEditorPadding(parseInt(e.target.value))} 
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Background Automated Loop Card */}
+            <div className="bg-secondary/10 border border-border/30 rounded-xl p-5 shadow-xs flex flex-col gap-3">
+              <h3 className="text-sm font-semibold text-primary">Autosave & Checking Engine</h3>
+              <div className="flex flex-col gap-4">
+                <label className="flex items-center gap-2.5 text-xs text-foreground cursor-pointer group">
+                  <input 
+                    type="checkbox" 
+                    className="w-4 h-4 rounded border-border text-primary focus:ring-primary/20 accent-primary cursor-pointer"
+                    checked={spellcheckActive} 
+                    onChange={(e) => setSpellcheckActive(e.target.checked)} 
+                  />
+                  <span className="group-hover:text-primary transition-colors">Activate Realtime Spellcheck Highlighting</span>
+                </label>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs text-muted-foreground">File Saving Intervals</label>
+                  <select 
+                    className="w-full bg-secondary/40 border border-border/30 text-foreground text-sm rounded-lg px-3 py-2 focus:border-primary/50 focus:ring-1 focus:ring-primary/20 outline-none cursor-pointer transition-all duration-200" 
+                    value={autoSaveInterval} 
+                    onChange={(e) => setAutoSaveInterval(parseInt(e.target.value))}
+                  >
+                    <option value={15}>15 Seconds</option>
+                    <option value={30}>30 Seconds</option>
+                    <option value={60}>60 Seconds</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* Save Location Path Card */}
+            <div className="bg-secondary/10 border border-border/30 rounded-xl p-5 shadow-xs flex flex-col gap-3">
+              <h3 className="text-sm font-semibold text-primary">Default Repository Location</h3>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs text-muted-foreground">Global storage saving root path</label>
+                <input 
+                  type="text" 
+                  className="w-full bg-secondary/40 border border-border/30 text-foreground text-sm rounded-lg px-3 py-2 focus:border-primary/50 focus:ring-1 focus:ring-primary/20 outline-none placeholder:text-muted-foreground/50 transition-all duration-200" 
+                  value={defaultSavePath} onChange={(e) => setDefaultSavePath(e.target.value)} 
+                />
+              </div>
             </div>
           </div>
           
-          <div style={{ marginTop: '20px' }}>
-            <button className="settings-done-btn" onClick={onCloseSettings}>
-              Commit Persistent Changes & Exit
+          <div className="mt-4 flex justify-end">
+            <button 
+              className="bg-primary text-primary-foreground font-semibold px-5 py-2.5 rounded-lg shadow-sm hover:opacity-90 hover:shadow-md active:scale-98 cursor-pointer transition-all duration-200 text-sm" 
+              onClick={onCloseSettings}
+            >
+              Save Changes & Exit
             </button>
           </div>
         </div>
@@ -301,36 +353,40 @@ function Editor({
   }
 
   return (
-    <div className="editor-workspace" onClick={handleWrapperAreaClick}>
+    <div className="flex-1 flex flex-col bg-background overflow-hidden relative" onClick={handleWrapperAreaClick}>
       {doc && (
-        <div className="editor-tab-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div className="editor-tab active">
-            <span className="tab-icon">📄</span>
-            <span className="tab-title">{doc.title}</span>
+        <div className="h-10 bg-secondary/20 border-b border-border/30 flex justify-between items-center px-4 select-none">
+          <div className="flex items-center gap-2 px-4 py-2 text-xs font-semibold text-foreground bg-background border-t-2 border-primary border-r border-border/20">
+            <span className="opacity-80">📄</span>
+            <span className="truncate">{doc.title}</span>
           </div>
-          <div className="editor-actions active">
-            <button className="editor-action speechtotext-btn" title="Speech-to-Text Dictation (Experimental)" onClick={() => alert('Speech-to-Text Dictation feature is currently in development. Stay tuned for updates!')}>
-              <img src={listIcon1} alt="Speech-to-Text" style={{ width: '16px' }} />
+          <div>
+            <button 
+              className="w-7 h-7 flex items-center justify-center rounded hover:bg-secondary/60 active:scale-95 cursor-pointer text-foreground/80 hover:text-primary transition-all duration-150" 
+              title="Speech-to-Text Dictation (Experimental)" 
+              onClick={() => alert('Speech-to-Text Dictation feature is currently in development. Stay tuned for updates!')}
+            >
+              <img src={listIcon1} alt="Speech-to-Text" className="w-4 h-4 opacity-80" />
             </button>  
           </div>
         </div>
       )}
 
+      {/* Editor Content Area */}
       <div 
-        className="editor-body-scroll-container"
+        className="flex-1 overflow-y-auto pt-8 pb-16 outline-none transition-all duration-300"
         style={{
           fontFamily: editorFont,
           fontSize: `${editorSize}px`,
           lineHeight: lineHeight,
           paddingLeft: `${editorPadding}px`,
           paddingRight: `${editorPadding}px`,
-          transition: 'padding 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), font-size 0.2s ease',
           scrollBehavior: 'smooth',
         }}
       >
         <EditorContent editor={editor} />
         
-        {/* Native MS Word Style Smooth Caret */}
+        {/* smooth cursor caret */}
         {editor && caretCoords.visible && (
           <div
             className="smooth-caret"
@@ -349,71 +405,40 @@ function Editor({
           />
         )}
 
-        {/* Native React Popover Menu */}
+        {/* Spelling Popup Menu */}
         {editor && grammarError && spellcheckActive && (
           <div 
-            className="grammar-popover"
+            className="grammar-popover bg-popover text-popover-foreground border border-border/45 shadow-2xl rounded-xl p-4 flex flex-col gap-3 max-w-xs animate-in fade-in zoom-in-95 duration-150 backdrop-blur-xl"
             style={{
               position: 'fixed',
               top: `${grammarError.coords.top}px`,
               left: `${grammarError.coords.left}px`,
               zIndex: 9999,
-              background: theme === 'light' ? '#ffffff' : '#1e1e1e',
-              border: `1px solid ${theme === 'light' ? '#e5e7eb' : '#333'}`,
-              boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1)',
-              borderRadius: '8px',
-              padding: '12px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '10px',
-              maxWidth: '320px',
-              // Prevent the menu from disappearing if the user clicks inside it
               pointerEvents: 'auto', 
             }}
-            // Stop clicks inside the menu from unfocusing the editor
             onMouseDown={(e) => e.preventDefault()} 
           >
-            {/* The Error Reason */}
-            <span style={{ fontSize: '0.85rem', color: theme === 'light' ? '#4b5563' : '#a1a1aa', lineHeight: '1.4', fontWeight: '500' }}>
+            <span className="text-xs font-medium text-foreground/90 leading-relaxed">
               {grammarError.match.message}
             </span>
             
-            {/* The Suggestion Buttons */}
             {grammarError.match.replacements.length > 0 ? (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                {grammarError.match.replacements.slice(0, 5).map((rep: any, idx: number) => (
+              <div className="flex flex-wrap gap-1.5">
+                {grammarError.match.replacements.slice(0, 5).map((rep, idx) => (
                   <button
                     key={idx}
                     onMouseDown={(e) => {
                       e.preventDefault();
                       applyGrammarFix(rep.value);
                     }}
-                    style={{
-                      background: 'rgba(59, 130, 246, 0.15)',
-                      color: '#3b82f6',
-                      border: '1px solid rgba(59, 130, 246, 0.3)',
-                      padding: '6px 12px',
-                      borderRadius: '6px',
-                      cursor: 'pointer',
-                      fontSize: '0.85rem',
-                      fontWeight: '600',
-                      transition: 'all 0.2s ease',
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = '#3b82f6';
-                      e.currentTarget.style.color = '#ffffff';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = 'rgba(59, 130, 246, 0.15)';
-                      e.currentTarget.style.color = '#3b82f6';
-                    }}
+                    className="bg-primary/10 border border-primary/20 hover:bg-primary hover:text-primary-foreground text-primary font-semibold text-xs px-2.5 py-1 rounded-md cursor-pointer transition-all duration-200"
                   >
                     {rep.value}
                   </button>
                 ))}
               </div>
             ) : (
-              <span style={{ fontSize: '0.8rem', fontStyle: 'italic', color: '#9ca3af' }}>No quick fixes available.</span>
+              <span className="text-xs italic text-muted-foreground/60">No quick fixes available.</span>
             )}
           </div>
         )}
@@ -431,7 +456,7 @@ function Editor({
               theme === 'ocean' ? '#e1efff' :
               theme === 'forest' ? '#e6f4ea' :
               theme === 'sunset' ? '#fff1e6' :
-              '#e0e0e0'
+              'var(--foreground)'
             };
           }
 
@@ -458,20 +483,18 @@ function Editor({
             padding-left: 24px;
           }
           
-          /* Visual color depth indicators for nested bullet levels */
           .ProseMirror ul li { color: inherit; }
-          .ProseMirror ul ul li { color: #58a6ff; }     /* Level 2 nested: Blue */
-          .ProseMirror ul ul ul li { color: #7ee787; }  /* Level 3 nested: Green */
+          .ProseMirror ul ul li { color: #58a6ff; }
+          .ProseMirror ul ul ul li { color: #7ee787; }
           
-          /* Ensure child levels maintain standard numeric progression styles */
           .ProseMirror ol {
             list-style-type: decimal;
           }
           .ProseMirror ol ol {
-            list-style-type: lower-alpha; /* Changes nested numbers to a/b/c style for visibility */
+            list-style-type: lower-alpha;
           }
           .ProseMirror ol ol ol {
-            list-style-type: lower-roman; /* Level 3 nested: i/ii/iii style */
+            list-style-type: lower-roman;
           }
           
           .ProseMirror p {
