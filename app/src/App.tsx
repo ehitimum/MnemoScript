@@ -324,6 +324,8 @@ function App() {
               setEditorFont={setEditorFont}
               editorSize={editorSize}
               setEditorSize={setEditorSize}
+              lineHeight={lineHeight}
+              setLineHeight={setLineHeight}
             />
           )}
         </div>

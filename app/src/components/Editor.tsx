@@ -1,6 +1,7 @@
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
+import TextAlign from '@tiptap/extension-text-align';
 import { useEffect, useState } from 'react';
 import type { Editor as CoreEditor, Range } from '@tiptap/core';
 import type { Document } from '../types';
@@ -150,6 +151,9 @@ function Editor({
           }
           return '';
         },
+      }),
+      TextAlign.configure({
+        types: ['heading', 'paragraph'],
       }),
       LinguisticCheck,
       ImageWithAsset,
