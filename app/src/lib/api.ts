@@ -120,6 +120,7 @@ async function browserBackend<T>(cmd: string, args: Record<string, unknown>): Pr
         created_at: now(),
         path: (args.path as string | null) ?? `browser://${uid()}`,
         documents: [],
+        folders: [],
       };
       projects.push(project);
       saveStore(projects);

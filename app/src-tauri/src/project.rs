@@ -15,10 +15,26 @@ pub struct Project {
     pub path: Option<String>,
     #[serde(default)]
     pub documents: Vec<Document>,
+    /// Directory tree (e.g. "Volume 1"). Documents reference a folder via `folder_id`.
+    /// Persisted in project.json (documents are reloaded from disk; folders are not).
+    #[serde(default)]
+    pub folders: Vec<Folder>,
 }
 
 fn default_doc_type() -> String {
     "text".to_string()
+}
+
+/// A directory in the explorer tree. `parent_id == None` means it lives at the
+/// project root; otherwise it nests inside another folder (any depth).
+#[derive(Serialize, Deserialize, Clone)]
+pub struct Folder {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub order: i32,
+    #[serde(default, rename = "parentId")]
+    pub parent_id: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -33,6 +49,10 @@ pub struct Document {
     /// Ordering index for the sidebar / PDF book compiler.
     #[serde(default)]
     pub order: i32,
+    /// Id of the containing folder, or `None` when the document sits at the
+    /// project root. Lets chapters be grouped into / moved between directories.
+    #[serde(default, rename = "folderId")]
+    pub folder_id: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -106,6 +126,7 @@ impl Project {
             author: None,
             path,
             documents: Vec::new(),
+            folders: Vec::new(),
         }
     }
 
@@ -223,6 +244,7 @@ impl Document {
             updated_at,
             doc_type,
             order,
+            folder_id: None,
         }
     }
 

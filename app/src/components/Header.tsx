@@ -139,11 +139,11 @@ function Header({
             </button>
             
             {activeMenu === menu.label && (
-              <ul className="absolute top-full left-0 mt-1.5 bg-popover text-popover-foreground border border-border/40 shadow-xl rounded-lg min-width-[190px] p-1.5 z-1010 flex flex-col gap-0.5 animate-in fade-in slide-in-from-top-1 duration-150 backdrop-blur-lg">
+              <ul className="absolute top-full left-0 mt-1.5 bg-popover text-popover-foreground border border-border/40 shadow-xl rounded-lg min-w-[210px] p-1.5 z-1010 flex flex-col gap-0.5 animate-in fade-in slide-in-from-top-1 duration-150 backdrop-blur-lg">
                 {menu.options.map((opt, i) => (
                   <li key={i}>
                     <button
-                      className="w-full text-left bg-transparent border-none text-xs text-foreground/90 hover:bg-primary hover:text-primary-foreground disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-foreground/90 px-3 py-2 rounded-md font-medium cursor-pointer transition-all duration-150 flex justify-between"
+                      className="w-full text-left whitespace-nowrap bg-transparent border-none text-xs text-foreground/90 hover:bg-primary hover:text-primary-foreground disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-foreground/90 px-3 py-2 rounded-md font-medium cursor-pointer transition-all duration-150 flex justify-between"
                       disabled={!opt.enabled}
                       onClick={() => executeAction(opt.action)}
                     >

@@ -7,7 +7,7 @@ import RightSidebar from './components/RightSidebar';
 import ProjectCreationModal from './components/ProjectCreationModal';
 import BookCompiler from './components/BookCompiler';
 import { api } from './lib/api';
-import type { Project, Document, DocType } from './types';
+import type { Project, Document, DocType, Folder } from './types';
 import type { Editor as TiptapEditor } from '@tiptap/react';
 import { Plus, Settings, FolderOpen, ArrowRight, BookOpen, Save } from 'lucide-react';
 
@@ -19,6 +19,7 @@ function App() {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
   const [documents, setDocuments] = useState<Document[]>([]);
+  const [folders, setFolders] = useState<Folder[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
 
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -122,6 +123,7 @@ function App() {
     setProjects(prev => [newProj, ...prev.filter(p => p.id !== newProj.id)]);
     setSelectedProject(newProj);
     setDocuments(newProj.documents || []);
+    setFolders(newProj.folders || []);
     setSelectedDocument(null);
     setIsCreateModalOpen(false);
   };
@@ -132,26 +134,121 @@ function App() {
       const full = await api.loadProject(proj.id);
       setSelectedProject(full);
       setDocuments(full.documents || []);
+      setFolders(full.folders || []);
     } catch (e) {
       console.error('Failed to open project, using cached metadata:', e);
       setSelectedProject(proj);
       setDocuments(proj.documents || []);
+      setFolders(proj.folders || []);
     }
     setSelectedDocument(null);
     setIsEditingSettings(false);
   };
 
-  const handleCreateDocument = async (title: string, docType: DocType = 'text') => {
+  const handleCreateDocument = async (
+    title: string,
+    docType: DocType = 'text',
+    folderId: string | null = null,
+  ) => {
     if (!selectedProject) return;
     const initialContent = docType === 'mindmap' ? '{"nodes":[],"edges":[]}' : '';
     try {
-      const newDoc = await api.createDocument(selectedProject.id, title, initialContent, docType, documents.length);
+      const created = await api.createDocument(selectedProject.id, title, initialContent, docType, documents.length);
+      // The backend `create_document` command doesn't take a folder; if the doc
+      // is meant to live inside a directory, stamp it and persist once more.
+      let newDoc = created;
+      if (folderId) {
+        newDoc = { ...created, folderId };
+        await api.saveDocument(selectedProject.id, newDoc);
+      }
       setDocuments(prev => [...prev, newDoc]);
       setSelectedDocument(newDoc);
       setIsEditingSettings(false);
     } catch (e) {
       console.error('Failed to create document:', e);
     }
+  };
+
+  /** Persist the folder tree (folders live in project.json, saved via save_project). */
+  const persistFolders = useCallback(async (nextFolders: Folder[]) => {
+    setFolders(nextFolders);
+    if (!selectedProject) return;
+    const updated = { ...selectedProject, folders: nextFolders, documents };
+    setSelectedProject(updated);
+    try {
+      await api.saveProject(updated);
+    } catch (e) {
+      console.error('Failed to save folders:', e);
+    }
+  }, [selectedProject, documents]);
+
+  const handleCreateFolder = (name: string, parentId: string | null = null) => {
+    const folder: Folder = {
+      id: crypto.randomUUID(),
+      name: name.trim() || 'New Directory',
+      order: folders.length,
+      parentId: parentId ?? null,
+    };
+    persistFolders([...folders, folder]);
+  };
+
+  const handleRenameFolder = (id: string, name: string) => {
+    persistFolders(folders.map(f => (f.id === id ? { ...f, name: name.trim() || f.name } : f)));
+  };
+
+  /** Delete a folder, lifting its child folders and documents up to its parent. */
+  const handleDeleteFolder = async (id: string) => {
+    if (!selectedProject) return;
+    const target = folders.find(f => f.id === id);
+    const newParent = target?.parentId ?? null;
+
+    const nextFolders = folders
+      .filter(f => f.id !== id)
+      .map(f => (f.parentId === id ? { ...f, parentId: newParent } : f));
+
+    // Reassign documents in this folder to the parent and persist each.
+    const movedDocs = documents.filter(d => (d.folderId ?? null) === id);
+    const nextDocs = documents.map(d =>
+      (d.folderId ?? null) === id ? { ...d, folderId: newParent } : d,
+    );
+    setDocuments(nextDocs);
+    try {
+      await Promise.all(movedDocs.map(d => api.saveDocument(selectedProject.id, { ...d, folderId: newParent })));
+    } catch (e) {
+      console.error('Failed to reassign documents on folder delete:', e);
+    }
+    persistFolders(nextFolders);
+  };
+
+  const handleMoveDocument = async (docId: string, folderId: string | null) => {
+    if (!selectedProject) return;
+    const doc = documents.find(d => d.id === docId);
+    if (!doc || (doc.folderId ?? null) === folderId) return;
+    const moved = { ...doc, folderId };
+    setDocuments(prev => prev.map(d => (d.id === docId ? moved : d)));
+    if (selectedDocument?.id === docId) setSelectedDocument(moved);
+    try {
+      await api.saveDocument(selectedProject.id, moved);
+    } catch (e) {
+      console.error('Failed to move document:', e);
+    }
+  };
+
+  /** True if `maybeAncestorId` is `folderId` itself or one of its ancestors. */
+  const isFolderAncestor = useCallback((folderId: string, maybeAncestorId: string): boolean => {
+    let current: string | null | undefined = folderId;
+    while (current) {
+      if (current === maybeAncestorId) return true;
+      current = folders.find(f => f.id === current)?.parentId ?? null;
+    }
+    return false;
+  }, [folders]);
+
+  const handleMoveFolder = (folderId: string, newParentId: string | null) => {
+    if (folderId === newParentId) return;
+    // Prevent dropping a folder into itself or one of its own descendants.
+    if (newParentId && isFolderAncestor(newParentId, folderId)) return;
+    persistFolders(folders.map(f => (f.id === folderId ? { ...f, parentId: newParentId } : f)));
   };
 
   const handleUpdateDocumentContent = (updatedContent: string) => {
@@ -169,6 +266,7 @@ function App() {
     setSelectedProject(null);
     setSelectedDocument(null);
     setDocuments([]);
+    setFolders([]);
     // Refresh the project list so the welcome screen reflects any new projects.
     api.listProjects().then(setProjects).catch(() => {});
   };
@@ -275,8 +373,14 @@ function App() {
               selectedProject={selectedProject}
               selectedDocument={selectedDocument}
               documents={documents}
+              folders={folders}
               onCreateDocument={handleCreateDocument}
               onSelectDocument={(doc) => { setSelectedDocument(doc); setIsEditingSettings(false); }}
+              onCreateFolder={handleCreateFolder}
+              onRenameFolder={handleRenameFolder}
+              onDeleteFolder={handleDeleteFolder}
+              onMoveDocument={handleMoveDocument}
+              onMoveFolder={handleMoveFolder}
             />
           )}
 
