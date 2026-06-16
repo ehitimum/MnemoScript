@@ -349,7 +349,80 @@
   text-align: center;
   line-height: 1.35;
   border: 1px solid rgba(255, 255, 255, 0.25);
-  transition: box-shadow 0.15s ease, transform 0.1s ease;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+  transition: box-shadow 0.15s ease, transform 0.1s ease, border-radius 0.15s ease;
+}
+
+/* Selection ring uses outline so it survives clip-path shapes (diamond). */
+.mindmap-node.is-selected {
+  outline: 2px solid var(--node-color, #6366f1);
+  outline-offset: 3px;
+}
+
+/* ── Node shapes (chosen on the toolbar before "Add Node") ──── */
+.mindmap-node.shape-rounded {
+  border-radius: 24px;
+}
+.mindmap-node.shape-square,
+.mindmap-node.shape-circle,
+.mindmap-node.shape-diamond {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: max-content;
+}
+.mindmap-node.shape-square {
+  border-radius: 6px;
+  min-width: 104px;
+  min-height: 104px;
+}
+.mindmap-node.shape-circle {
+  border-radius: 50%;
+  min-width: 116px;
+  min-height: 116px;
+  padding: 18px 22px;
+}
+.mindmap-node.shape-diamond {
+  position: relative;
+  min-width: 128px;
+  min-height: 128px;
+  padding: 30px;
+  border: none;
+  background: transparent !important;
+  box-shadow: none;
+}
+
+/* The visible diamond: a square rotated 45°. At 70.71% (1/√2) of the square
+   container its corners land exactly on the edge midpoints, where the
+   top/right/bottom/left handles sit. */
+.mindmap-diamond-face {
+  position: absolute;
+  width: 70.71%;
+  height: 70.71%;
+  top: 14.645%;
+  left: 14.645%;
+  background: var(--node-color, #6366f1);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 8px;
+  transform: rotate(45deg);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+  z-index: 0;
+}
+
+/* Selection ring follows the rotated face, so it reads as a diamond outline. */
+.mindmap-node.shape-diamond.is-selected {
+  outline: none;
+}
+.mindmap-node.shape-diamond.is-selected .mindmap-diamond-face {
+  outline: 2px solid var(--node-color, #6366f1);
+  outline-offset: 3px;
+}
+
+/* Keep the label/editor above the rotated face. */
+.mindmap-node.shape-diamond .mindmap-node-label,
+.mindmap-node.shape-diamond .mindmap-node-input {
+  position: relative;
+  z-index: 1;
 }
 
 .mindmap-node-label {
@@ -382,6 +455,28 @@
   height: 9px;
   background: #ffffff;
   border: 2px solid rgba(0, 0, 0, 0.35);
+  border-radius: 50%;
+  z-index: 5;
+  transition: width 0.12s ease, height 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+}
+
+/* Invisible larger hit area so the handle is easy to grab even before it grows. */
+.mindmap-handle::before {
+  content: '';
+  position: absolute;
+  inset: -8px;
+  border-radius: 50%;
+}
+
+/* Grow + highlight on hover (or while dragging a connection) for easy targeting. */
+.mindmap-handle:hover,
+.mindmap-handle.connectingfrom,
+.mindmap-handle.connectingto {
+  width: 16px;
+  height: 16px;
+  background: var(--node-color, #6366f1);
+  border-color: #ffffff;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--node-color, #6366f1) 35%, transparent);
 }
 
 /* ── Slash "/" command menu ──────────────────────────────────── */

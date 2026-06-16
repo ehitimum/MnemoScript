@@ -13,6 +13,7 @@
     "build:tauri": "tauri build"
   },
   "dependencies": {
+    "@dagrejs/dagre": "^3.0.0",
     "@radix-ui/react-scroll-area": "^1.2.3",
     "@tauri-apps/api": "^2.10.1",
     "@tiptap/extension-bold": "^3.22.4",
