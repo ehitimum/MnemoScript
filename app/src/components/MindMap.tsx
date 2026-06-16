@@ -417,7 +417,8 @@ function MindMapCanvas({ document: doc, onUpdateContent, onRequestSave }: MindMa
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(initial.edges);
   const idRef = useRef(initial.nodes.length + 1);
   const didMount = useRef(false);
-  const { fitView } = useReactFlow();
+  const { fitView, screenToFlowPosition } = useReactFlow();
+  const wrapperRef = useRef<HTMLDivElement>(null);
 
   // Keep refs to the latest state so undo/snapshot can read it without being
   // re-created on every change.
@@ -507,15 +508,23 @@ function MindMapCanvas({ document: doc, onUpdateContent, onRequestSave }: MindMa
     (shape: ShapeId) => {
       takeSnapshot();
       const id = `n${idRef.current++}`;
+      // Drop the node at the centre of whatever is currently on screen (in flow
+      // coords, so it's correct at any pan/zoom), with a little jitter so rapid
+      // adds don't stack exactly on top of each other.
+      const rect = wrapperRef.current?.getBoundingClientRect();
+      const center = rect
+        ? screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 })
+        : { x: 200, y: 160 };
+      const jitter = () => (Math.random() - 0.5) * 56;
       const newNode: MindNode = {
         id,
         type: 'editable',
-        position: { x: 140 + Math.random() * 320, y: 80 + Math.random() * 280 },
+        position: { x: center.x - 80 + jitter(), y: center.y - 32 + jitter() },
         data: { label: 'New idea', color: PALETTE[idRef.current % PALETTE.length], shape },
       };
       setNodes((nds) => [...nds, newNode]);
     },
-    [setNodes, takeSnapshot],
+    [setNodes, takeSnapshot, screenToFlowPosition],
   );
 
   const recolorSelected = useCallback(
@@ -683,7 +692,7 @@ function MindMapCanvas({ document: doc, onUpdateContent, onRequestSave }: MindMa
         </button>
       </div>
 
-      <div className="flex-1 min-h-0">
+      <div ref={wrapperRef} className="flex-1 min-h-0">
         <ReactFlow<MindNode, Edge>
           nodes={nodes}
           edges={edges}
