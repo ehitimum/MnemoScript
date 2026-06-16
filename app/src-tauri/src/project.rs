@@ -269,4 +269,17 @@ impl Document {
         let doc: Document = serde_json::from_str(&doc_json).map_err(|e| e.to_string())?;
         Ok(doc)
     }
+
+    /// Remove a document's `.json` file from disk. Missing files are treated as
+    /// already-deleted (no error).
+    pub fn delete(project_id: &str, document_id: &str) -> Result<(), String> {
+        let project_dir = Project::resolve_dir(project_id);
+        let doc_path = project_dir
+            .join("documents")
+            .join(format!("{}.json", document_id));
+        if doc_path.exists() {
+            fs::remove_file(doc_path).map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
 }

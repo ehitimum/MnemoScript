@@ -151,6 +151,14 @@ fn save_document(project_id: String, document: Document) -> ApiResponse<()> {
 }
 
 #[tauri::command]
+fn delete_document(project_id: String, document_id: String) -> ApiResponse<()> {
+    match Document::delete(&project_id, &document_id) {
+        Ok(()) => ApiResponse::success(()),
+        Err(e) => ApiResponse::error(e),
+    }
+}
+
+#[tauri::command]
 fn load_document(project_id: String, document_id: String) -> ApiResponse<Document> {
     match Document::load(&project_id, &document_id) {
         Ok(doc) => ApiResponse::success(doc),
@@ -179,6 +187,7 @@ pub fn run() {
             create_document,
             save_document,
             load_document,
+            delete_document,
             import_image,
             select_directory,
             open_project_by_path,

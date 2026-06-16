@@ -339,7 +339,8 @@
 /* ── Mind Map (React Flow) node styling ─────────────────────── */
 .mindmap-node {
   min-width: 120px;
-  max-width: 240px;
+  max-width: 320px;
+  width: max-content;
   padding: 10px 14px;
   border-radius: 12px;
   color: #ffffff;
@@ -359,6 +360,7 @@
 
 .mindmap-node-input {
   width: 100%;
+  min-width: 90px;
   background: rgba(0, 0, 0, 0.22);
   border: none;
   outline: none;
@@ -367,6 +369,12 @@
   text-align: center;
   border-radius: 6px;
   padding: 2px 4px;
+  resize: none;
+  overflow: hidden;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.35;
+  display: block;
 }
 
 .mindmap-handle {

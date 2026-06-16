@@ -64,6 +64,9 @@ export const api = {
   loadDocument: (projectId: string, documentId: string) =>
     call<Document>('load_document', { projectId, documentId }),
 
+  deleteDocument: (projectId: string, documentId: string) =>
+    call<void>('delete_document', { projectId, documentId }),
+
   /** Opens a native image picker, copies into the project's assets/, returns the absolute path (or null if cancelled). */
   importImage: (projectId: string) => call<string | null>('import_image', { projectId }),
 
@@ -178,6 +181,13 @@ async function browserBackend<T>(cmd: string, args: Record<string, unknown>): Pr
       const doc = project.documents.find((d) => d.id === args.documentId);
       if (!doc) throw new Error(`Document "${args.documentId}" not found`);
       return doc as T;
+    }
+
+    case 'delete_document': {
+      const project = findProject(projects, String(args.projectId));
+      project.documents = project.documents.filter((d) => d.id !== args.documentId);
+      saveStore(projects);
+      return undefined as T;
     }
 
     // Native-only: no equivalent in a plain browser.

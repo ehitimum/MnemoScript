@@ -10,6 +10,7 @@ import {
   addEdge,
   Handle,
   Position,
+  ConnectionMode,
   useReactFlow,
   type Node,
   type Edge,
@@ -27,10 +28,20 @@ type MindNode = Node<MindNodeData>;
 
 const PALETTE = ['#6366f1', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#a855f7'];
 
+// One handle per side. Connection mode is "loose" (see <ReactFlow>), so any
+// handle can act as both the start and end of an edge regardless of `type`.
+const HANDLES: { id: string; position: Position }[] = [
+  { id: 'top', position: Position.Top },
+  { id: 'right', position: Position.Right },
+  { id: 'bottom', position: Position.Bottom },
+  { id: 'left', position: Position.Left },
+];
+
 function EditableNode({ id, data, selected }: NodeProps<MindNode>) {
   const { setNodes } = useReactFlow<MindNode>();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(data.label);
+  const taRef = useRef<HTMLTextAreaElement>(null);
 
   const startEdit = () => {
     setDraft(data.label);
@@ -41,6 +52,20 @@ function EditableNode({ id, data, selected }: NodeProps<MindNode>) {
     setEditing(false);
     setNodes((nds) => nds.map((n) => (n.id === id ? { ...n, data: { ...n.data, label: draft } } : n)));
   };
+
+  // Grow the textarea to fit its content (so the node expands with the notes).
+  const autoSize = () => {
+    const el = taRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  };
+  useEffect(() => {
+    if (editing) {
+      autoSize();
+      taRef.current?.select();
+    }
+  }, [editing]);
 
   return (
     <div
@@ -53,23 +78,33 @@ function EditableNode({ id, data, selected }: NodeProps<MindNode>) {
       }}
       onDoubleClick={startEdit}
     >
-      <Handle type="target" position={Position.Top} className="mindmap-handle" />
+      {HANDLES.map((h) => (
+        <Handle key={h.id} id={h.id} type="source" position={h.position} className="mindmap-handle" />
+      ))}
       {editing ? (
-        <input
+        <textarea
+          ref={taRef}
           autoFocus
+          rows={1}
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            autoSize();
+          }}
           onBlur={commit}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') commit();
+            // Enter commits; Shift+Enter inserts a newline (default behaviour).
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              commit();
+            }
             if (e.key === 'Escape') setEditing(false);
           }}
-          className="mindmap-node-input"
+          className="mindmap-node-input nodrag"
         />
       ) : (
         <span className="mindmap-node-label">{data.label || 'Untitled'}</span>
       )}
-      <Handle type="source" position={Position.Bottom} className="mindmap-handle" />
     </div>
   );
 }
@@ -159,7 +194,7 @@ function MindMapCanvas({ document: doc, onUpdateContent, onRequestSave }: MindMa
           </div>
         </div>
         <span className="text-[11px] text-muted-foreground/80 hidden md:block truncate">
-          Double-click to rename · drag handles to connect · Del to remove
+          Double-click to edit · Shift+Enter for a new line · drag any side to connect · Del to remove
         </span>
         <button onClick={onRequestSave} className={`${btn} text-primary`} title="Save mind map">
           <Save className="w-3.5 h-3.5" /> Save
@@ -174,6 +209,7 @@ function MindMapCanvas({ document: doc, onUpdateContent, onRequestSave }: MindMa
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
           nodeTypes={nodeTypes}
+          connectionMode={ConnectionMode.Loose}
           fitView
           proOptions={{ hideAttribution: true }}
         >

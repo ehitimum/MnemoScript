@@ -220,17 +220,79 @@ function App() {
     persistFolders(nextFolders);
   };
 
-  const handleMoveDocument = async (docId: string, folderId: string | null) => {
+  const handleMoveDocuments = async (docIds: string[], folderId: string | null) => {
+    if (!selectedProject) return;
+    const idSet = new Set(docIds);
+    const moved = documents
+      .filter(d => idSet.has(d.id) && (d.folderId ?? null) !== folderId)
+      .map(d => ({ ...d, folderId }));
+    if (moved.length === 0) return;
+    const movedById = new Map(moved.map(d => [d.id, d]));
+    setDocuments(prev => prev.map(d => movedById.get(d.id) ?? d));
+    if (selectedDocument && movedById.has(selectedDocument.id)) {
+      setSelectedDocument(movedById.get(selectedDocument.id)!);
+    }
+    try {
+      await Promise.all(moved.map(d => api.saveDocument(selectedProject.id, d)));
+    } catch (e) {
+      console.error('Failed to move documents:', e);
+    }
+  };
+
+  const handleRenameDocument = async (docId: string, title: string) => {
     if (!selectedProject) return;
     const doc = documents.find(d => d.id === docId);
-    if (!doc || (doc.folderId ?? null) === folderId) return;
-    const moved = { ...doc, folderId };
-    setDocuments(prev => prev.map(d => (d.id === docId ? moved : d)));
-    if (selectedDocument?.id === docId) setSelectedDocument(moved);
+    const trimmed = title.trim();
+    if (!doc || !trimmed || trimmed === doc.title) return;
+    const renamed = { ...doc, title: trimmed, updated_at: new Date().toISOString() };
+    setDocuments(prev => prev.map(d => (d.id === docId ? renamed : d)));
+    if (selectedDocument?.id === docId) setSelectedDocument(renamed);
     try {
-      await api.saveDocument(selectedProject.id, moved);
+      await api.saveDocument(selectedProject.id, renamed);
     } catch (e) {
-      console.error('Failed to move document:', e);
+      console.error('Failed to rename document:', e);
+    }
+  };
+
+  const handleDeleteDocuments = async (docIds: string[]) => {
+    if (!selectedProject) return;
+    const idSet = new Set(docIds);
+    setDocuments(prev => prev.filter(d => !idSet.has(d.id)));
+    if (selectedDocument && idSet.has(selectedDocument.id)) setSelectedDocument(null);
+    try {
+      await Promise.all(docIds.map(id => api.deleteDocument(selectedProject.id, id)));
+    } catch (e) {
+      console.error('Failed to delete documents:', e);
+    }
+  };
+
+  /**
+   * Duplicate documents (used by copy/paste and "Duplicate"). When `folderId` is
+   * `undefined` each copy stays in its source's folder; otherwise all copies are
+   * placed in `folderId` (used by paste-into-folder).
+   */
+  const handleDuplicateDocuments = async (docIds: string[], folderId?: string | null) => {
+    if (!selectedProject) return;
+    const idSet = new Set(docIds);
+    const sources = documents.filter(d => idSet.has(d.id));
+    try {
+      const created: Document[] = [];
+      for (const src of sources) {
+        const target = folderId === undefined ? (src.folderId ?? null) : folderId;
+        const copy = await api.createDocument(
+          selectedProject.id,
+          `${src.title} copy`,
+          src.content,
+          src.docType,
+          documents.length + created.length,
+        );
+        const placed = { ...copy, folderId: target };
+        await api.saveDocument(selectedProject.id, placed);
+        created.push(placed);
+      }
+      setDocuments(prev => [...prev, ...created]);
+    } catch (e) {
+      console.error('Failed to duplicate documents:', e);
     }
   };
 
@@ -379,8 +441,11 @@ function App() {
               onCreateFolder={handleCreateFolder}
               onRenameFolder={handleRenameFolder}
               onDeleteFolder={handleDeleteFolder}
-              onMoveDocument={handleMoveDocument}
+              onMoveDocuments={handleMoveDocuments}
               onMoveFolder={handleMoveFolder}
+              onRenameDocument={handleRenameDocument}
+              onDeleteDocuments={handleDeleteDocuments}
+              onDuplicateDocuments={handleDuplicateDocuments}
             />
           )}
 
