@@ -3,6 +3,7 @@ mod project;
 use project::{Document, Project};
 use serde::Serialize;
 use std::fs;
+use tauri::Manager;
 use uuid::Uuid;
 
 #[derive(Serialize)]
@@ -30,10 +31,20 @@ impl<T> ApiResponse<T> {
     }
 }
 
+/// Pick a directory to store a project in. Desktop only — on mobile, storage is
+/// app-private and not user-selectable, so this returns `None` and the UI hides
+/// the picker.
 #[tauri::command]
 fn select_directory() -> ApiResponse<Option<String>> {
-    let folder = rfd::FileDialog::new().pick_folder();
-    ApiResponse::success(folder.map(|p| p.to_string_lossy().to_string()))
+    #[cfg(desktop)]
+    {
+        let folder = rfd::FileDialog::new().pick_folder();
+        ApiResponse::success(folder.map(|p| p.to_string_lossy().to_string()))
+    }
+    #[cfg(not(desktop))]
+    {
+        ApiResponse::success(None)
+    }
 }
 
 #[tauri::command]
@@ -110,34 +121,29 @@ fn create_document(
     }
 }
 
-/// Open a native image picker, copy the chosen file into the project's
-/// `assets/` folder under a fresh uuid name, and return its absolute path.
-/// The frontend renders it through Tauri's asset protocol (`convertFileSrc`).
+/// Write already-read image bytes into the project's `assets/` folder under a
+/// fresh uuid name and return the absolute path. The picking + reading happens
+/// in the frontend via the dialog/fs plugins (so it works on desktop *and*
+/// Android, where files arrive as content URIs); this command just persists the
+/// bytes. The frontend renders the path through Tauri's asset protocol.
 #[tauri::command]
-fn import_image(project_id: String) -> ApiResponse<Option<String>> {
-    let picked = rfd::FileDialog::new()
-        .add_filter("Images", &["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp"])
-        .pick_file();
-
-    let source = match picked {
-        Some(p) => p,
-        None => return ApiResponse::success(None), // user cancelled
-    };
-
-    let ext = source
-        .extension()
-        .and_then(|s| s.to_str())
-        .unwrap_or("png")
+fn save_asset(project_id: String, ext: String, bytes: Vec<u8>) -> ApiResponse<String> {
+    let safe_ext: String = ext
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .take(5)
+        .collect::<String>()
         .to_lowercase();
+    let safe_ext = if safe_ext.is_empty() { "png".to_string() } else { safe_ext };
 
     let assets_dir = Project::resolve_dir(&project_id).join("assets");
     if let Err(e) = fs::create_dir_all(&assets_dir) {
         return ApiResponse::error(e.to_string());
     }
 
-    let dest = assets_dir.join(format!("{}.{}", Uuid::new_v4(), ext));
-    match fs::copy(&source, &dest) {
-        Ok(_) => ApiResponse::success(Some(dest.to_string_lossy().to_string())),
+    let dest = assets_dir.join(format!("{}.{}", Uuid::new_v4(), safe_ext));
+    match fs::write(&dest, &bytes) {
+        Ok(_) => ApiResponse::success(dest.to_string_lossy().to_string()),
         Err(e) => ApiResponse::error(e.to_string()),
     }
 }
@@ -169,7 +175,25 @@ fn load_document(project_id: String, document_id: String) -> ApiResponse<Documen
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .setup(|app| {
+            // Choose the storage base dir: keep desktop data where it has always
+            // lived; on mobile use the app-private data dir (the only writable
+            // location). Resolved here so the rest of the backend stays platform
+            // agnostic.
+            let base: std::path::PathBuf = if cfg!(any(target_os = "android", target_os = "ios")) {
+                app.path()
+                    .app_data_dir()
+                    .map_err(|e| format!("no app data dir: {e}"))?
+            } else {
+                dirs::home_dir()
+                    .ok_or("Could not find home directory")?
+                    .join(".mnemoscript")
+            };
+            fs::create_dir_all(&base).ok();
+            project::init_data_dir(base);
+
             if cfg!(debug_assertions) {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()
@@ -188,7 +212,7 @@ pub fn run() {
             save_document,
             load_document,
             delete_document,
-            import_image,
+            save_asset,
             select_directory,
             open_project_by_path,
         ])

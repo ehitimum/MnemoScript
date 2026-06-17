@@ -23,8 +23,14 @@ serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
 tauri = { version = "2.10.3", features = ["protocol-asset"] }
 tauri-plugin-log = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
 uuid = { version = "1", features = ["v4", "serde"] }
 chrono = "0.4"
 dirs = "5"
+
+# Native folder picker — desktop only (rfd has no Android/iOS backend). Mobile
+# uses the dialog/fs plugins instead.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 rfd = "0.15"
 

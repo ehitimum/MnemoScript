@@ -60,7 +60,7 @@ function RightSidebar({
     'text-3xs font-semibold tracking-[0.12em] text-muted-foreground/70 uppercase mb-1';
 
   return (
-    <aside className="w-64 bg-sidebar border-l border-border/40 flex flex-col select-none transition-all duration-200 overflow-y-auto">
+    <aside className="w-64 max-w-[85vw] shrink-0 h-full bg-sidebar border-l border-border/40 flex flex-col select-none transition-all duration-200 overflow-y-auto">
       {/* Sidebar Header */}
       <div className="h-10 flex items-center gap-2 px-4 border-b border-border/30">
         <Sliders className="w-3.5 h-3.5 text-primary" />

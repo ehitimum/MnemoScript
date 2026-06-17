@@ -489,7 +489,7 @@ function Sidebar({
   );
 
   return (
-    <aside className="w-64 bg-sidebar border-r border-border/40 flex flex-col select-none transition-all duration-200">
+    <aside className="w-64 max-w-[85vw] shrink-0 h-full bg-sidebar border-r border-border/40 flex flex-col select-none transition-all duration-200">
       <style>{`
         .ctx-item { width:100%; text-align:left; background:transparent; border:none; font-size:0.75rem;
           color: var(--foreground); padding:0.375rem 0.625rem; border-radius:0.375rem; cursor:pointer;

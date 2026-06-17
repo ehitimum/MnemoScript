@@ -12,6 +12,7 @@ import { LinguisticCheck, getActiveGrammarError } from './LinguisticCheck';
 import { SlashCommand } from './extensions/SlashCommand';
 import { ImageWithAsset } from './extensions/ImageWithAsset';
 import { api } from '../lib/api';
+import { useMediaQuery } from '../lib/useMediaQuery';
 import type { LTMatch } from './grammar-service';
 
 interface CaretCoords {
@@ -80,6 +81,7 @@ function Editor({
 }: EditorProps) {
   const [grammarError, setGrammarError] = useState<GrammarErrorData | null>(null);
   const [caretCoords, setCaretCoords] = useState<CaretCoords>({ top: 0, left: 0, height: 20, visible: false });
+  const isMobile = useMediaQuery('(max-width: 768px)');
 
   // "/image": remove the slash text, open the native picker, then embed the file.
   // `projectId` is stable for the editor's lifetime (switching projects unmounts
@@ -338,18 +340,20 @@ function Editor({
               </div>
             </div>
 
-            {/* Save Location Path Card */}
-            <div className="bg-secondary/10 border border-border/30 rounded-xl p-5 shadow-xs flex flex-col gap-3">
-              <h3 className="text-sm font-semibold text-primary">Default Repository Location</h3>
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs text-muted-foreground">Global storage saving root path</label>
-                <input 
-                  type="text" 
-                  className="w-full bg-secondary/40 border border-border/30 text-foreground text-sm rounded-lg px-3 py-2 focus:border-primary/50 focus:ring-1 focus:ring-primary/20 outline-none placeholder:text-muted-foreground/50 transition-all duration-200" 
-                  value={defaultSavePath} onChange={(e) => setDefaultSavePath(e.target.value)} 
-                />
+            {/* Save Location Path Card — desktop only; mobile storage is app-private. */}
+            {!isMobile && (
+              <div className="bg-secondary/10 border border-border/30 rounded-xl p-5 shadow-xs flex flex-col gap-3">
+                <h3 className="text-sm font-semibold text-primary">Default Repository Location</h3>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs text-muted-foreground">Global storage saving root path</label>
+                  <input
+                    type="text"
+                    className="w-full bg-secondary/40 border border-border/30 text-foreground text-sm rounded-lg px-3 py-2 focus:border-primary/50 focus:ring-1 focus:ring-primary/20 outline-none placeholder:text-muted-foreground/50 transition-all duration-200"
+                    value={defaultSavePath} onChange={(e) => setDefaultSavePath(e.target.value)}
+                  />
+                </div>
               </div>
-            </div>
+            )}
           </div>
           
           <div className="mt-4 flex justify-end">

@@ -1,7 +1,30 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use uuid::Uuid;
+
+/// Base directory under which the registry and all projects live. Initialised
+/// once at startup (see `init_data_dir`) from Tauri's path resolver:
+///   • desktop → `~/.mnemoscript` (keeps existing data in place)
+///   • mobile  → the app-private data dir (the only writable location on Android)
+static DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+/// Set the storage base dir. Called from the Tauri `setup` hook before any
+/// command runs. Idempotent — only the first value is kept.
+pub fn init_data_dir(dir: PathBuf) {
+    let _ = DATA_DIR.set(dir);
+}
+
+/// The storage base dir. Falls back to `~/.mnemoscript` only if init was somehow
+/// skipped (e.g. unit tests), so paths are always well-defined.
+fn data_dir() -> PathBuf {
+    DATA_DIR.get().cloned().unwrap_or_else(|| {
+        dirs::home_dir()
+            .map(|h| h.join(".mnemoscript"))
+            .unwrap_or_else(|| PathBuf::from("."))
+    })
+}
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Project {
@@ -68,8 +91,7 @@ pub struct Registry;
 
 impl Registry {
     fn registry_path() -> PathBuf {
-        let home = dirs::home_dir().expect("Could not find home directory");
-        home.join(".mnemoscript").join("registry.json")
+        data_dir().join("registry.json")
     }
 
     pub fn list() -> Vec<RegistryEntry> {
@@ -218,8 +240,7 @@ impl Project {
     }
 
     pub fn projects_dir() -> PathBuf {
-        let home = dirs::home_dir().expect("Could not find home directory");
-        home.join(".mnemoscript").join("projects")
+        data_dir().join("projects")
     }
 
     /// Resolve the on-disk directory for a project id, preferring the registered

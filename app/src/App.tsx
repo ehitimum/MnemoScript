@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
 import Sidebar from './components/Sidebar';
 import Editor from './components/Editor';
 import MindMap from './components/MindMap';
@@ -7,11 +7,40 @@ import RightSidebar from './components/RightSidebar';
 import ProjectCreationModal from './components/ProjectCreationModal';
 import BookCompiler from './components/BookCompiler';
 import { api } from './lib/api';
+import { useMediaQuery } from './lib/useMediaQuery';
 import type { Project, Document, DocType, Folder } from './types';
 import type { Editor as TiptapEditor } from '@tiptap/react';
 import { Plus, Settings, FolderOpen, ArrowRight, BookOpen, Save } from 'lucide-react';
 
 export type ThemeType = 'dark' | 'light' | 'glass' | 'ocean' | 'forest' | 'sunset';
+
+/** On mobile the sidebars float over the editor as slide-in drawers with a
+ *  tap-to-dismiss backdrop, instead of squeezing the editor in the flex row. */
+function MobileDrawer({
+  side,
+  onClose,
+  children,
+}: {
+  side: 'left' | 'right';
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <>
+      <div
+        className="absolute inset-0 z-30 bg-background/55 backdrop-blur-[2px] animate-in fade-in duration-150"
+        onClick={onClose}
+      />
+      <div
+        className={`absolute inset-y-0 ${side === 'left' ? 'left-0' : 'right-0'} z-40 flex shadow-2xl animate-in duration-200 ${
+          side === 'left' ? 'slide-in-from-left' : 'slide-in-from-right'
+        }`}
+      >
+        {children}
+      </div>
+    </>
+  );
+}
 
 function App() {
   const [wordCount, setWordCount] = useState(0);
@@ -35,8 +64,19 @@ function App() {
   const [autoSaveInterval, setAutoSaveInterval] = useState(() => Number(localStorage.getItem('mnemo_interval')) || 30);
   const [defaultSavePath, setDefaultSavePath] = useState(() => localStorage.getItem('mnemo_path') || 'C:/Users/Documents/MnemoScript');
 
-  const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(true);
-  const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
+  // Narrow viewports (mobile browser, or a small/resized desktop window) get
+  // collapsible drawer sidebars; wide ones keep the classic docked layout.
+  const isMobile = useMediaQuery('(max-width: 768px)');
+  const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(!isMobile);
+  const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(!isMobile);
+
+  // When crossing the breakpoint, hide both sidebars on mobile and restore them
+  // on desktop. Fires only on an actual breakpoint change, so it won't fight a
+  // user's manual toggles within the same size class.
+  useEffect(() => {
+    setIsLeftSidebarOpen(!isMobile);
+    setIsRightSidebarOpen(!isMobile);
+  }, [isMobile]);
 
   const [activeEditor, setActiveEditor] = useState<TiptapEditor | null>(null);
   const [isSaved, setIsSaved] = useState(true);
@@ -351,8 +391,9 @@ function App() {
         onCopyText={() => { if (activeEditor) navigator.clipboard.writeText(activeEditor.getText()); } }
         onOpenSettings={() => setIsEditingSettings(true)}
         autoSaveEnabled={autoSaveEnabled}
-        onChangeAutoSave={setAutoSaveEnabled} 
-        theme={theme}      
+        onChangeAutoSave={setAutoSaveEnabled}
+        theme={theme}
+        isMobile={isMobile}
       />
 
       {!selectedProject ? (
@@ -430,24 +471,37 @@ function App() {
         </div>
       ) : (
         <div className="flex-1 flex overflow-hidden relative">
-          {isLeftSidebarOpen && (
-            <Sidebar
-              selectedProject={selectedProject}
-              selectedDocument={selectedDocument}
-              documents={documents}
-              folders={folders}
-              onCreateDocument={handleCreateDocument}
-              onSelectDocument={(doc) => { setSelectedDocument(doc); setIsEditingSettings(false); }}
-              onCreateFolder={handleCreateFolder}
-              onRenameFolder={handleRenameFolder}
-              onDeleteFolder={handleDeleteFolder}
-              onMoveDocuments={handleMoveDocuments}
-              onMoveFolder={handleMoveFolder}
-              onRenameDocument={handleRenameDocument}
-              onDeleteDocuments={handleDeleteDocuments}
-              onDuplicateDocuments={handleDuplicateDocuments}
-            />
-          )}
+          {isLeftSidebarOpen && (() => {
+            const sidebar = (
+              <Sidebar
+                selectedProject={selectedProject}
+                selectedDocument={selectedDocument}
+                documents={documents}
+                folders={folders}
+                onCreateDocument={handleCreateDocument}
+                onSelectDocument={(doc) => {
+                  setSelectedDocument(doc);
+                  setIsEditingSettings(false);
+                  if (isMobile) setIsLeftSidebarOpen(false);
+                }}
+                onCreateFolder={handleCreateFolder}
+                onRenameFolder={handleRenameFolder}
+                onDeleteFolder={handleDeleteFolder}
+                onMoveDocuments={handleMoveDocuments}
+                onMoveFolder={handleMoveFolder}
+                onRenameDocument={handleRenameDocument}
+                onDeleteDocuments={handleDeleteDocuments}
+                onDuplicateDocuments={handleDuplicateDocuments}
+              />
+            );
+            return isMobile ? (
+              <MobileDrawer side="left" onClose={() => setIsLeftSidebarOpen(false)}>
+                {sidebar}
+              </MobileDrawer>
+            ) : (
+              sidebar
+            );
+          })()}
 
           {isMindMap && selectedDocument && !isEditingSettings ? (
             <MindMap
@@ -484,25 +538,34 @@ function App() {
             />
           )}
 
-          {isRightSidebarOpen && !isEditingSettings && !isMindMap && (
-            <RightSidebar
-              editor={activeEditor}
-              isOpen={isRightSidebarOpen}
-              theme={theme}
-              editorFont={editorFont}
-              setEditorFont={setEditorFont}
-              editorSize={editorSize}
-              setEditorSize={setEditorSize}
-              lineHeight={lineHeight}
-              setLineHeight={setLineHeight}
-            />
-          )}
+          {isRightSidebarOpen && !isEditingSettings && !isMindMap && (() => {
+            const panel = (
+              <RightSidebar
+                editor={activeEditor}
+                isOpen={isRightSidebarOpen}
+                theme={theme}
+                editorFont={editorFont}
+                setEditorFont={setEditorFont}
+                editorSize={editorSize}
+                setEditorSize={setEditorSize}
+                lineHeight={lineHeight}
+                setLineHeight={setLineHeight}
+              />
+            );
+            return isMobile ? (
+              <MobileDrawer side="right" onClose={() => setIsRightSidebarOpen(false)}>
+                {panel}
+              </MobileDrawer>
+            ) : (
+              panel
+            );
+          })()}
         </div>
       )}
 
       {/* VSCode-inspired Status Bar */}
       <footer className="h-6 bg-accent text-accent-foreground flex items-center justify-between px-3 text-xs border-t border-border/40 select-none z-50 transition-colors duration-200">
-        <div className="flex items-center gap-2 truncate max-w-[50%]">
+        <div className="hidden sm:flex items-center gap-2 truncate max-w-[50%]">
           <span className="opacity-70 font-mono truncate">
             {selectedProject ? `${selectedProject.path}/${selectedDocument ? selectedDocument.title : ''}` : 'No workspace mounted'}
           </span>

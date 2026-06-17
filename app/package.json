@@ -10,12 +10,17 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "dev:tauri": "tauri dev",
-    "build:tauri": "tauri build"
+    "build:tauri": "tauri build",
+    "android:init": "tauri android init",
+    "android:dev": "tauri android dev",
+    "android:build": "tauri android build"
   },
   "dependencies": {
     "@dagrejs/dagre": "^3.0.0",
     "@radix-ui/react-scroll-area": "^1.2.3",
     "@tauri-apps/api": "^2.10.1",
+    "@tauri-apps/plugin-dialog": "^2.7.1",
+    "@tauri-apps/plugin-fs": "^2.5.1",
     "@tiptap/extension-bold": "^3.22.4",
     "@tiptap/extension-bullet-list": "^3.22.4",
     "@tiptap/extension-heading": "^3.22.4",

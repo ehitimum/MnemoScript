@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import type { Project, Document } from '../types';
 import type { ThemeType } from '../App';
-import { PanelLeft, PanelRight, ChevronDown } from 'lucide-react';
+import { PanelLeft, PanelRight, ChevronDown, Menu } from 'lucide-react';
 
 interface HeaderProps {
   selectedProject: Project | null;
@@ -21,6 +21,7 @@ interface HeaderProps {
   onOpenSettings: () => void;
   autoSaveEnabled: boolean;
   onChangeAutoSave: (enabled: boolean) => void;
+  isMobile: boolean;
 }
 
 function Header({
@@ -40,14 +41,17 @@ function Header({
   onOpenSettings,
   autoSaveEnabled,
   onChangeAutoSave,
+  isMobile,
 }: HeaderProps) {
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const menubarRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleOutsideClick = (e: MouseEvent) => {
       if (menubarRef.current && !menubarRef.current.contains(e.target as Node)) {
         setActiveMenu(null);
+        setMobileMenuOpen(false);
       }
     };
     document.addEventListener('mousedown', handleOutsideClick);
@@ -124,38 +128,79 @@ function Header({
       className="h-10 bg-secondary/30 border-b border-border/30 flex items-center justify-between px-4 select-none z-1000 relative backdrop-blur-md transition-colors duration-200" 
       ref={menubarRef}
     >
-      <div className="flex items-center gap-1">
-        {menuItems.map((menu) => (
-          <div key={menu.label} className="relative">
-            <button
-              className={`px-3 py-1.5 text-xs font-medium rounded hover:bg-secondary/60 hover:text-foreground cursor-pointer flex items-center gap-1 transition-all duration-200 ${
-                activeMenu === menu.label ? 'bg-secondary text-foreground' : 'text-muted-foreground'
-              }`}
-              onClick={() => toggleMenu(menu.label)}
-              onMouseEnter={() => handleMenuHover(menu.label)}
-            >
-              {menu.label}
-              <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${activeMenu === menu.label ? 'rotate-180 text-primary' : 'opacity-60'}`} />
-            </button>
-            
-            {activeMenu === menu.label && (
-              <ul className="absolute top-full left-0 mt-1.5 bg-popover text-popover-foreground border border-border/40 shadow-xl rounded-lg min-w-[210px] p-1.5 z-1010 flex flex-col gap-0.5 animate-in fade-in slide-in-from-top-1 duration-150 backdrop-blur-lg">
-                {menu.options.map((opt, i) => (
-                  <li key={i}>
+      {isMobile ? (
+        /* Mobile: collapse the whole menubar into one hamburger dropdown so it
+           never overflows a narrow viewport. */
+        <div className="relative">
+          <button
+            className={`w-7 h-7 flex items-center justify-center rounded transition-all cursor-pointer ${
+              mobileMenuOpen ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:bg-secondary/60 hover:text-foreground'
+            }`}
+            onClick={() => setMobileMenuOpen((o) => !o)}
+            title="Menu"
+          >
+            <Menu className="w-4 h-4" />
+          </button>
+
+          {mobileMenuOpen && (
+            <div className="absolute top-full left-0 mt-1.5 w-60 max-h-[70vh] overflow-y-auto bg-popover text-popover-foreground border border-border/40 shadow-xl rounded-lg p-1.5 z-1010 flex flex-col gap-1 animate-in fade-in slide-in-from-top-1 duration-150 backdrop-blur-lg">
+              {menuItems.map((menu) => (
+                <div key={menu.label} className="flex flex-col">
+                  <span className="px-2 pt-1.5 pb-1 text-3xs font-semibold tracking-wider text-muted-foreground/70 uppercase">
+                    {menu.label}
+                  </span>
+                  {menu.options.map((opt, i) => (
                     <button
-                      className="w-full text-left whitespace-nowrap bg-transparent border-none text-xs text-foreground/90 hover:bg-primary hover:text-primary-foreground disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-foreground/90 px-3 py-2 rounded-md font-medium cursor-pointer transition-all duration-150 flex justify-between"
+                      key={i}
+                      className="w-full text-left whitespace-nowrap bg-transparent border-none text-xs text-foreground/90 hover:bg-primary hover:text-primary-foreground disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-foreground/90 px-3 py-2 rounded-md font-medium cursor-pointer transition-all duration-150"
                       disabled={!opt.enabled}
-                      onClick={() => executeAction(opt.action)}
+                      onClick={() => {
+                        executeAction(opt.action);
+                        setMobileMenuOpen(false);
+                      }}
                     >
-                      <span>{opt.label}</span>
+                      {opt.label}
                     </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        ))}
-      </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="flex items-center gap-1">
+          {menuItems.map((menu) => (
+            <div key={menu.label} className="relative">
+              <button
+                className={`px-3 py-1.5 text-xs font-medium rounded hover:bg-secondary/60 hover:text-foreground cursor-pointer flex items-center gap-1 transition-all duration-200 ${
+                  activeMenu === menu.label ? 'bg-secondary text-foreground' : 'text-muted-foreground'
+                }`}
+                onClick={() => toggleMenu(menu.label)}
+                onMouseEnter={() => handleMenuHover(menu.label)}
+              >
+                {menu.label}
+                <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${activeMenu === menu.label ? 'rotate-180 text-primary' : 'opacity-60'}`} />
+              </button>
+
+              {activeMenu === menu.label && (
+                <ul className="absolute top-full left-0 mt-1.5 bg-popover text-popover-foreground border border-border/40 shadow-xl rounded-lg min-w-[210px] p-1.5 z-1010 flex flex-col gap-0.5 animate-in fade-in slide-in-from-top-1 duration-150 backdrop-blur-lg">
+                  {menu.options.map((opt, i) => (
+                    <li key={i}>
+                      <button
+                        className="w-full text-left whitespace-nowrap bg-transparent border-none text-xs text-foreground/90 hover:bg-primary hover:text-primary-foreground disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-foreground/90 px-3 py-2 rounded-md font-medium cursor-pointer transition-all duration-150 flex justify-between"
+                        disabled={!opt.enabled}
+                        onClick={() => executeAction(opt.action)}
+                      >
+                        <span>{opt.label}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="flex items-center gap-3">
         <button 

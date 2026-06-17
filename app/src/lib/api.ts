@@ -67,8 +67,28 @@ export const api = {
   deleteDocument: (projectId: string, documentId: string) =>
     call<void>('delete_document', { projectId, documentId }),
 
-  /** Opens a native image picker, copies into the project's assets/, returns the absolute path (or null if cancelled). */
-  importImage: (projectId: string) => call<string | null>('import_image', { projectId }),
+  /**
+   * Pick an image and copy it into the project's assets/, returning the absolute
+   * path (or null if cancelled / in the browser). Picking + reading is done with
+   * the dialog/fs plugins so it works on desktop and Android alike; the bytes are
+   * then handed to the `save_asset` backend command to persist.
+   */
+  importImage: async (projectId: string): Promise<string | null> => {
+    if (!isTauri) return null;
+    const [{ open }, { readFile }] = await Promise.all([
+      import('@tauri-apps/plugin-dialog'),
+      import('@tauri-apps/plugin-fs'),
+    ]);
+    const selected = await open({
+      multiple: false,
+      directory: false,
+      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'] }],
+    });
+    if (!selected || typeof selected !== 'string') return null; // cancelled
+    const bytes = await readFile(selected);
+    const ext = /\.([a-zA-Z0-9]+)$/.exec(selected)?.[1] ?? 'png';
+    return call<string>('save_asset', { projectId, ext, bytes: Array.from(bytes) });
+  },
 
   selectDirectory: () => call<string | null>('select_directory'),
 };

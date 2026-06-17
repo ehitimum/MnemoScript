@@ -1,7 +1,21 @@
-import { useState } from 'react';
-import type { Project, Document } from '../types';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { Project, Document, DocType } from '../types';
 import { resolveImagesInHtml } from '../lib/assets';
-import { BookOpen, ChevronUp, ChevronDown, FileDown, X } from 'lucide-react';
+import {
+  BookOpen,
+  ChevronUp,
+  ChevronDown,
+  FileDown,
+  X,
+  Search,
+  ListFilter,
+  Folder,
+  FileText,
+  Edit3,
+  Layers,
+  File,
+  type LucideIcon,
+} from 'lucide-react';
 
 interface BookCompilerProps {
   onClose: () => void;
@@ -9,11 +23,37 @@ interface BookCompilerProps {
   documents: Document[];
 }
 
+// A document's category is derived the same way the sidebar derives its icon:
+// mindmaps come from docType, the rest from a title keyword, else "custom".
+type Kind = 'chapter' | 'note' | 'scene' | 'mindmap' | 'directory' | 'custom';
+
 interface Chapter {
   id: string;
   title: string;
   content: string;
+  docType: DocType;
+  kind: Kind;
+  folderId: string | null;
   include: boolean;
+}
+
+const KINDS: { id: Kind; label: string; icon: LucideIcon }[] = [
+  { id: 'chapter', label: 'Chapter', icon: BookOpen },
+  { id: 'note', label: 'Note', icon: Edit3 },
+  { id: 'scene', label: 'Scene', icon: FileText },
+  { id: 'mindmap', label: 'Mind map', icon: Layers },
+  { id: 'directory', label: 'Directory', icon: Folder },
+  { id: 'custom', label: 'Custom', icon: File },
+];
+const KIND_META = Object.fromEntries(KINDS.map((k) => [k.id, k])) as Record<Kind, (typeof KINDS)[number]>;
+
+function kindOfDoc(d: Document): Kind {
+  if (d.docType === 'mindmap') return 'mindmap';
+  const t = d.title.toLowerCase();
+  if (t.includes('chapter')) return 'chapter';
+  if (t.includes('note')) return 'note';
+  if (t.includes('scene')) return 'scene';
+  return 'custom';
 }
 
 function escapeHtml(s: string): string {
@@ -22,6 +62,30 @@ function escapeHtml(s: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+/** Plain text for searching (strip HTML, or join mind-map node labels). */
+function plainText(c: Chapter): string {
+  if (c.kind === 'mindmap') {
+    try {
+      const { nodes } = JSON.parse(c.content || '{}') as { nodes?: { data?: { label?: string } }[] };
+      return (nodes ?? []).map((n) => n?.data?.label ?? '').join(' ');
+    } catch {
+      return '';
+    }
+  }
+  return c.content.replace(/<[^>]*>/g, ' ');
+}
+
+/** Render a mind map's node labels as a simple list (its content is JSON, not HTML). */
+function mindmapToHtml(content: string): string {
+  try {
+    const { nodes } = JSON.parse(content || '{}') as { nodes?: { data?: { label?: string } }[] };
+    if (!nodes?.length) return '<p><em>(Empty mind map)</em></p>';
+    return `<ul>${nodes.map((n) => `<li>${escapeHtml(n?.data?.label ?? '')}</li>`).join('')}</ul>`;
+  } catch {
+    return '<p><em>(Mind map)</em></p>';
+  }
 }
 
 const PRINT_CSS = `
@@ -53,23 +117,94 @@ function BookCompiler({ onClose, project, documents }: BookCompilerProps) {
   const [includeCover, setIncludeCover] = useState(true);
   const [includeToc, setIncludeToc] = useState(true);
   const [chapters, setChapters] = useState<Chapter[]>(() =>
-    documents
-      .filter((d) => d.docType !== 'mindmap')
-      .map((d) => ({ id: d.id, title: d.title, content: d.content, include: true })),
+    documents.map((d) => ({
+      id: d.id,
+      title: d.title,
+      content: d.content,
+      docType: d.docType,
+      kind: kindOfDoc(d),
+      folderId: d.folderId ?? null,
+      include: d.docType !== 'mindmap', // mind maps off by default
+    })),
   );
 
-  const move = (index: number, dir: -1 | 1) => {
+  const folders = useMemo(() => project.folders ?? [], [project.folders]);
+  const [search, setSearch] = useState('');
+  const [filters, setFilters] = useState<Set<Kind>>(() => new Set(KINDS.map((k) => k.id)));
+  const [filterOpen, setFilterOpen] = useState(false);
+  const filterRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!filterOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (filterRef.current && !filterRef.current.contains(e.target as HTMLElement)) setFilterOpen(false);
+    };
+    window.addEventListener('mousedown', onDown);
+    return () => window.removeEventListener('mousedown', onDown);
+  }, [filterOpen]);
+
+  // ── Visibility (search + kind filter) ──────────────────────────────
+  const q = search.trim().toLowerCase();
+  const isVisible = (c: Chapter) =>
+    filters.has(c.kind) && (!q || c.title.toLowerCase().includes(q) || plainText(c).toLowerCase().includes(q));
+  const visibleDocs = chapters.filter(isVisible);
+
+  // ── Directories ────────────────────────────────────────────────────
+  const folderSubtree = (rootId: string): Set<string> => {
+    const ids = [rootId];
+    for (let i = 0; i < ids.length; i++) {
+      for (const f of folders) if ((f.parentId ?? null) === ids[i]) ids.push(f.id);
+    }
+    return new Set(ids);
+  };
+  const docsInFolder = (rootId: string): Chapter[] => {
+    const set = folderSubtree(rootId);
+    return chapters.filter((c) => c.folderId && set.has(c.folderId));
+  };
+  const visibleFolders = filters.has('directory')
+    ? folders.filter((f) => (!q || f.name.toLowerCase().includes(q)) && docsInFolder(f.id).length > 0)
+    : [];
+
+  const toggleDirectory = (rootId: string) => {
+    const docs = docsInFolder(rootId);
+    if (!docs.length) return;
+    const allIn = docs.every((d) => d.include);
+    const ids = new Set(docs.map((d) => d.id));
+    setChapters((prev) => prev.map((c) => (ids.has(c.id) ? { ...c, include: !allIn } : c)));
+  };
+
+  // ── Selection / ordering ───────────────────────────────────────────
+  const toggle = (id: string) =>
+    setChapters((prev) => prev.map((c) => (c.id === id ? { ...c, include: !c.include } : c)));
+
+  const setVisibleInclude = (val: boolean) => {
+    const ids = new Set(visibleDocs.map((d) => d.id));
+    setChapters((prev) => prev.map((c) => (ids.has(c.id) ? { ...c, include: val } : c)));
+  };
+
+  const toggleFilter = (k: Kind) =>
+    setFilters((prev) => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
+    });
+
+  // Move a row, swapping with its neighbour in the *visible* order so reordering
+  // stays intuitive even when the list is searched/filtered.
+  const moveVisible = (id: string, dir: -1 | 1) => {
     setChapters((prev) => {
+      const visibleIds = prev.filter(isVisible).map((c) => c.id);
+      const vPos = visibleIds.indexOf(id);
+      const neighborId = visibleIds[vPos + dir];
+      if (neighborId == null) return prev;
+      const a = prev.findIndex((c) => c.id === id);
+      const b = prev.findIndex((c) => c.id === neighborId);
       const next = [...prev];
-      const target = index + dir;
-      if (target < 0 || target >= next.length) return prev;
-      [next[index], next[target]] = [next[target], next[index]];
+      [next[a], next[b]] = [next[b], next[a]];
       return next;
     });
   };
-
-  const toggle = (id: string) =>
-    setChapters((prev) => prev.map((c) => (c.id === id ? { ...c, include: !c.include } : c)));
 
   const buildBookHtml = (): string => {
     const included = chapters.filter((c) => c.include);
@@ -86,9 +221,9 @@ function BookCompiler({ onClose, project, documents }: BookCompilerProps) {
     const body = included
       .map(
         (c) =>
-          `<section class="chapter"><h1 class="chapter-title">${escapeHtml(
-            c.title,
-          )}</h1>${resolveImagesInHtml(c.content)}</section>`,
+          `<section class="chapter"><h1 class="chapter-title">${escapeHtml(c.title)}</h1>${
+            c.kind === 'mindmap' ? mindmapToHtml(c.content) : resolveImagesInHtml(c.content)
+          }</section>`,
       )
       .join('');
     return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(
@@ -118,6 +253,7 @@ function BookCompiler({ onClose, project, documents }: BookCompilerProps) {
   };
 
   const includedCount = chapters.filter((c) => c.include).length;
+  const allFilters = filters.size === KINDS.length;
   const field =
     'w-full bg-secondary/35 border border-border/30 text-foreground text-sm rounded-lg px-3 py-2.5 focus:border-primary/50 focus:ring-1 focus:ring-primary/20 outline-none transition-all placeholder:text-muted-foreground/50';
 
@@ -168,26 +304,131 @@ function BookCompiler({ onClose, project, documents }: BookCompilerProps) {
             </label>
           </div>
 
-          <div className="flex flex-col gap-1.5">
+          <div className="flex flex-col gap-2">
             <label className="text-2xs font-semibold text-muted-foreground uppercase tracking-wider">
               Chapters &amp; Order ({includedCount} included)
             </label>
+
+            {/* Search + filter */}
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground/60 pointer-events-none" />
+                <input
+                  className={`${field} pl-9`}
+                  value={search}
+                  placeholder="Search title or content…"
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </div>
+              <div ref={filterRef} className="relative">
+                <button
+                  onClick={() => setFilterOpen((o) => !o)}
+                  className="flex items-center gap-1.5 text-xs font-medium px-3 py-2.5 rounded-lg border border-border/30 text-foreground hover:bg-secondary/60 cursor-pointer transition-all"
+                  title="Filter what to show"
+                  aria-expanded={filterOpen}
+                >
+                  <ListFilter className="w-3.5 h-3.5" /> Filter
+                  {!allFilters && (
+                    <span className="ml-0.5 min-w-4 h-4 px-1 inline-flex items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-semibold">
+                      {filters.size}
+                    </span>
+                  )}
+                </button>
+                {filterOpen && (
+                  <div className="absolute right-0 top-full mt-1.5 z-10 w-48 p-1.5 rounded-xl border border-border/60 bg-popover text-popover-foreground shadow-[0_12px_40px_rgba(0,0,0,0.35)]">
+                    {KINDS.map(({ id, label, icon: Icon }) => (
+                      <button
+                        key={id}
+                        type="button"
+                        onClick={() => toggleFilter(id)}
+                        className="flex items-center gap-2.5 w-full text-left px-2 py-1.5 rounded-md cursor-pointer hover:bg-secondary/60 transition-colors"
+                      >
+                        <input type="checkbox" readOnly checked={filters.has(id)} className="accent-primary w-3.5 h-3.5 pointer-events-none" />
+                        <Icon className="w-3.5 h-3.5 text-muted-foreground" />
+                        <span className="text-sm">{label}</span>
+                      </button>
+                    ))}
+                    <div className="flex gap-1 mt-1 pt-1 border-t border-border/30">
+                      <button onClick={() => setFilters(new Set(KINDS.map((k) => k.id)))} className="flex-1 text-[11px] font-medium py-1 rounded-md text-foreground/80 hover:bg-secondary/60 cursor-pointer transition-colors">
+                        All
+                      </button>
+                      <button onClick={() => setFilters(new Set())} className="flex-1 text-[11px] font-medium py-1 rounded-md text-foreground/80 hover:bg-secondary/60 cursor-pointer transition-colors">
+                        None
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Select all / none */}
+            <div className="flex items-center justify-between px-0.5">
+              <span className="text-[11px] text-muted-foreground/70">
+                {visibleDocs.length} shown{visibleFolders.length ? ` · ${visibleFolders.length} folders` : ''}
+              </span>
+              <div className="flex items-center gap-2 text-[11px] font-medium">
+                <button onClick={() => setVisibleInclude(true)} disabled={!visibleDocs.length} className="text-primary hover:underline disabled:opacity-40 disabled:no-underline cursor-pointer disabled:cursor-not-allowed">
+                  Select all
+                </button>
+                <span className="text-border">|</span>
+                <button onClick={() => setVisibleInclude(false)} disabled={!visibleDocs.length} className="text-muted-foreground hover:text-foreground hover:underline disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed">
+                  Unselect all
+                </button>
+              </div>
+            </div>
+
             <div className="flex flex-col gap-1 max-h-64 overflow-y-auto rounded-lg border border-border/30 p-1.5 bg-secondary/15">
               {chapters.length === 0 ? (
-                <p className="text-xs text-muted-foreground/70 italic px-2 py-3 text-center">No text chapters to compile.</p>
+                <p className="text-xs text-muted-foreground/70 italic px-2 py-3 text-center">No documents to compile.</p>
+              ) : visibleFolders.length === 0 && visibleDocs.length === 0 ? (
+                <p className="text-xs text-muted-foreground/70 italic px-2 py-3 text-center">Nothing matches your search/filter.</p>
               ) : (
-                chapters.map((c, i) => (
-                  <div key={c.id} className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-secondary/40 transition-colors">
-                    <input type="checkbox" className="accent-primary w-4 h-4 cursor-pointer" checked={c.include} onChange={() => toggle(c.id)} />
-                    <span className={`flex-1 text-sm truncate ${c.include ? 'text-foreground' : 'text-muted-foreground/60 line-through'}`}>{c.title}</span>
-                    <button onClick={() => move(i, -1)} disabled={i === 0} className="w-6 h-6 flex items-center justify-center rounded text-muted-foreground hover:text-primary hover:bg-secondary/60 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-all">
-                      <ChevronUp className="w-3.5 h-3.5" />
-                    </button>
-                    <button onClick={() => move(i, 1)} disabled={i === chapters.length - 1} className="w-6 h-6 flex items-center justify-center rounded text-muted-foreground hover:text-primary hover:bg-secondary/60 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-all">
-                      <ChevronDown className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                ))
+                <>
+                  {/* Directory rows — toggling one selects/deselects everything inside it. */}
+                  {visibleFolders.map((f) => {
+                    const docs = docsInFolder(f.id);
+                    const sel = docs.filter((d) => d.include).length;
+                    const all = sel === docs.length;
+                    return (
+                      <div key={`f-${f.id}`} className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-secondary/40 transition-colors">
+                        <input
+                          type="checkbox"
+                          className="accent-primary w-4 h-4 cursor-pointer"
+                          checked={all}
+                          ref={(el) => {
+                            if (el) el.indeterminate = sel > 0 && !all;
+                          }}
+                          onChange={() => toggleDirectory(f.id)}
+                        />
+                        <Folder className="w-3.5 h-3.5 text-amber-500/80 shrink-0" />
+                        <span className="flex-1 text-sm font-medium truncate text-foreground">{f.name}</span>
+                        <span className="text-[10px] text-muted-foreground/70 shrink-0">{sel}/{docs.length}</span>
+                      </div>
+                    );
+                  })}
+
+                  {visibleFolders.length > 0 && visibleDocs.length > 0 && (
+                    <div className="h-px bg-border/30 mx-2 my-1" />
+                  )}
+
+                  {/* Document rows */}
+                  {visibleDocs.map((c, i) => {
+                    const Icon = KIND_META[c.kind].icon;
+                    return (
+                      <div key={c.id} className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-secondary/40 transition-colors">
+                        <input type="checkbox" className="accent-primary w-4 h-4 cursor-pointer" checked={c.include} onChange={() => toggle(c.id)} />
+                        <Icon className="w-3.5 h-3.5 text-muted-foreground/80 shrink-0" />
+                        <span className={`flex-1 text-sm truncate ${c.include ? 'text-foreground' : 'text-muted-foreground/60 line-through'}`}>{c.title}</span>
+                        <button onClick={() => moveVisible(c.id, -1)} disabled={i === 0} className="w-6 h-6 flex items-center justify-center rounded text-muted-foreground hover:text-primary hover:bg-secondary/60 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-all">
+                          <ChevronUp className="w-3.5 h-3.5" />
+                        </button>
+                        <button onClick={() => moveVisible(c.id, 1)} disabled={i === visibleDocs.length - 1} className="w-6 h-6 flex items-center justify-center rounded text-muted-foreground hover:text-primary hover:bg-secondary/60 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-all">
+                          <ChevronDown className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </>
               )}
             </div>
             <p className="text-[11px] text-muted-foreground/70">

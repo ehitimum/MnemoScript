@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { api } from '../lib/api';
+import { useMediaQuery } from '../lib/useMediaQuery';
 import type { Project } from '../types';
 import { FolderPlus } from 'lucide-react';
 
@@ -16,6 +17,7 @@ function ProjectCreationModal({ isOpen, onClose, onProjectCreated, defaultSavePa
   const [location, setLocation] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const isMobile = useMediaQuery('(max-width: 768px)');
 
   if (!isOpen) return null;
 
@@ -94,27 +96,31 @@ function ProjectCreationModal({ isOpen, onClose, onProjectCreated, defaultSavePa
             />
           </div>
 
-          <div className="flex flex-col gap-1.5">
-            <label className="text-2xs font-semibold text-muted-foreground uppercase tracking-wider">
-              Target Disk Path Location
-            </label>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                className="flex-1 bg-secondary/15 border border-border/20 text-muted-foreground/75 text-xs rounded-lg px-3 py-2.5 outline-none truncate"
-                placeholder={defaultSavePath ? `Default: ${defaultSavePath}` : 'Default: ~/.mnemoscript/projects'}
-                value={location}
-                readOnly
-              />
-              <button 
-                type="button" 
-                className="bg-secondary text-foreground hover:bg-secondary/80 px-4 py-2.5 text-xs font-semibold rounded-lg cursor-pointer transition-all border border-border/30 flex-shrink-0" 
-                onClick={handleBrowseLocation}
-              >
-                Browse...
-              </button>
+          {/* On mobile, storage is app-private and not user-selectable, so the
+              disk-path picker is hidden — projects save to app storage. */}
+          {!isMobile && (
+            <div className="flex flex-col gap-1.5">
+              <label className="text-2xs font-semibold text-muted-foreground uppercase tracking-wider">
+                Target Disk Path Location
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  className="flex-1 bg-secondary/15 border border-border/20 text-muted-foreground/75 text-xs rounded-lg px-3 py-2.5 outline-none truncate"
+                  placeholder={defaultSavePath ? `Default: ${defaultSavePath}` : 'Default: ~/.mnemoscript/projects'}
+                  value={location}
+                  readOnly
+                />
+                <button
+                  type="button"
+                  className="bg-secondary text-foreground hover:bg-secondary/80 px-4 py-2.5 text-xs font-semibold rounded-lg cursor-pointer transition-all border border-border/30 flex-shrink-0"
+                  onClick={handleBrowseLocation}
+                >
+                  Browse...
+                </button>
+              </div>
             </div>
-          </div>
+          )}
 
           {error && (
             <p className="text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2">

@@ -614,7 +614,7 @@ function MindMapCanvas({ document: doc, onUpdateContent, onRequestSave }: MindMa
 
   return (
     <div className="flex-1 flex flex-col bg-background overflow-hidden relative">
-      <div className="h-10 bg-secondary/20 border-b border-border/30 flex items-center justify-between px-3 select-none gap-3">
+      <div className="min-h-10 bg-secondary/20 border-b border-border/30 flex flex-wrap items-center justify-between px-3 py-1 select-none gap-x-3 gap-y-1">
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-0.5">
             {SHAPES.map(({ id, label, Icon }) => (
