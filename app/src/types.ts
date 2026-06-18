@@ -1,4 +1,4 @@
-export type DocType = 'text' | 'mindmap';
+export type DocType = 'text' | 'mindmap' | 'fantasymap';
 
 export interface Project {
   id: string;

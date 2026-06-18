@@ -91,6 +91,35 @@ export const api = {
   },
 
   selectDirectory: () => call<string | null>('select_directory'),
+
+  /**
+   * Pick one or many images and copy them into the project's assets/, returning
+   * their persisted paths. Used by the Fantasy Map builder to import custom icon
+   * art (single or whole packs) and base-map backgrounds. Works on desktop and
+   * Android via the dialog/fs plugins; a no-op (empty list) in the browser.
+   */
+  importAssets: async (projectId: string): Promise<string[]> => {
+    if (!isTauri) return [];
+    const [{ open }, { readFile }] = await Promise.all([
+      import('@tauri-apps/plugin-dialog'),
+      import('@tauri-apps/plugin-fs'),
+    ]);
+    const selected = await open({
+      multiple: true,
+      directory: false,
+      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'] }],
+    });
+    if (!selected) return []; // cancelled
+    const files = Array.isArray(selected) ? selected : [selected];
+    const out: string[] = [];
+    for (const file of files) {
+      if (typeof file !== 'string') continue;
+      const bytes = await readFile(file);
+      const ext = /\.([a-zA-Z0-9]+)$/.exec(file)?.[1] ?? 'png';
+      out.push(await call<string>('save_asset', { projectId, ext, bytes: Array.from(bytes) }));
+    }
+    return out;
+  },
 };
 
 /* ------------------------------------------------------------------------- *

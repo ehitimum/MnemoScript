@@ -10,6 +10,7 @@ import {
   FileText,
   BookOpen,
   Layers,
+  Map as MapIcon,
   Edit3,
   File,
   Search,
@@ -152,6 +153,7 @@ function Sidebar({
     if (t.includes('chapter')) return <BookOpen className="w-3.5 h-3.5 text-amber-500/80" />;
     if (t.includes('note')) return <Edit3 className="w-3.5 h-3.5 text-emerald-500/80" />;
     if (t.includes('mindmap')) return <Layers className="w-3.5 h-3.5 text-purple-500/80" />;
+    if (t.includes('map')) return <MapIcon className="w-3.5 h-3.5 text-teal-500/80" />;
     if (t.includes('scene')) return <FileText className="w-3.5 h-3.5 text-sky-500/80" />;
     return <File className="w-3.5 h-3.5 text-muted-foreground/80" />;
   };
@@ -482,6 +484,9 @@ function Sidebar({
       <button className="ctx-item" onClick={() => handleAutoCreate('MindMap', 'mindmap', folderId)}>
         <Layers className="w-3.5 h-3.5" /> New MindMap
       </button>
+      <button className="ctx-item" onClick={() => handleAutoCreate('Fantasy Map', 'fantasymap', folderId)}>
+        <MapIcon className="w-3.5 h-3.5" /> New Fantasy Map
+      </button>
       <button className="ctx-item" onClick={() => startCreateFolder(withSubfolder ? folderId : null)}>
         <FolderPlus className="w-3.5 h-3.5" /> {withSubfolder ? 'New Subfolder' : 'New Directory'}
       </button>
@@ -526,6 +531,9 @@ function Sidebar({
               </button>
               <button className="ctx-item" onClick={() => handleAutoCreate('MindMap', 'mindmap')}>
                 <Layers className="w-3.5 h-3.5" /> New MindMap
+              </button>
+              <button className="ctx-item" onClick={() => handleAutoCreate('Fantasy Map', 'fantasymap')}>
+                <MapIcon className="w-3.5 h-3.5" /> New Fantasy Map
               </button>
               <button className="ctx-item" onClick={() => handleAutoCreate('Scene')}>
                 <FileText className="w-3.5 h-3.5" /> New Scene

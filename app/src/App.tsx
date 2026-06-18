@@ -1,7 +1,12 @@
-import { useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
+import { useState, useEffect, useRef, useCallback, lazy, Suspense, type ReactNode } from 'react';
 import Sidebar from './components/Sidebar';
 import Editor from './components/Editor';
 import MindMap from './components/MindMap';
+import { createDefaultMapDoc } from './components/fantasymap/mapTypes';
+
+// The map studio pulls in Konva + the icon set + an SVG renderer, so load it on
+// demand (only when a fantasy-map document is opened) to keep the initial bundle lean.
+const FantasyMap = lazy(() => import('./components/FantasyMap'));
 import Header from './components/Header';
 import RightSidebar from './components/RightSidebar';
 import ProjectCreationModal from './components/ProjectCreationModal';
@@ -83,6 +88,7 @@ function App() {
   const [autoSaveEnabled, setAutoSaveEnabled] = useState(true);
 
   const isMindMap = selectedDocument?.docType === 'mindmap';
+  const isFantasyMap = selectedDocument?.docType === 'fantasymap';
 
   // Load all projects from disk on startup (metadata only; documents are loaded on open).
   useEffect(() => {
@@ -191,7 +197,12 @@ function App() {
     folderId: string | null = null,
   ) => {
     if (!selectedProject) return;
-    const initialContent = docType === 'mindmap' ? '{"nodes":[],"edges":[]}' : '';
+    const initialContent =
+      docType === 'mindmap'
+        ? '{"nodes":[],"edges":[]}'
+        : docType === 'fantasymap'
+          ? JSON.stringify(createDefaultMapDoc('world'))
+          : '';
     try {
       const created = await api.createDocument(selectedProject.id, title, initialContent, docType, documents.length);
       // The backend `create_document` command doesn't take a folder; if the doc
@@ -516,6 +527,17 @@ function App() {
               onRequestSave={persistCurrent}
               theme={theme}
             />
+          ) : isFantasyMap && selectedDocument && !isEditingSettings ? (
+            <Suspense fallback={<div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">Loading map studio…</div>}>
+              <FantasyMap
+                key={selectedDocument.id}
+                document={selectedDocument}
+                projectId={selectedProject.id}
+                onUpdateContent={handleUpdateDocumentContent}
+                onRequestSave={persistCurrent}
+                theme={theme}
+              />
+            </Suspense>
           ) : (
             <Editor
               projectId={selectedProject.id}
@@ -543,7 +565,7 @@ function App() {
             />
           )}
 
-          {isRightSidebarOpen && !isEditingSettings && !isMindMap && (() => {
+          {isRightSidebarOpen && !isEditingSettings && !isMindMap && !isFantasyMap && (() => {
             const panel = (
               <RightSidebar
                 editor={activeEditor}
@@ -585,6 +607,8 @@ function App() {
               <div className="h-3 w-px bg-accent-foreground/20" />
               {isMindMap ? (
                 <span className="opacity-90">Mind Map Canvas</span>
+              ) : isFantasyMap ? (
+                <span className="opacity-90">Fantasy Map Studio</span>
               ) : (
                 <>
                   <span><strong>{wordCount}</strong> words</span>

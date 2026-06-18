@@ -13,6 +13,7 @@ import {
   FileText,
   Edit3,
   Layers,
+  Map as MapIcon,
   File,
   type LucideIcon,
 } from 'lucide-react';
@@ -25,7 +26,7 @@ interface BookCompilerProps {
 
 // A document's category is derived the same way the sidebar derives its icon:
 // mindmaps come from docType, the rest from a title keyword, else "custom".
-type Kind = 'chapter' | 'note' | 'scene' | 'mindmap' | 'directory' | 'custom';
+type Kind = 'chapter' | 'note' | 'scene' | 'mindmap' | 'map' | 'directory' | 'custom';
 
 interface Chapter {
   id: string;
@@ -42,6 +43,7 @@ const KINDS: { id: Kind; label: string; icon: LucideIcon }[] = [
   { id: 'note', label: 'Note', icon: Edit3 },
   { id: 'scene', label: 'Scene', icon: FileText },
   { id: 'mindmap', label: 'Mind map', icon: Layers },
+  { id: 'map', label: 'Fantasy map', icon: MapIcon },
   { id: 'directory', label: 'Directory', icon: Folder },
   { id: 'custom', label: 'Custom', icon: File },
 ];
@@ -49,6 +51,7 @@ const KIND_META = Object.fromEntries(KINDS.map((k) => [k.id, k])) as Record<Kind
 
 function kindOfDoc(d: Document): Kind {
   if (d.docType === 'mindmap') return 'mindmap';
+  if (d.docType === 'fantasymap') return 'map';
   const t = d.title.toLowerCase();
   if (t.includes('chapter')) return 'chapter';
   if (t.includes('note')) return 'note';
@@ -74,7 +77,43 @@ function plainText(c: Chapter): string {
       return '';
     }
   }
+  if (c.kind === 'map') {
+    const m = mapSummary(c.content);
+    return [...m.regions, ...m.labels].join(' ');
+  }
   return c.content.replace(/<[^>]*>/g, ' ');
+}
+
+/** Pull the named regions and labels out of a fantasy-map document. */
+function mapSummary(content: string): { regions: string[]; labels: string[]; kind: string } {
+  try {
+    const d = JSON.parse(content || '{}') as {
+      kind?: string;
+      regions?: { name?: string }[];
+      labels?: { text?: string }[];
+    };
+    return {
+      kind: d.kind ?? 'world',
+      regions: (d.regions ?? []).map((r) => r?.name ?? '').filter(Boolean),
+      labels: (d.labels ?? []).map((l) => l?.text ?? '').filter(Boolean),
+    };
+  } catch {
+    return { regions: [], labels: [], kind: 'world' };
+  }
+}
+
+/** Render a fantasy map as a printable gazetteer (named regions + labels).
+ *  A full rendered-image export is a later enhancement. */
+function mapToHtml(content: string): string {
+  const m = mapSummary(content);
+  if (!m.regions.length && !m.labels.length) return '<p><em>(Empty fantasy map)</em></p>';
+  const section = (heading: string, items: string[]) =>
+    items.length ? `<h3>${escapeHtml(heading)}</h3><ul>${items.map((i) => `<li>${escapeHtml(i)}</li>`).join('')}</ul>` : '';
+  return (
+    `<p><em>${escapeHtml(m.kind)} map</em></p>` +
+    section('Regions', m.regions) +
+    section('Marked places', m.labels)
+  );
 }
 
 /** Render a mind map's node labels as a simple list (its content is JSON, not HTML). */
@@ -124,7 +163,7 @@ function BookCompiler({ onClose, project, documents }: BookCompilerProps) {
       docType: d.docType,
       kind: kindOfDoc(d),
       folderId: d.folderId ?? null,
-      include: d.docType !== 'mindmap', // mind maps off by default
+      include: d.docType !== 'mindmap' && d.docType !== 'fantasymap', // canvas docs off by default
     })),
   );
 
@@ -222,7 +261,9 @@ function BookCompiler({ onClose, project, documents }: BookCompilerProps) {
       .map(
         (c) =>
           `<section class="chapter"><h1 class="chapter-title">${escapeHtml(c.title)}</h1>${
-            c.kind === 'mindmap' ? mindmapToHtml(c.content) : resolveImagesInHtml(c.content)
+            c.kind === 'mindmap' ? mindmapToHtml(c.content)
+              : c.kind === 'map' ? mapToHtml(c.content)
+                : resolveImagesInHtml(c.content)
           }</section>`,
       )
       .join('');
