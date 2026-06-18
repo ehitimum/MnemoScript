@@ -5,6 +5,7 @@ import type Konva from 'konva';
 import type { KonvaEventObject } from 'konva/lib/Node';
 import {
   MousePointer2, Hand, MapPin, Hexagon, Spline, Type as TypeIcon,
+  Mountain, Droplets, SprayCan,
   Undo2, Redo2, Wand2, ZoomIn, ZoomOut, Maximize, Save, PanelLeft, PanelRight,
   Copy, Trash2, ArrowUpToLine, ArrowDownToLine, Lock, ClipboardPaste, Image as ImageIcon,
 } from 'lucide-react';
@@ -18,7 +19,9 @@ import type {
   FantasyMapDoc, GenParams, MapItem, MapRegion, MapRoute, MapLabel, MapKind, LayerId,
 } from './fantasymap/mapTypes';
 import { parseMapDoc, mapId, mapKindDef, DEFAULT_GEN_PARAMS } from './fantasymap/mapTypes';
-import { buildHeightField, renderTerrainCanvas, generateMap, randomSeed } from './fantasymap/generator';
+import { generateMap } from './fantasymap/generator';
+import { HeightMap, randomSeed } from './fantasymap/heightmap';
+import { makeParchment } from './fantasymap/parchment';
 import { useImage } from './fantasymap/useImage';
 import { useMapHistory } from './fantasymap/useMapHistory';
 import LibraryPanel, { type PickedIcon } from './fantasymap/LibraryPanel';
@@ -33,11 +36,15 @@ interface FantasyMapProps {
   theme: ThemeType;
 }
 
-type Tool = 'select' | 'pan' | 'stamp' | 'region' | 'route' | 'label';
+type Tool = 'select' | 'pan' | 'land' | 'sea' | 'stamp' | 'scatter' | 'region' | 'route' | 'label';
+const BRUSH_TOOLS: Tool[] = ['land', 'sea', 'scatter'];
 const TOOLS: { id: Tool; label: string; Icon: typeof MousePointer2 }[] = [
   { id: 'select', label: 'Select / move', Icon: MousePointer2 },
   { id: 'pan', label: 'Pan', Icon: Hand },
-  { id: 'stamp', label: 'Place icon', Icon: MapPin },
+  { id: 'land', label: 'Land brush — paint coastline & terrain', Icon: Mountain },
+  { id: 'sea', label: 'Sea brush — carve water', Icon: Droplets },
+  { id: 'stamp', label: 'Place one icon', Icon: MapPin },
+  { id: 'scatter', label: 'Scatter brush — paint many icons', Icon: SprayCan },
   { id: 'region', label: 'Draw region', Icon: Hexagon },
   { id: 'route', label: 'Draw road / river', Icon: Spline },
   { id: 'label', label: 'Add label', Icon: TypeIcon },
@@ -63,6 +70,13 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
   const [ctxMenu, setCtxMenu] = useState<CtxMenu>(null);
   const clipboard = useRef<MapItem | null>(null);
 
+  // Brush settings (land/sea/scatter) + live-stroke refs.
+  const [brushSize, setBrushSize] = useState(90);
+  const [brushStrength, setBrushStrength] = useState(0.6);
+  const [scatterSpacing, setScatterSpacing] = useState(46);
+  const paintingRef = useRef<{ raise: boolean } | null>(null);
+  const scatterRef = useRef<{ last: { x: number; y: number } } | null>(null);
+
   const [leftOpen, setLeftOpen] = useState(!isMobile);
   const [rightOpen, setRightOpen] = useState(!isMobile);
   useEffect(() => { setLeftOpen(!isMobile); setRightOpen(!isMobile); }, [isMobile]);
@@ -73,8 +87,35 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
     setDoc((prev) => fn(prev));
   }, [history]);
 
-  const doUndo = useCallback(() => { const p = history.undo(docRef.current); if (p) { setDoc(p); setSelection(null); } }, [history]);
-  const doRedo = useCallback(() => { const n = history.redo(docRef.current); if (n) { setDoc(n); setSelection(null); } }, [history]);
+  // ── Terrain heightmap (paintable; shared with the generator) ──────────
+  const [terrainCanvas, setTerrainCanvas] = useState<HTMLCanvasElement | null>(null);
+  const heightRef = useRef<HeightMap | null>(null);
+  const renderRaf = useRef(0);
+  const renderTerrain = useCallback(() => {
+    setTerrainCanvas(heightRef.current ? heightRef.current.render() : null);
+  }, []);
+  const scheduleRender = useCallback(() => {
+    if (renderRaf.current) return;
+    renderRaf.current = requestAnimationFrame(() => { renderRaf.current = 0; renderTerrain(); });
+  }, [renderTerrain]);
+  // Rebuild the live heightmap from a document's terrain state (mount, undo, redo).
+  const syncHeightFromDoc = useCallback((d: FantasyMapDoc) => {
+    const t = d.terrain;
+    if (t.mode === 'generated' && t.params) {
+      heightRef.current = HeightMap.fromNoise(t.params, d.canvas.width, d.canvas.height);
+      renderTerrain();
+    } else if (t.mode === 'painted' && t.heightPng) {
+      HeightMap.fromDataURL(t.heightPng, t.seaLevel ?? 0.4, t.biomePreset ?? 'temperate')
+        .then((hm) => { heightRef.current = hm; renderTerrain(); })
+        .catch(() => {});
+    } else {
+      heightRef.current = null;
+      setTerrainCanvas(null);
+    }
+  }, [renderTerrain]);
+
+  const doUndo = useCallback(() => { const p = history.undo(docRef.current); if (p) { setDoc(p); setSelection(null); syncHeightFromDoc(p); } }, [history, syncHeightFromDoc]);
+  const doRedo = useCallback(() => { const n = history.redo(docRef.current); if (n) { setDoc(n); setSelection(null); syncHeightFromDoc(n); } }, [history, syncHeightFromDoc]);
 
   // ── Persist (debounced) after the first render ────────────────────────
   const didMount = useRef(false);
@@ -144,17 +185,15 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
     return { x: (p.x - view.x) / view.scale, y: (p.y - view.y) / view.scale };
   };
 
-  // ── Terrain raster (derived from seed+params; not persisted) ──────────
-  const [terrainCanvas, setTerrainCanvas] = useState<HTMLCanvasElement | null>(null);
-  useEffect(() => {
-    if (doc.terrain.mode === 'generated' && doc.terrain.params) {
-      const hf = buildHeightField(doc.terrain.params, W, H);
-      setTerrainCanvas(renderTerrainCanvas(doc.terrain.params, hf));
-    } else {
-      setTerrainCanvas(null);
-    }
-  }, [doc.terrain, W, H]);
+  // Build the terrain raster once on mount (component is keyed by doc id).
+  useEffect(() => { syncHeightFromDoc(docRef.current); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const terrainImg = useImage(doc.terrain.mode === 'image' ? toAssetUrl(doc.terrain.imagePath || '') : undefined);
+
+  // Procedural parchment page background (cached per size+colour).
+  const parchment = useMemo(
+    () => (doc.canvas.background.type === 'parchment' ? makeParchment(W, H, doc.canvas.background.value) : null),
+    [doc.canvas.background.type, doc.canvas.background.value, W, H],
+  );
 
   // ── Selection → transformer wiring ────────────────────────────────────
   useEffect(() => {
@@ -258,6 +297,34 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
     setTool('select');
   };
 
+  // ── Brush painting (land/sea heightmap + icon scatter) ────────────────
+  const paintAt = (mx: number, my: number, raise: boolean) => {
+    if (!heightRef.current) heightRef.current = HeightMap.blank(W, H, genParams.biomePreset, 0.4);
+    heightRef.current.paint(mx, my, brushSize, brushStrength, raise, W, H);
+    scheduleRender();
+  };
+  const commitTerrainPaint = () => {
+    const hm = heightRef.current;
+    if (!hm) return;
+    // History was snapshotted at stroke start; persist without a second snapshot.
+    mutate((d) => ({
+      ...d,
+      terrain: { mode: 'painted', heightPng: hm.toDataURL(), seaLevel: hm.seaLevel, biomePreset: hm.preset },
+    }), false);
+  };
+  const scatterStamp = (mx: number, my: number) => {
+    if (!picked) return;
+    const jx = mx + (Math.random() - 0.5) * brushSize * 0.7;
+    const jy = my + (Math.random() - 0.5) * brushSize * 0.7;
+    const item: MapItem = {
+      id: mapId('it'), libId: picked.libId, assetPath: picked.assetPath,
+      x: jx, y: jy, width: picked.size, height: picked.size,
+      scale: 0.7 + Math.random() * 0.7, rotation: 0, z: nextZ(docRef.current.items),
+      tint: picked.libId ? '#3a2f23' : undefined,
+    };
+    mutate((d) => ({ ...d, items: [...d.items, item] }), false);
+  };
+
   // ── Stage events ──────────────────────────────────────────────────────
   const onStageMouseDown = (e: KonvaEventObject<MouseEvent>) => {
     setCtxMenu(null);
@@ -265,6 +332,18 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
     const m = pointerToMap();
     if (!m) return;
 
+    if (tool === 'land' || tool === 'sea') {
+      history.snapshot(docRef.current);
+      paintingRef.current = { raise: tool === 'land' };
+      paintAt(m.x, m.y, tool === 'land');
+      return;
+    }
+    if (tool === 'scatter' && picked) {
+      history.snapshot(docRef.current);
+      scatterRef.current = { last: m };
+      scatterStamp(m.x, m.y);
+      return;
+    }
     if (tool === 'stamp' && picked) { stampAt(m.x, m.y); return; }
     if (tool === 'label') { addLabel(m.x, m.y); return; }
     if (tool === 'region' || tool === 'route') {
@@ -278,6 +357,32 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
     if (tool === 'select' && bg) setSelection(null);
   };
 
+  const onStageMouseMove = () => {
+    if (!paintingRef.current && !scatterRef.current) return;
+    const m = pointerToMap();
+    if (!m) return;
+    if (paintingRef.current) { paintAt(m.x, m.y, paintingRef.current.raise); return; }
+    if (scatterRef.current) {
+      const last = scatterRef.current.last;
+      if (Math.hypot(m.x - last.x, m.y - last.y) >= scatterSpacing) {
+        scatterStamp(m.x, m.y);
+        scatterRef.current.last = m;
+      }
+    }
+  };
+
+  const endStroke = () => {
+    if (paintingRef.current) { paintingRef.current = null; commitTerrainPaint(); }
+    scatterRef.current = null;
+  };
+
+  // End brush strokes even if the pointer is released outside the canvas.
+  useEffect(() => {
+    const up = () => endStroke();
+    window.addEventListener('pointerup', up);
+    return () => window.removeEventListener('pointerup', up);
+  }); // eslint-disable-line react-hooks/exhaustive-deps
+
   const onStageDblClick = () => { if (draft) commitDraft(); };
 
   const onStageContextMenu = (e: KonvaEventObject<MouseEvent>) => {
@@ -290,10 +395,10 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
 
   // ── Generate ──────────────────────────────────────────────────────────
   const runGenerate = (params: GenParams) => {
-    mutate((d) => {
-      const { regions, items } = generateMap(params, d.canvas.width, d.canvas.height);
-      return { ...d, terrain: { mode: 'generated', seed: params.seed, params }, regions, items };
-    });
+    const { hm, regions, items } = generateMap(params, W, H);
+    heightRef.current = hm;
+    renderTerrain();
+    mutate((d) => ({ ...d, terrain: { mode: 'generated', seed: params.seed, params }, regions, items }));
     setSelection(null);
     requestAnimationFrame(fitToScreen);
   };
@@ -319,6 +424,8 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
     runGenerate(p);
   };
   const onClearGen = () => {
+    heightRef.current = null;
+    setTerrainCanvas(null);
     mutate((d) => ({ ...d, terrain: { mode: 'none' }, regions: [], items: [] }));
     setSelection(null);
   };
@@ -377,8 +484,6 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
   const sortedItems = useMemo(() => [...doc.items].sort((a, b) => a.z - b.z), [doc.items]);
   const lm = doc.layersMeta;
 
-  const bgFill = doc.canvas.background.type === 'parchment' ? doc.canvas.background.value : doc.canvas.background.value;
-
   const selectable = tool === 'select';
   const kindDef = mapKindDef(doc.kind);
 
@@ -388,7 +493,7 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
       <div className="min-h-10 bg-secondary/20 border-b border-border/30 flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-1 select-none">
         <div className="flex items-center gap-0.5">
           {TOOLS.map(({ id, label, Icon }) => (
-            <button key={id} title={label} onClick={() => { setTool(id); if (id !== 'stamp') setPicked(null); if (id !== 'region' && id !== 'route') setDraft(null); }}
+            <button key={id} title={label} onClick={() => { setTool(id); if (id !== 'stamp' && id !== 'scatter') setPicked(null); if (id !== 'region' && id !== 'route') setDraft(null); }}
               className={`fm-tool ${tool === id ? 'is-active' : ''}`}>
               <Icon className="w-4 h-4" />
             </button>
@@ -437,6 +542,44 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
         </div>
       )}
 
+      {/* Brush options */}
+      {BRUSH_TOOLS.includes(tool) && (
+        <div className="fm-brushbar">
+          <span className="text-[11px] font-semibold flex items-center gap-1.5">
+            {tool === 'land' ? <><Mountain className="w-3.5 h-3.5" /> Land brush</>
+              : tool === 'sea' ? <><Droplets className="w-3.5 h-3.5" /> Sea brush</>
+              : <><SprayCan className="w-3.5 h-3.5" /> Scatter brush</>}
+          </span>
+          <label className="flex items-center gap-1.5">
+            <span className="text-[10px] text-muted-foreground">Size</span>
+            <input type="range" className="fm-range w-24" min={20} max={320} step={5}
+              value={brushSize} onChange={(e) => setBrushSize(Number(e.target.value))} />
+          </label>
+          {(tool === 'land' || tool === 'sea') && (
+            <label className="flex items-center gap-1.5">
+              <span className="text-[10px] text-muted-foreground">Strength</span>
+              <input type="range" className="fm-range w-20" min={0.1} max={1} step={0.05}
+                value={brushStrength} onChange={(e) => setBrushStrength(Number(e.target.value))} />
+            </label>
+          )}
+          {tool === 'scatter' && (
+            <>
+              <label className="flex items-center gap-1.5">
+                <span className="text-[10px] text-muted-foreground">Spacing</span>
+                <input type="range" className="fm-range w-20" min={16} max={140} step={2}
+                  value={scatterSpacing} onChange={(e) => setScatterSpacing(Number(e.target.value))} />
+              </label>
+              <span className="text-[10px] text-muted-foreground">
+                {picked ? <>Painting <b className="text-foreground">{picked.label}</b></> : 'Pick an icon from the library →'}
+              </span>
+            </>
+          )}
+          {(tool === 'land' || tool === 'sea') && (
+            <span className="text-[10px] text-muted-foreground/70 hidden md:inline">Drag on the map to paint terrain</span>
+          )}
+        </div>
+      )}
+
       {/* Body */}
       <div className="flex-1 min-h-0 flex relative">
         {/* Left library */}
@@ -444,7 +587,7 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
           <div className={isMobile ? 'absolute z-40 left-0 top-0 bottom-0 w-64 shadow-2xl' : 'w-60 shrink-0 border-r border-border/30'}>
             <LibraryPanel
               active={picked} imports={doc.imports}
-              onPick={(p) => { setPicked(p); if (p) setTool('stamp'); else setTool('select'); }}
+              onPick={(p) => { setPicked(p); if (p) { if (tool !== 'scatter') setTool('stamp'); } else if (tool === 'stamp' || tool === 'scatter') setTool('select'); }}
               onImport={importIcons} onImportBackground={importBackground}
             />
           </div>
@@ -459,10 +602,15 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
             onWheel={onWheel}
             onMouseDown={onStageMouseDown}
             onTap={onStageMouseDown as unknown as (e: KonvaEventObject<Event>) => void}
+            onMouseMove={onStageMouseMove}
+            onTouchMove={onStageMouseMove}
+            onMouseUp={endStroke}
+            onTouchEnd={endStroke}
+            onMouseLeave={endStroke}
             onDblClick={onStageDblClick}
             onDblTap={onStageDblClick}
             onContextMenu={onStageContextMenu}
-            style={{ cursor: tool === 'pan' ? 'grab' : tool === 'stamp' ? 'copy' : 'default' }}
+            style={{ cursor: tool === 'pan' ? 'grab' : (tool === 'land' || tool === 'sea') ? 'crosshair' : (tool === 'stamp' || tool === 'scatter') ? 'copy' : 'default' }}
           >
             <Layer
               x={view.x} y={view.y} scaleX={view.scale} scaleY={view.scale}
@@ -470,8 +618,11 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
               onDragEnd={(e) => { if (e.target.getClassName() === 'Layer') setView((v) => ({ ...v, x: e.target.x(), y: e.target.y() })); }}
             >
               {/* Page / background */}
-              <Rect name="bg" x={0} y={0} width={W} height={H} fill={bgFill}
+              <Rect name="bg" x={0} y={0} width={W} height={H} fill={doc.canvas.background.value}
                 stroke="#0000001a" strokeWidth={1 / view.scale} shadowColor="#000" shadowBlur={16} shadowOpacity={0.18} />
+              {parchment && (
+                <KonvaImage image={parchment} x={0} y={0} width={W} height={H} listening={false} />
+              )}
 
               {/* Terrain */}
               {lm.terrain.visible && terrainCanvas && (
@@ -559,7 +710,7 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
               <div className="text-center text-muted-foreground/60 max-w-xs">
                 <Wand2 className="w-8 h-8 mx-auto mb-3 opacity-50" />
                 <p className="text-sm font-medium mb-1">{kindDef.title}</p>
-                <p className="text-xs leading-relaxed">Hit <b>Generate</b> for an instant world, or pick an icon from the library and start placing things by hand.</p>
+                <p className="text-xs leading-relaxed">Hit <b>Generate</b> for an instant world — or grab the <b>Land brush</b> and paint your own coastline, then scatter forests &amp; towns with the library.</p>
               </div>
             </div>
           )}

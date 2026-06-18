@@ -15,8 +15,15 @@ keyed by document id so it re-parses cleanly on open.
   land amount, coastline detail, biome preset and icon-scatter density. Hit
   **Generate**, **Regenerate** (new seed) or **🎲 Randomize** (randomises every
   field). Everything it makes stays fully hand-editable.
-- **Build by hand** with the toolbar tools: Select/move, Pan, Place icon (Stamp),
-  Draw region (named polygon), Draw road/river, Add label.
+- **Paint terrain with brushes** (Inkarnate-style): the **Land brush** raises a
+  coastline and terrain, the **Sea brush** carves water — both edit a shared
+  heightmap that's rendered with a procedural look: parchment paper base, a soft
+  **coastline glow**, elevation-banded **biome colours** and a subtle mottled land
+  texture. A generated map is fully paintable afterwards (and vice-versa).
+- **Scatter brush**: pick a library icon, then drag to paint many of it at once
+  (jittered position + size) — great for forests, hills and clustered buildings.
+- **Build by hand** with the rest of the toolbar: Select/move, Pan, Place one icon
+  (Stamp), Draw region (named polygon), Draw road/river, Add label.
 - **Icon library** (left panel): ~60 curated fantasy glyphs across Terrain,
   Settlements, Sites, Water, Creatures and Markers — searchable and recolourable.
 - **Inspector** (right panel): edit the selected object (size, rotation, colour,

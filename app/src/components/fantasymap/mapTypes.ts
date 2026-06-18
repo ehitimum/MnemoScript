@@ -102,11 +102,15 @@ export interface GenParams {
 }
 
 export interface TerrainState {
-  mode: 'generated' | 'image' | 'none';
+  mode: 'generated' | 'painted' | 'image' | 'none';
   seed?: number;
   params?: GenParams;
   imagePath?: string;       // when mode === 'image'
-  bakedAssetPath?: string;  // optional Phase-2 raster bake
+  // when mode === 'painted' (brush-edited or baked-from-generated):
+  heightPng?: string;       // grayscale PNG data-URL of the heightmap grid
+  seaLevel?: number;
+  biomePreset?: BiomePreset;
+  bakedAssetPath?: string;  // optional raster bake
 }
 
 /** A user-imported image registered in the "My Imports" library tab. */
