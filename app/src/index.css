@@ -221,6 +221,18 @@
   }
 }
 
+/* ── Mobile safe areas (status bar / nav bar / display notches) ──────────────
+   With viewport-fit=cover the Tauri WebView renders edge-to-edge *under* the
+   Android system bars. Padding the app shell by the safe-area insets keeps the
+   header out from behind the status bar and the footer above the nav buttons.
+   env() resolves to 0 on desktop, so this is a no-op there. */
+.safe-area-insets {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
 /* `inline` is essential: it substitutes the raw var() into each utility so that
    overriding the token on <body> re-themes everything at runtime. Without it the
    tokens resolve once at :root and theme switching silently does nothing. */
@@ -351,6 +363,17 @@
   border: 1px solid rgba(255, 255, 255, 0.25);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
   transition: box-shadow 0.15s ease, transform 0.1s ease, border-radius 0.15s ease;
+  /* Suppress the default touch callout / text-selection so a long-press fires
+     our context menu (copy/cut/paste/delete) instead of selecting label text. */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* …but the inline editor must still allow normal text selection. */
+.mindmap-node-input {
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 /* Selection ring uses outline so it survives clip-path shapes (diamond). */

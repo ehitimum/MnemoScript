@@ -41,6 +41,11 @@ import {
   ListOrdered,
   Minus,
   CheckSquare,
+  Copy,
+  Scissors,
+  CopyPlus,
+  ClipboardPaste,
+  Trash2,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -543,6 +548,76 @@ function MindMapCanvas({ document: doc, onUpdateContent, onRequestSave }: MindMa
     return true;
   }, [takeSnapshot]);
 
+  // ── Context menu (right-click on desktop, long-press on touch) ─────────────
+  // Gives mobile users copy/cut/duplicate/paste/delete since there's no keyboard
+  // Delete key. `nodeId === null` means it was opened on the empty canvas.
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; nodeId: string | null; edgeId: string | null } | null>(null);
+  const clipboardRef = useRef<MindNodeData | null>(null);
+  const ctxOpenedAtRef = useRef(0);
+
+  const onNodeContextMenu = useCallback((e: React.MouseEvent, node: MindNode) => {
+    e.preventDefault();
+    ctxOpenedAtRef.current = Date.now();
+    setCtxMenu({ x: e.clientX, y: e.clientY, nodeId: node.id, edgeId: null });
+  }, []);
+  const onEdgeContextMenu = useCallback((e: React.MouseEvent, edge: Edge) => {
+    e.preventDefault();
+    ctxOpenedAtRef.current = Date.now();
+    setCtxMenu({ x: e.clientX, y: e.clientY, nodeId: null, edgeId: edge.id });
+  }, []);
+  const onPaneContextMenu = useCallback((e: React.MouseEvent | MouseEvent) => {
+    e.preventDefault();
+    ctxOpenedAtRef.current = Date.now();
+    setCtxMenu({ x: e.clientX, y: e.clientY, nodeId: null, edgeId: null });
+  }, []);
+
+  // Run a menu action, but swallow the tap that can arrive from the finger
+  // lifting right after the long-press (so it doesn't auto-pick an item).
+  const runCtx = (fn: () => void) => {
+    if (Date.now() - ctxOpenedAtRef.current < 250) return;
+    fn();
+    setCtxMenu(null);
+  };
+
+  const deleteNodeById = (id: string) => {
+    takeSnapshot();
+    setNodes((nds) => nds.filter((n) => n.id !== id));
+    setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id));
+  };
+  const deleteEdgeById = (id: string) => {
+    takeSnapshot();
+    setEdges((eds) => eds.filter((e) => e.id !== id));
+  };
+  const copyNodeById = (id: string) => {
+    const n = nodes.find((x) => x.id === id);
+    if (n) clipboardRef.current = { ...n.data };
+  };
+  const duplicateNodeById = (id: string) => {
+    const n = nodes.find((x) => x.id === id);
+    if (!n) return;
+    takeSnapshot();
+    setNodes((nds) => [
+      ...nds.map((x) => ({ ...x, selected: false })),
+      {
+        ...n,
+        id: `n${idRef.current++}`,
+        position: { x: n.position.x + 36, y: n.position.y + 36 },
+        selected: true,
+        data: { ...n.data },
+      },
+    ]);
+  };
+  const pasteAt = (clientX: number, clientY: number) => {
+    const data = clipboardRef.current;
+    if (!data) return;
+    takeSnapshot();
+    const position = screenToFlowPosition({ x: clientX, y: clientY });
+    setNodes((nds) => [
+      ...nds.map((x) => ({ ...x, selected: false })),
+      { id: `n${idRef.current++}`, type: 'editable', position, selected: true, data: { ...data } },
+    ]);
+  };
+
   // Re-lay the map in the chosen flavour. Tree modes use dagre (hierarchical,
   // crossing-minimised via its median/barycenter ordering). "free" keeps the
   // user's arrangement and only straightens near-aligned nodes + de-overlaps.
@@ -615,7 +690,7 @@ function MindMapCanvas({ document: doc, onUpdateContent, onRequestSave }: MindMa
   return (
     <div className="flex-1 flex flex-col bg-background overflow-hidden relative">
       <div className="min-h-10 bg-secondary/20 border-b border-border/30 flex flex-wrap items-center justify-between px-3 py-1 select-none gap-x-3 gap-y-1">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
           <div className="flex items-center gap-0.5">
             {SHAPES.map(({ id, label, Icon }) => (
               <button
@@ -702,6 +777,10 @@ function MindMapCanvas({ document: doc, onUpdateContent, onRequestSave }: MindMa
           onNodeDragStart={onNodeDragStart}
           onSelectionDragStart={onSelectionDragStart}
           onBeforeDelete={onBeforeDelete}
+          onNodeContextMenu={onNodeContextMenu}
+          onEdgeContextMenu={onEdgeContextMenu}
+          onPaneContextMenu={onPaneContextMenu}
+          onMoveStart={() => setCtxMenu(null)}
           nodeTypes={nodeTypes}
           connectionMode={ConnectionMode.Loose}
           fitView
@@ -712,7 +791,75 @@ function MindMapCanvas({ document: doc, onUpdateContent, onRequestSave }: MindMa
           <MiniMap pannable zoomable className="!bg-secondary/40" />
         </ReactFlow>
       </div>
+
+      {ctxMenu &&
+        createPortal(
+          <>
+            {/* Backdrop: a tap/click anywhere closes the menu. */}
+            <div
+              className="fixed inset-0 z-[998]"
+              onPointerDown={() => setCtxMenu(null)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setCtxMenu(null);
+              }}
+            />
+            <div
+              className="fixed z-[999] min-w-[168px] p-1.5 rounded-xl border border-border/60 bg-popover text-popover-foreground shadow-[0_12px_40px_rgba(0,0,0,0.4)] animate-in fade-in zoom-in-95 duration-100"
+              style={{
+                left: Math.min(ctxMenu.x, window.innerWidth - 184),
+                top: Math.min(ctxMenu.y, window.innerHeight - 240),
+              }}
+            >
+              {ctxMenu.edgeId ? (
+                <CtxItem icon={Trash2} label="Delete connection" danger onSelect={() => runCtx(() => deleteEdgeById(ctxMenu.edgeId!))} />
+              ) : ctxMenu.nodeId ? (
+                <>
+                  <CtxItem icon={Copy} label="Copy" onSelect={() => runCtx(() => copyNodeById(ctxMenu.nodeId!))} />
+                  <CtxItem icon={Scissors} label="Cut" onSelect={() => runCtx(() => { copyNodeById(ctxMenu.nodeId!); deleteNodeById(ctxMenu.nodeId!); })} />
+                  <CtxItem icon={CopyPlus} label="Duplicate" onSelect={() => runCtx(() => duplicateNodeById(ctxMenu.nodeId!))} />
+                  {clipboardRef.current && (
+                    <CtxItem icon={ClipboardPaste} label="Paste" onSelect={() => runCtx(() => pasteAt(ctxMenu.x, ctxMenu.y))} />
+                  )}
+                  <div className="h-px bg-border/40 my-1" />
+                  <CtxItem icon={Trash2} label="Delete" danger onSelect={() => runCtx(() => deleteNodeById(ctxMenu.nodeId!))} />
+                </>
+              ) : clipboardRef.current ? (
+                <CtxItem icon={ClipboardPaste} label="Paste here" onSelect={() => runCtx(() => pasteAt(ctxMenu.x, ctxMenu.y))} />
+              ) : (
+                <div className="px-2.5 py-2 text-xs text-muted-foreground/70 italic">Long-press a node for actions</div>
+              )}
+            </div>
+          </>,
+          document.body,
+        )}
     </div>
+  );
+}
+
+function CtxItem({
+  icon: Icon,
+  label,
+  danger,
+  onSelect,
+}: {
+  icon: LucideIcon;
+  label: string;
+  danger?: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={onSelect}
+      className={`flex items-center gap-2.5 w-full text-left px-2.5 py-2 rounded-md cursor-pointer transition-colors ${
+        danger ? 'text-destructive hover:bg-destructive/10' : 'text-foreground/90 hover:bg-secondary/60'
+      }`}
+    >
+      <Icon className="w-4 h-4 shrink-0" />
+      <span className="text-sm font-medium">{label}</span>
+    </button>
   );
 }
 

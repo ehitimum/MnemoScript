@@ -342,7 +342,7 @@ function Sidebar({
     return (
       <>
         {creatingParent === parentId && (
-          <div className="flex items-center gap-1.5 px-2 py-1" style={{ paddingLeft: depth * 12 + 8 }}>
+          <div className="flex items-center gap-1.5 px-2 py-1" style={{ paddingLeft: depth * 12 + 20 }}>
             <FolderIcon className="w-3.5 h-3.5 text-amber-500/80 flex-shrink-0" />
             <input
               autoFocus
@@ -379,7 +379,7 @@ function Sidebar({
                 className={`flex items-center gap-1.5 pr-2 py-1.5 rounded-md cursor-pointer transition-all duration-150 group ${
                   isDrop ? 'bg-primary/15 ring-1 ring-primary/40' : 'hover:bg-secondary/40'
                 }`}
-                style={{ paddingLeft: depth * 12 + 6 }}
+                style={{ paddingLeft: depth * 12 + 18 }}
               >
                 <span className="text-muted-foreground/60 group-hover:text-foreground flex-shrink-0">
                   {isCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
@@ -439,7 +439,7 @@ function Sidebar({
                     ? 'bg-secondary/60 text-foreground border-primary/40'
                     : 'text-foreground/80 hover:bg-secondary/35 hover:text-foreground border-transparent'
               }`}
-              style={{ paddingLeft: depth * 12 + 12 }}
+              style={{ paddingLeft: depth * 12 + 24 }}
             >
               {getIconForDoc(doc.title)}
               {renamingDocId === doc.id ? (

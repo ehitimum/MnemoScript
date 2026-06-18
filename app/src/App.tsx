@@ -353,15 +353,20 @@ function App() {
     persistFolders(folders.map(f => (f.id === folderId ? { ...f, parentId: newParentId } : f)));
   };
 
-  const handleUpdateDocumentContent = (updatedContent: string) => {
-    if (!selectedDocument) return;
+  // Stable reference (reads the live doc from the ref) so child editors that
+  // depend on it — notably MindMap's debounced persist effect — don't re-run on
+  // every App render. An unstable identity here made the effect re-fire after a
+  // manual save and flip the status straight back to "Changes Detected".
+  const handleUpdateDocumentContent = useCallback((updatedContent: string) => {
+    const current = selectedDocumentRef.current;
+    if (!current) return;
     setIsSaved(false);
 
-    const stamped = { ...selectedDocument, content: updatedContent, updated_at: new Date().toISOString() };
+    const stamped = { ...current, content: updatedContent, updated_at: new Date().toISOString() };
     setSelectedDocument(stamped);
     selectedDocumentRef.current = stamped;
     setDocuments(prevDocs => prevDocs.map(d => d.id === stamped.id ? stamped : d));
-  };
+  }, []);
 
   const handleCloseProject = async () => {
     if (!isSavedRef.current) await persistCurrent();
@@ -374,7 +379,7 @@ function App() {
   };
 
   return (
-    <div className="h-screen flex flex-col bg-background text-foreground transition-colors duration-300">
+    <div className="h-screen flex flex-col bg-background text-foreground transition-colors duration-300 safe-area-insets">
       <Header
         selectedProject={selectedProject}
         selectedDocument={selectedDocument}
