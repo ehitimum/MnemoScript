@@ -63,7 +63,10 @@ export interface MapItem {
   locked?: boolean;
 }
 
-/** A named area drawn as a filled polygon. */
+/** Administrative tier of a region — drives border weight/dash + label size. */
+export type RegionLevel = 'realm' | 'province' | 'county';
+
+/** A named area drawn as a (border-first) polygon, optionally nested under a parent. */
 export interface MapRegion {
   id: string;
   name: string;
@@ -72,6 +75,9 @@ export interface MapRegion {
   stroke: string;
   opacity: number;
   z: number;
+  level?: RegionLevel;   // tier (default 'realm'); styles the border + label
+  parentId?: string;     // containing region (country → state → county)
+  showFill?: boolean;    // paint the faint fill? default false = border only
   labelPos?: { x: number; y: number };
   locked?: boolean;
 }
@@ -193,6 +199,42 @@ export const MAP_KINDS: MapKindDef[] = [
 
 export function mapKindDef(kind: MapKind): MapKindDef {
   return MAP_KINDS.find((k) => k.id === kind) ?? MAP_KINDS[0];
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * Region tiers. Nesting (country → state → county) is modelled as free-form
+ * polygons tagged with a level + optional parentId; the level drives the border
+ * weight/dash and label size so the hierarchy reads visually. Width/dash are in
+ * map units (the renderer divides by the view scale to keep them screen-stable).
+ * ───────────────────────────────────────────────────────────────────────── */
+export interface RegionLevelDef {
+  id: RegionLevel;
+  title: string;
+  width: number;        // border stroke width
+  dash: [number, number];
+  labelSize: number;
+}
+
+export const REGION_LEVELS: RegionLevelDef[] = [
+  { id: 'realm', title: 'Realm / Country', width: 2.6, dash: [10, 8], labelSize: 22 },
+  { id: 'province', title: 'Province / State', width: 1.8, dash: [3, 7], labelSize: 17 },
+  { id: 'county', title: 'County', width: 1.2, dash: [1.5, 6], labelSize: 13 },
+];
+
+export function regionLevelDef(level?: RegionLevel): RegionLevelDef {
+  return REGION_LEVELS.find((l) => l.id === level) ?? REGION_LEVELS[0];
+}
+
+/** Rank used to draw finer tiers on top (realm 0 → county 2). */
+export function regionLevelRank(level?: RegionLevel): number {
+  const i = REGION_LEVELS.findIndex((l) => l.id === level);
+  return i < 0 ? 0 : i;
+}
+
+/** The tier one step below `level` (realm→province→county→county). */
+export function childLevel(level?: RegionLevel): RegionLevel {
+  const i = REGION_LEVELS.findIndex((l) => l.id === level);
+  return REGION_LEVELS[Math.min(REGION_LEVELS.length - 1, (i < 0 ? 0 : i) + 1)].id;
 }
 
 export const DEFAULT_GEN_PARAMS: GenParams = {

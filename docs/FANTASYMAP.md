@@ -45,8 +45,7 @@ style and switch between them at any time — nothing is lost.
 - **Scatter brush**: pick a library icon, then drag to paint many of it at once
   (jittered position + size) — great for forests, hills and clustered buildings.
 - **Build by hand** with the rest of the toolbar: Select/move, Pan, Place one icon
-  (Stamp), **Draw region** (freehand — press & drag to trace the boundary, release to
-  close; rendered as a **dotted outline**), Draw road/river, Add label.
+  (Stamp), **Draw region** (see below), Draw road/river, Add label.
 - **Name your assets**: **double-click** any placed icon to type a name that appears
   **below** it (or edit it in the inspector). The library includes **naming/site assets**
   — banner, signpost, scroll, site marker (✕) and monument — meant for labelling regions
@@ -68,7 +67,23 @@ style and switch between them at any time — nothing is lost.
   menu** (copy, duplicate, bring to front/back, lock, delete), zoom & fit.
 - **Export** the whole map to **PNG** from the inspector.
 
-## Map kinds
+## Regions (borders & nesting)
+
+Regions are **borders, not colour overlays**. With the **Region** tool:
+
+- **Draw by hand**: click to drop boundary points, **or** press-and-drag to sketch — or mix
+  both. A rubber-band line follows the cursor and the **start dot** highlights; the region is
+  **set only when you return to the start** (click/drag onto it, or press **Enter**).
+  **Backspace** removes the last point, **Esc** cancels.
+- **Edit any time**: select a region to get **vertex handles** — drag to move a point,
+  **double-click** a point to delete it, and click an **edge midpoint** to insert a new point.
+- **Extend (grow)**: with a region selected, switch to the Region tool and **draw an arc from
+  its edge out and back to its edge** — the region grows to swallow the new area.
+- **Nesting (country → state → county)**: each region has a **tier** — *Realm/Country*,
+  *Province/State* or *County* — that styles its border (bold long-dash → fine dots) and label
+  size. New regions **auto-nest**: drawing inside an existing region sets it as the parent and
+  drops it one tier. Set tier, parent (“Within”) and an optional fill in the inspector. Finer
+  tiers draw on top so inner borders stay visible.
 
 `MAP_KINDS` in [mapTypes.ts](../app/src/components/fantasymap/mapTypes.ts) is a
 registry. **World** and **Region** ship today; switch kind any time from the

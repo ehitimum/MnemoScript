@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { Stage, Layer, Rect, Line, Image as KonvaImage, Text, Transformer, Shape } from 'react-konva';
+import { Stage, Layer, Rect, Line, Circle, Image as KonvaImage, Text, Transformer, Shape } from 'react-konva';
 import type Konva from 'konva';
 import type { KonvaEventObject } from 'konva/lib/Node';
 import {
@@ -19,7 +19,7 @@ import { useMediaQuery } from '../lib/useMediaQuery';
 import type {
   FantasyMapDoc, GenParams, MapItem, MapRegion, MapRoute, MapLabel, MapKind, MapStyle, MapDecor, LayerId,
 } from './fantasymap/mapTypes';
-import { parseMapDoc, mapId, mapKindDef, DEFAULT_GEN_PARAMS } from './fantasymap/mapTypes';
+import { parseMapDoc, mapId, mapKindDef, DEFAULT_GEN_PARAMS, regionLevelDef, regionLevelRank, childLevel } from './fantasymap/mapTypes';
 import { generateMap } from './fantasymap/generator';
 import { HeightMap, randomSeed } from './fantasymap/heightmap';
 import { iconDataUrl } from './fantasymap/iconLibrary';
@@ -78,7 +78,11 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
   const [ctxMenu, setCtxMenu] = useState<CtxMenu>(null);
   const [naming, setNaming] = useState<string | null>(null); // item id being named inline
   const clipboard = useRef<MapItem | null>(null);
-  const freehandRef = useRef(false); // a region is being traced by hand
+  // Region pen: drawing a boundary by hand (drag or click), closing at the start.
+  const penRef = useRef<{ down: boolean; dragged: boolean }>({ down: false, dragged: false });
+  const extendRef = useRef<{ regionId: string } | null>(null); // stroke that grows a region
+  const [nearStart, setNearStart] = useState(false);           // cursor near the start dot
+  const [penCursor, setPenCursor] = useState<{ x: number; y: number } | null>(null);
 
   // Brush settings (land/sea/scatter) + live-stroke refs.
   const [brushSize, setBrushSize] = useState(40);
@@ -236,10 +240,17 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
       const el = window.document.activeElement as HTMLElement | null;
       const tag = el?.tagName.toLowerCase();
       if (tag === 'input' || tag === 'textarea' || el?.isContentEditable) return;
+      const regionDraft = draft?.kind === 'region' && !extendRef.current;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) { e.preventDefault(); doUndo(); }
       else if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey))) { e.preventDefault(); doRedo(); }
+      else if ((e.key === 'Delete' || e.key === 'Backspace') && regionDraft) {
+        // Remove the last placed vertex while drawing a boundary.
+        e.preventDefault();
+        setDraft((d) => (d && d.points.length > 2 ? { ...d, points: d.points.slice(0, -2) } : d));
+      }
       else if ((e.key === 'Delete' || e.key === 'Backspace') && selection) { e.preventDefault(); deleteObject(selection.type, selection.id); }
-      else if (e.key === 'Escape') { setDraft(null); setSelection(null); setPicked(null); setCtxMenu(null); }
+      else if (e.key === 'Escape') { setDraft(null); penRef.current = { down: false, dragged: false }; extendRef.current = null; setNearStart(false); setSelection(null); setPicked(null); setCtxMenu(null); }
+      else if (e.key === 'Enter' && regionDraft) { e.preventDefault(); closeNewRegion(); }
       else if (e.key === 'Enter' && draft) { e.preventDefault(); commitDraft(); }
     };
     window.addEventListener('keydown', onKey);
@@ -388,10 +399,32 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
     if (tool === 'stamp' && picked) { stampAt(m.x, m.y); return; }
     if (tool === 'label') { addLabel(m.x, m.y); return; }
     if (tool === 'region') {
-      // Freehand: press and drag to trace the boundary (dotted), release to close.
-      history.snapshot(docRef.current);
-      freehandRef.current = true;
-      setDraft({ kind: 'region', points: [m.x, m.y] });
+      const snap = 12 / view.scale;
+      // Extend: if a region is selected and we press near its boundary, this
+      // stroke grows that region instead of starting a new one.
+      if (!draft && selection?.type === 'region') {
+        const reg = docRef.current.regions.find((r) => r.id === selection.id);
+        if (reg && !reg.locked && distToRing(reg.points, m.x, m.y) <= 18 / view.scale) {
+          history.snapshot(docRef.current);
+          extendRef.current = { regionId: reg.id };
+          penRef.current = { down: true, dragged: false };
+          setDraft({ kind: 'region', points: [m.x, m.y] });
+          return;
+        }
+      }
+      if (!draft) {
+        // Start a new boundary.
+        history.snapshot(docRef.current);
+        penRef.current = { down: true, dragged: false };
+        setNearStart(false);
+        setDraft({ kind: 'region', points: [m.x, m.y] });
+        return;
+      }
+      // Active boundary: close if we clicked the start dot, else drop a vertex.
+      const sx = draft.points[0], sy = draft.points[1];
+      if (draft.points.length >= 6 && Math.hypot(m.x - sx, m.y - sy) <= snap) { closeNewRegion(); return; }
+      penRef.current = { down: true, dragged: false };
+      setDraft((d) => (d ? { ...d, points: [...d.points, m.x, m.y] } : d));
       return;
     }
     if (tool === 'route') {
@@ -406,16 +439,29 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
   };
 
   const onStageMouseMove = () => {
-    if (freehandRef.current) {
+    if (tool === 'region') {
       const m = pointerToMap();
       if (!m) return;
-      setDraft((d) => {
-        if (!d) return d;
-        const n = d.points.length;
-        const lx = d.points[n - 2], ly = d.points[n - 1];
-        if (Math.hypot(m.x - lx, m.y - ly) >= 14) return { ...d, points: [...d.points, m.x, m.y] };
-        return d;
-      });
+      if (draft) setPenCursor(m);
+      if (penRef.current.down) {
+        // Drag = freehand append (works for a new boundary and for an extend arc).
+        const step = 8 / view.scale;
+        setDraft((d) => {
+          if (!d) return d;
+          const n = d.points.length;
+          const lx = d.points[n - 2], ly = d.points[n - 1];
+          if (Math.hypot(m.x - lx, m.y - ly) >= step) { penRef.current.dragged = true; return { ...d, points: [...d.points, m.x, m.y] }; }
+          return d;
+        });
+        // Auto-close a new boundary if dragged back onto the start dot.
+        if (!extendRef.current && draft && draft.points.length >= 8) {
+          const sx = draft.points[0], sy = draft.points[1];
+          if (Math.hypot(m.x - sx, m.y - sy) <= 12 / view.scale) closeNewRegion();
+        }
+      } else if (draft && !extendRef.current) {
+        const sx = draft.points[0], sy = draft.points[1];
+        setNearStart(draft.points.length >= 6 && Math.hypot(m.x - sx, m.y - sy) <= 12 / view.scale);
+      }
       return;
     }
     if (!paintingRef.current && !scatterRef.current) return;
@@ -442,23 +488,51 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
     }
   };
 
-  const commitFreehandRegion = (d: { kind: 'region' | 'route'; points: number[] } | null) => {
-    if (!d || d.kind !== 'region' || d.points.length < 8) return;
+  // Close the in-progress boundary into a region (border-only, auto-parented).
+  const closeNewRegion = () => {
+    const d = draftRef.current;
+    penRef.current = { down: false, dragged: false };
+    setNearStart(false);
+    if (!d || d.points.length < 6) { setDraft(null); return; }
     const ink = docRef.current.style === 'handdrawn';
+    const cx = avg(d.points, 0), cy = avg(d.points, 1);
+    // Auto-parent: smallest existing region whose polygon contains the centroid.
+    const parent = smallestContainer(docRef.current.regions, cx, cy);
     const region: MapRegion = {
       id: mapId('reg'), name: 'New region', points: d.points,
       fill: ink ? '#b98e52' : '#5aa05a', stroke: ink ? '#7c5c34' : '#3a2f23',
-      opacity: 0.14, z: nextZ(docRef.current.regions),
-      labelPos: { x: avg(d.points, 0), y: avg(d.points, 1) },
+      opacity: 0.16, showFill: false,
+      level: parent ? childLevel(parent.level) : 'realm', parentId: parent?.id,
+      z: nextZ(docRef.current.regions),
+      labelPos: { x: cx, y: cy },
     };
     // History was snapshotted when the stroke began.
     mutate((dd) => ({ ...dd, regions: [...dd.regions, region] }), false);
+    setDraft(null);
     setSelection({ type: 'region', id: region.id });
     setTool('select');
   };
 
+  // Grow the selected region by splicing the drawn arc into its boundary.
+  const commitExtend = () => {
+    const info = extendRef.current;
+    const arc = draftRef.current?.points ?? [];
+    extendRef.current = null;
+    penRef.current = { down: false, dragged: false };
+    setDraft(null);
+    setNearStart(false);
+    if (!info || arc.length < 6) return;
+    const reg = docRef.current.regions.find((r) => r.id === info.regionId);
+    if (!reg) return;
+    const grown = extendRegion(reg.points, arc);
+    if (grown && grown.length >= 6) patchObject('region', reg.id, { points: grown }, false);
+  };
+
   const endStroke = () => {
-    if (freehandRef.current) { freehandRef.current = false; commitFreehandRegion(draftRef.current); setDraft(null); }
+    if (penRef.current.down || extendRef.current) {
+      penRef.current.down = false;
+      if (extendRef.current) commitExtend(); // new boundaries stay open until closed at the start
+    }
     if (paintingRef.current) { paintingRef.current = null; commitTerrainPaint(); }
     scatterRef.current = null;
   };
@@ -479,7 +553,10 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
     return () => window.removeEventListener('pointerup', up);
   }); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const onStageDblClick = () => { if (draft) commitDraft(); };
+  const onStageDblClick = () => {
+    if (draft?.kind === 'region' && !extendRef.current) closeNewRegion();
+    else if (draft) commitDraft();
+  };
 
   const onStageContextMenu = (e: KonvaEventObject<MouseEvent>) => {
     e.evt.preventDefault();
@@ -609,7 +686,11 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
   const onObjDragStart = () => history.snapshot(docRef.current);
 
   // ── Sorted draws (respect z) ──────────────────────────────────────────
-  const sortedRegions = useMemo(() => [...doc.regions].sort((a, b) => a.z - b.z), [doc.regions]);
+  // Draw finer tiers on top: realm → province → county, then by z within a tier.
+  const sortedRegions = useMemo(
+    () => [...doc.regions].sort((a, b) => (regionLevelRank(a.level) - regionLevelRank(b.level)) || (a.z - b.z)),
+    [doc.regions],
+  );
   const sortedRoutes = useMemo(() => [...doc.routes].sort((a, b) => a.z - b.z), [doc.routes]);
   const sortedItems = useMemo(() => [...doc.items].sort((a, b) => a.z - b.z), [doc.items]);
   const lm = doc.layersMeta;
@@ -632,7 +713,12 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
       <div className="min-h-10 bg-secondary/20 border-b border-border/30 flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-1 select-none">
         <div className="flex items-center gap-0.5">
           {TOOLS.map(({ id, label, Icon }) => (
-            <button key={id} title={label} onClick={() => { setTool(id); if (id !== 'stamp' && id !== 'scatter') setPicked(null); if (id !== 'region' && id !== 'route') setDraft(null); }}
+            <button key={id} title={label} onClick={() => {
+                setTool(id);
+                if (id !== 'stamp' && id !== 'scatter') setPicked(null);
+                if (id !== 'region' && id !== 'route') setDraft(null);
+                if (id !== 'region') { penRef.current = { down: false, dragged: false }; extendRef.current = null; setNearStart(false); setPenCursor(null); }
+              }}
               className={`fm-tool ${tool === id ? 'is-active' : ''}`}>
               <Icon className="w-4 h-4" />
             </button>
@@ -681,8 +767,10 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
               <span>Click to add points · double-click or Enter to finish · Esc to cancel</span>
               <button className="fm-btn fm-btn-sm" onClick={commitDraft}>Finish</button>
             </>
+          ) : extendRef.current ? (
+            <span>Extending — release back on the region’s edge to grow it · Esc to cancel</span>
           ) : (
-            <span>Drawing region — drag around the area, release to close</span>
+            <span>Drawing region — click or drag the border, return to the <b>start dot</b> (or Enter) to close · Backspace undoes · Esc cancels</span>
           )}
         </div>
       )}
@@ -836,12 +924,16 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
                   onMoved={(pts) => patchObject('route', r.id, { points: pts }, false)} />
               ))}
 
-              {/* Region labels */}
-              {lm.regions.visible && sortedRegions.map((r) => r.labelPos && (
-                <Text key={r.id + '_t'} text={r.name} x={r.labelPos.x} y={r.labelPos.y} fontSize={18} fontStyle="bold"
-                  fill={isInk ? '#4a3a22' : '#2b2317'} fontFamily={labelFont}
-                  align="center" offsetX={r.name.length * 4.5} listening={false} opacity={0.85} />
-              ))}
+              {/* Region labels (sized by tier) */}
+              {lm.regions.visible && sortedRegions.map((r) => {
+                if (!r.labelPos) return null;
+                const fs = regionLevelDef(r.level).labelSize;
+                return (
+                  <Text key={r.id + '_t'} text={r.name} x={r.labelPos.x} y={r.labelPos.y} fontSize={fs} fontStyle="bold"
+                    fill={isInk ? '#4a3a22' : '#2b2317'} fontFamily={labelFont}
+                    align="center" offsetX={r.name.length * fs * 0.27} listening={false} opacity={0.85} />
+                );
+              })}
 
               {/* Items */}
               {lm.items.visible && sortedItems.map((it) => (
@@ -878,10 +970,33 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
                   }} />
               ))}
 
-              {/* In-progress draft */}
-              {draft && (
-                <Line points={draft.points} stroke="#2563eb" strokeWidth={2 / view.scale} dash={[8 / view.scale, 6 / view.scale]}
-                  closed={draft.kind === 'region'} fill={draft.kind === 'region' ? '#2563eb22' : undefined} listening={false} />
+              {/* Region edit handles (selected region, select tool) */}
+              {selection?.type === 'region' && tool === 'select' && !lm.regions.locked && (() => {
+                const reg = doc.regions.find((r) => r.id === selection.id);
+                if (!reg || reg.locked) return null;
+                return (
+                  <RegionEditHandles region={reg} scale={view.scale}
+                    onSnapshot={() => history.snapshot(docRef.current)}
+                    onChange={(pts) => patchObject('region', reg.id, { points: pts }, false)} />
+                );
+              })()}
+
+              {/* In-progress route draft */}
+              {draft && draft.kind === 'route' && (
+                <Line points={draft.points} stroke="#2563eb" strokeWidth={2 / view.scale} dash={[8 / view.scale, 6 / view.scale]} listening={false} />
+              )}
+
+              {/* In-progress region boundary (open path + rubber-band + start dot) */}
+              {draft && draft.kind === 'region' && (
+                <>
+                  <Line points={penCursor ? [...draft.points, penCursor.x, penCursor.y] : draft.points}
+                    stroke="#2563eb" strokeWidth={1.8 / view.scale} dash={[6 / view.scale, 5 / view.scale]}
+                    lineCap="round" lineJoin="round" listening={false} />
+                  {!extendRef.current && (
+                    <Circle x={draft.points[0]} y={draft.points[1]} radius={(nearStart ? 8 : 5) / view.scale}
+                      stroke="#2563eb" strokeWidth={2 / view.scale} fill={nearStart ? '#2563eb' : '#ffffff'} listening={false} />
+                  )}
+                </>
               )}
 
               {/* Decorative map chrome (hand-drawn style): frame, compass, title cartouche */}
@@ -1037,19 +1152,22 @@ function RegionShape({ region, selected, selectable, scale, onSelect, onDragStar
   region: MapRegion; selected: boolean; selectable: boolean; scale: number;
   onSelect: () => void; onDragStart: () => void; onMoved: (pts: number[]) => void;
 }) {
+  const def = regionLevelDef(region.level);
   return (
     <Line
       points={region.points}
       closed
-      // Faint fill (alpha baked in) under a solid dotted border so the boundary
-      // reads as a hand-drawn dotted line, not a colour block.
-      fill={withAlpha(region.fill, region.opacity)}
+      // Border-first: a dotted outline whose weight/dash come from the region's
+      // tier. Fill is off by default (no colour overcoat); a generous hit width
+      // keeps the dotted border easy to click for selection.
+      fill={region.showFill ? withAlpha(region.fill, region.opacity) : 'transparent'}
       stroke={selected ? '#2563eb' : region.stroke}
-      strokeWidth={(selected ? 2.6 : 1.8) / scale}
-      dash={[2 / scale, 7 / scale]}
+      strokeWidth={(selected ? def.width + 0.8 : def.width) / scale}
+      dash={[def.dash[0] / scale, def.dash[1] / scale]}
       lineCap="round"
       lineJoin="round"
       tension={0.04}
+      hitStrokeWidth={Math.max(14, def.width + 10) / scale}
       draggable={selectable}
       onMouseDown={(e) => { if (selectable) { e.cancelBubble = true; onSelect(); } }}
       onClick={(e) => { if (selectable) { e.cancelBubble = true; onSelect(); } }}
@@ -1066,6 +1184,117 @@ function withAlpha(hex: string, a: number): string {
   if (h.length === 3) h = h.split('').map((c) => c + c).join('');
   const aa = Math.round(Math.max(0, Math.min(1, a)) * 255).toString(16).padStart(2, '0');
   return `#${h}${aa}`;
+}
+
+/* ── region geometry ─────────────────────────────────────────────────────── */
+function toPairs(flat: number[]): [number, number][] {
+  const out: [number, number][] = [];
+  for (let i = 0; i + 1 < flat.length; i += 2) out.push([flat[i], flat[i + 1]]);
+  return out;
+}
+function flattenPairs(pairs: [number, number][]): number[] {
+  const out: number[] = [];
+  for (const [x, y] of pairs) out.push(x, y);
+  return out;
+}
+function polyArea(flat: number[]): number {
+  const p = toPairs(flat);
+  let a = 0;
+  for (let i = 0, n = p.length; i < n; i++) { const [x1, y1] = p[i]; const [x2, y2] = p[(i + 1) % n]; a += x1 * y2 - x2 * y1; }
+  return Math.abs(a) / 2;
+}
+function pointInPoly(flat: number[], x: number, y: number): boolean {
+  const p = toPairs(flat);
+  let inside = false;
+  for (let i = 0, j = p.length - 1; i < p.length; j = i++) {
+    const [xi, yi] = p[i]; const [xj, yj] = p[j];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi + 1e-9) + xi) inside = !inside;
+  }
+  return inside;
+}
+function segDist(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
+  const dx = bx - ax, dy = by - ay;
+  const len2 = dx * dx + dy * dy || 1;
+  let t = ((px - ax) * dx + (py - ay) * dy) / len2;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+function distToRing(flat: number[], x: number, y: number): number {
+  const p = toPairs(flat);
+  let min = Infinity;
+  for (let i = 0; i < p.length; i++) { const a = p[i], b = p[(i + 1) % p.length]; min = Math.min(min, segDist(x, y, a[0], a[1], b[0], b[1])); }
+  return min;
+}
+function nearestVertex(pairs: [number, number][], px: number, py: number): number {
+  let best = 0, bd = Infinity;
+  for (let i = 0; i < pairs.length; i++) { const d = (pairs[i][0] - px) ** 2 + (pairs[i][1] - py) ** 2; if (d < bd) { bd = d; best = i; } }
+  return best;
+}
+/** Splice an open arc into a ring between its two nearest vertices; keep the larger-area result (grow). */
+function extendRegion(flatRing: number[], flatArc: number[]): number[] | null {
+  const ring = toPairs(flatRing);
+  const arc = toPairs(flatArc);
+  if (ring.length < 3 || arc.length < 2) return null;
+  const n = ring.length;
+  const i0 = nearestVertex(ring, arc[0][0], arc[0][1]);
+  const i1 = nearestVertex(ring, arc[arc.length - 1][0], arc[arc.length - 1][1]);
+  if (i0 === i1) return null;
+  const between = (a: number, b: number): [number, number][] => {
+    const out: [number, number][] = [];
+    let k = (a + 1) % n;
+    while (k !== b) { out.push(ring[k]); k = (k + 1) % n; }
+    return out;
+  };
+  const cand1 = [...arc, ...between(i1, i0)];                   // replace the i0→i1 boundary with the arc
+  const cand2 = [...arc.slice().reverse(), ...between(i0, i1)]; // replace the complementary boundary
+  const f1 = flattenPairs(cand1), f2 = flattenPairs(cand2);
+  if (f1.length < 6 && f2.length < 6) return null;
+  return polyArea(f1) >= polyArea(f2) ? f1 : f2;
+}
+function smallestContainer(regions: MapRegion[], x: number, y: number): MapRegion | undefined {
+  let best: MapRegion | undefined; let bestA = Infinity;
+  for (const r of regions) {
+    if (r.points.length < 6 || !pointInPoly(r.points, x, y)) continue;
+    const a = polyArea(r.points);
+    if (a < bestA) { bestA = a; best = r; }
+  }
+  return best;
+}
+
+/** Draggable vertex + edge-midpoint handles for reshaping a selected region. */
+function RegionEditHandles({ region, scale, onSnapshot, onChange }: {
+  region: MapRegion; scale: number; onSnapshot: () => void; onChange: (pts: number[]) => void;
+}) {
+  const pts = region.points;
+  const n = pts.length / 2;
+  const r = 5 / scale;
+  const verts: [number, number][] = [];
+  for (let i = 0; i < n; i++) verts.push([pts[i * 2], pts[i * 2 + 1]]);
+  const insertAt = (i: number, x: number, y: number) => { onSnapshot(); const np = pts.slice(); np.splice((i + 1) * 2, 0, x, y); onChange(np); };
+  const deleteAt = (i: number) => { if (n <= 3) return; onSnapshot(); const np = pts.slice(); np.splice(i * 2, 2); onChange(np); };
+  return (
+    <>
+      {/* edge midpoints — click/tap to insert a vertex */}
+      {verts.map((v, i) => {
+        const b = verts[(i + 1) % n];
+        const mx = (v[0] + b[0]) / 2, my = (v[1] + b[1]) / 2;
+        return (
+          <Circle key={'m' + i} x={mx} y={my} radius={r * 0.7} stroke="#2563eb" strokeWidth={1 / scale} fill="#ffffff" opacity={0.6}
+            onMouseDown={(e) => { e.cancelBubble = true; insertAt(i, mx, my); }}
+            onTap={(e) => { e.cancelBubble = true; insertAt(i, mx, my); }} />
+        );
+      })}
+      {/* vertices — drag to move, double-click/tap to delete */}
+      {verts.map((v, i) => (
+        <Circle key={'v' + i} x={v[0]} y={v[1]} radius={r} draggable stroke="#2563eb" strokeWidth={1.5 / scale} fill="#ffffff"
+          onMouseDown={(e) => { e.cancelBubble = true; }}
+          onDragStart={(e) => { e.cancelBubble = true; onSnapshot(); }}
+          onDragMove={(e) => { const np = pts.slice(); np[i * 2] = e.target.x(); np[i * 2 + 1] = e.target.y(); onChange(np); }}
+          onDblClick={(e) => { e.cancelBubble = true; deleteAt(i); }}
+          onDblTap={(e) => { e.cancelBubble = true; deleteAt(i); }} />
+      ))}
+    </>
+  );
 }
 
 function RouteShape({ route, selected, selectable, onSelect, onDragStart, onMoved }: {

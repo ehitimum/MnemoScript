@@ -2,9 +2,9 @@ import {
   Trash2, FlipHorizontal2, Lock, Unlock, Eye, EyeOff, Download, MapIcon,
 } from 'lucide-react';
 import type {
-  FantasyMapDoc, LayerId, MapItem, MapRegion, MapRoute, MapLabel, MapKind, MapStyle, MapDecor,
+  FantasyMapDoc, LayerId, MapItem, MapRegion, MapRoute, MapLabel, MapKind, MapStyle, MapDecor, RegionLevel,
 } from './mapTypes';
-import { MAP_KINDS } from './mapTypes';
+import { MAP_KINDS, REGION_LEVELS } from './mapTypes';
 
 export type SelType = 'item' | 'region' | 'route' | 'label';
 export interface Selection { type: SelType; id: string; }
@@ -232,20 +232,46 @@ function ItemEditor({ item, onPatchObject }: { item: MapItem } & Props) {
   );
 }
 
-function RegionEditor({ region, onPatchObject }: { region: MapRegion } & Props) {
+function RegionEditor({ region, doc, onPatchObject }: { region: MapRegion } & Props) {
   const patch = (p: Partial<MapRegion>) => onPatchObject('region', region.id, p);
+  const others = doc.regions.filter((r) => r.id !== region.id);
   return (
     <>
       <Row label="Name">
         <input className="fm-input" value={region.name}
           onChange={(e) => patch({ name: e.target.value })} />
       </Row>
-      <Row label="Fill"><input type="color" className="fm-color" value={region.fill}
-        onChange={(e) => patch({ fill: e.target.value })} /></Row>
+      <Row label="Tier">
+        <select className="fm-input" value={region.level ?? 'realm'}
+          onChange={(e) => patch({ level: e.target.value as RegionLevel })}>
+          {REGION_LEVELS.map((l) => <option key={l.id} value={l.id}>{l.title}</option>)}
+        </select>
+      </Row>
+      <Row label="Within">
+        <select className="fm-input" value={region.parentId ?? ''}
+          onChange={(e) => patch({ parentId: e.target.value || undefined })}>
+          <option value="">— None —</option>
+          {others.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+        </select>
+      </Row>
       <Row label="Border"><input type="color" className="fm-color" value={region.stroke}
         onChange={(e) => patch({ stroke: e.target.value })} /></Row>
-      <SliderRow label="Opacity" min={0} max={0.9} step={0.05} value={region.opacity}
-        onChange={(v) => patch({ opacity: v })} fmt={(v) => `${Math.round(v * 100)}%`} />
+      <label className="flex items-center gap-1.5 text-[11px] mt-1 cursor-pointer">
+        <input type="checkbox" checked={!!region.showFill}
+          onChange={(e) => patch({ showFill: e.target.checked })} />
+        Fill the area (off = border only)
+      </label>
+      {region.showFill && (
+        <>
+          <Row label="Fill"><input type="color" className="fm-color" value={region.fill}
+            onChange={(e) => patch({ fill: e.target.value })} /></Row>
+          <SliderRow label="Opacity" min={0.02} max={0.6} step={0.02} value={region.opacity}
+            onChange={(v) => patch({ opacity: v })} fmt={(v) => `${Math.round(v * 100)}%`} />
+        </>
+      )}
+      <p className="text-[10px] text-muted-foreground/70 mt-1.5 leading-snug">
+        Tip: select the <b>Region</b> tool and draw from this region’s edge to extend it.
+      </p>
     </>
   );
 }
