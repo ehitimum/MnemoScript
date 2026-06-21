@@ -83,6 +83,7 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
   // Brush settings (land/sea/scatter) + live-stroke refs.
   const [brushSize, setBrushSize] = useState(40);
   const [brushStrength, setBrushStrength] = useState(0.7);
+  const [seaMode, setSeaMode] = useState<'sea' | 'lake' | 'river'>('sea');
   const [scatterSpacing, setScatterSpacing] = useState(46);
   const paintingRef = useRef<{ raise: boolean; last: { x: number; y: number } } | null>(null);
   const scatterRef = useRef<{ last: { x: number; y: number } } | null>(null);
@@ -326,9 +327,20 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
   };
 
   // ── Brush painting (land/sea heightmap + icon scatter) ────────────────
+  // Sea-brush feature presets: how deep the carve is (and how thin the river).
+  const SEA_DEPTH = { sea: 0.34, lake: 0.16, river: 0.12 };
   const paintAt = (mx: number, my: number, raise: boolean) => {
     if (!heightRef.current) heightRef.current = HeightMap.blank(W, H, genParams.biomePreset, 0.4, docRef.current.style);
-    heightRef.current.paint(mx, my, brushSize, brushStrength, raise, W, H);
+    const depth = raise ? 0.4 : SEA_DEPTH[seaMode];
+    const radius = !raise && seaMode === 'river' ? brushSize * 0.5 : brushSize;
+    heightRef.current.paint(mx, my, radius, brushStrength, raise, W, H, depth);
+    scheduleRender();
+  };
+  // Lake feature: one click drops a contained, shallow pond (several strong
+  // passes so the whole footprint reliably crosses below sea level at once).
+  const stampLake = (mx: number, my: number) => {
+    if (!heightRef.current) heightRef.current = HeightMap.blank(W, H, genParams.biomePreset, 0.4, docRef.current.style);
+    for (let k = 0; k < 4; k++) heightRef.current.paint(mx, my, brushSize, 1, false, W, H, SEA_DEPTH.lake);
     scheduleRender();
   };
   const commitTerrainPaint = () => {
@@ -363,7 +375,8 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
     if (tool === 'land' || tool === 'sea') {
       history.snapshot(docRef.current);
       paintingRef.current = { raise: tool === 'land', last: m };
-      paintAt(m.x, m.y, tool === 'land');
+      if (tool === 'sea' && seaMode === 'lake') stampLake(m.x, m.y);
+      else paintAt(m.x, m.y, tool === 'land');
       return;
     }
     if (tool === 'scatter' && picked) {
@@ -695,6 +708,16 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
                 value={brushStrength} onChange={(e) => setBrushStrength(Number(e.target.value))} />
             </label>
           )}
+          {tool === 'sea' && (
+            <div className="flex items-center gap-0.5">
+              {(['sea', 'lake', 'river'] as const).map((mz) => (
+                <button key={mz} onClick={() => setSeaMode(mz)}
+                  className={`fm-seg ${seaMode === mz ? 'is-active' : ''}`} style={{ flex: 'none', minWidth: '2.7rem' }}>
+                  {mz === 'sea' ? 'Sea' : mz === 'lake' ? 'Lake' : 'River'}
+                </button>
+              ))}
+            </div>
+          )}
           {tool === 'scatter' && (
             <>
               <label className="flex items-center gap-1.5">
@@ -708,7 +731,12 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
             </>
           )}
           {(tool === 'land' || tool === 'sea') && (
-            <span className="text-[10px] text-muted-foreground/70 hidden md:inline">Drag on the map to paint terrain</span>
+            <span className="text-[10px] text-muted-foreground/70 hidden md:inline">
+              {tool === 'land' ? 'Drag to paint land'
+                : seaMode === 'lake' ? 'Click to drop a lake · drag to enlarge'
+                : seaMode === 'river' ? 'Drag to carve a river'
+                : 'Drag to carve ocean'}
+            </span>
           )}
         </div>
       )}
@@ -868,18 +896,21 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
           </Stage>
 
           {/* Brush cursor (size preview) */}
-          {brushCursor && BRUSH_TOOLS.includes(tool) && (
-            <div
-              className="fm-brush-cursor"
-              style={{
-                left: brushCursor.x,
-                top: brushCursor.y,
-                width: Math.max(6, brushSize * view.scale * 2),
-                height: Math.max(6, brushSize * view.scale * 2),
-                borderColor: tool === 'sea' ? '#2f7dbf' : tool === 'land' ? '#3f9e57' : '#8a5ad6',
-              }}
-            />
-          )}
+          {brushCursor && BRUSH_TOOLS.includes(tool) && (() => {
+            const r = (tool === 'sea' && seaMode === 'river' ? brushSize * 0.5 : brushSize) * view.scale;
+            return (
+              <div
+                className="fm-brush-cursor"
+                style={{
+                  left: brushCursor.x,
+                  top: brushCursor.y,
+                  width: Math.max(6, r * 2),
+                  height: Math.max(6, r * 2),
+                  borderColor: tool === 'sea' ? '#2f7dbf' : tool === 'land' ? '#3f9e57' : '#8a5ad6',
+                }}
+              />
+            );
+          })()}
 
           {/* Inline asset naming (double-click an asset) */}
           {naming && (() => {

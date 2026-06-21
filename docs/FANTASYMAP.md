@@ -38,6 +38,10 @@ style and switch between them at any time — nothing is lost.
   eases the ground toward land/water, so even a tiny brush carves decisively. The terrain
   grid resolution scales with the map, so brushes stay fine on large/4K canvases. A
   generated map is fully paintable afterwards (and vice-versa).
+- **Water features with the Sea brush**: pick a mode in the brush bar — **Sea** (deep
+  open ocean), **Lake** (one click drops a contained, shallow pond; drag to enlarge) or
+  **River** (a thin, shallow channel — just drag where it should flow). All three are the
+  same heightmap water, so they connect and render with the coastline + ripples.
 - **Scatter brush**: pick a library icon, then drag to paint many of it at once
   (jittered position + size) — great for forests, hills and clustered buildings.
 - **Build by hand** with the rest of the toolbar: Select/move, Pan, Place one icon
@@ -50,9 +54,13 @@ style and switch between them at any time — nothing is lost.
 - **Smart overlap**: by default a hand-drawn asset placed over another **occludes** it —
   its solid paper body hides the part of the asset behind it, so overlapping mountains and
   trees read as a range instead of a tangle of lines (front asset wins).
-- **Icon library** (left panel): our own cohesive **Hand-drawn** ink set plus ~60 curated
-  game-icons glyphs across Terrain, Settlements, Sites, Water, Creatures and Markers —
-  searchable and recolourable. Hand-drawn icons can be stamped or painted in either style.
+- **Icon library** (left panel): a large cohesive **Hand-drawn** ink set — relief
+  (mountains/ranges/hills/volcano/pass), forests & trees, settlements from **hamlet →
+  village → town → small city → great city**, **castle/fortress/keep/tower/watchtower**,
+  **manor, port, windmill, abbey**, sites like **dungeon, temple, ritual stone-circle,
+  shrine, graveyard, ruins, cave, mine, camp**, **river/lake/waterfall**, plus naming
+  assets (banner/signpost/scroll/marker/monument) and a compass — alongside ~60 curated
+  game-icons glyphs. All searchable, recolourable and usable in either style.
 - **Inspector** (right panel): edit the selected object (size, rotation, colour,
   label, lock), plus map settings (kind, **canvas size** up to **4K**, art style,
   background, grid) and layer visibility. Changing size scales all content proportionally.
