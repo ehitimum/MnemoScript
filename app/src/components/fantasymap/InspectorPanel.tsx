@@ -2,7 +2,7 @@ import {
   Trash2, FlipHorizontal2, Lock, Unlock, Eye, EyeOff, Download, MapIcon,
 } from 'lucide-react';
 import type {
-  FantasyMapDoc, LayerId, MapItem, MapRegion, MapRoute, MapLabel, MapKind,
+  FantasyMapDoc, LayerId, MapItem, MapRegion, MapRoute, MapLabel, MapKind, MapStyle, MapDecor,
 } from './mapTypes';
 import { MAP_KINDS } from './mapTypes';
 
@@ -17,10 +17,20 @@ interface Props {
   onPatchCanvas: (patch: Partial<FantasyMapDoc['canvas']>) => void;
   onPatchBackground: (patch: Partial<FantasyMapDoc['canvas']['background']>) => void;
   onPatchGrid: (patch: Partial<FantasyMapDoc['grid']>) => void;
+  onResizeCanvas: (w: number, h: number) => void;
   onToggleLayer: (layer: LayerId, key: 'visible' | 'locked') => void;
   onChangeKind: (kind: MapKind) => void;
+  onChangeStyle: (style: MapStyle) => void;
+  onToggleDecor: (key: keyof MapDecor) => void;
   onExport: () => void;
 }
+
+const SIZES: { label: string; w: number; h: number }[] = [
+  { label: 'Region · 1400×1000', w: 1400, h: 1000 },
+  { label: 'HD · 1920×1200', w: 1920, h: 1200 },
+  { label: '2K · 2560×1600', w: 2560, h: 1600 },
+  { label: '4K · 3840×2400', w: 3840, h: 2400 },
+];
 
 const LAYERS: { id: LayerId; label: string }[] = [
   { id: 'terrain', label: 'Terrain' },
@@ -77,6 +87,40 @@ export default function InspectorPanel(props: Props) {
             onChange={(e) => props.onChangeKind(e.target.value as MapKind)}
           >
             {MAP_KINDS.map((k) => <option key={k.id} value={k.id}>{k.title}</option>)}
+          </select>
+        </Row>
+        <Row label="Art style">
+          <select
+            className="fm-input"
+            value={doc.style}
+            onChange={(e) => props.onChangeStyle(e.target.value as MapStyle)}
+          >
+            <option value="handdrawn">Hand-drawn (ink)</option>
+            <option value="classic">Classic (colour)</option>
+          </select>
+        </Row>
+        {doc.style === 'handdrawn' && (
+          <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1 mb-1.5">
+            <DecorToggle label="Frame" on={doc.decor.frame} onClick={() => props.onToggleDecor('frame')} />
+            <DecorToggle label="Compass" on={doc.decor.compass} onClick={() => props.onToggleDecor('compass')} />
+            <DecorToggle label="Title" on={doc.decor.cartouche} onClick={() => props.onToggleDecor('cartouche')} />
+          </div>
+        )}
+        <Row label="Size">
+          <select
+            className="fm-input"
+            value={`${doc.canvas.width}×${doc.canvas.height}`}
+            onChange={(e) => {
+              const s = SIZES.find((o) => `${o.w}×${o.h}` === e.target.value);
+              if (s) props.onResizeCanvas(s.w, s.h);
+            }}
+          >
+            {!SIZES.some((s) => `${s.w}×${s.h}` === `${doc.canvas.width}×${doc.canvas.height}`) && (
+              <option value={`${doc.canvas.width}×${doc.canvas.height}`}>
+                Custom · {doc.canvas.width}×{doc.canvas.height}
+              </option>
+            )}
+            {SIZES.map((s) => <option key={s.label} value={`${s.w}×${s.h}`}>{s.label}</option>)}
           </select>
         </Row>
         <Row label="Background">
@@ -251,6 +295,15 @@ function LabelEditor({ label, onPatchObject }: { label: MapLabel } & Props) {
         Bold
       </label>
     </>
+  );
+}
+
+function DecorToggle({ label, on, onClick }: { label: string; on: boolean; onClick: () => void }) {
+  return (
+    <label className="flex items-center gap-1.5 text-[11px] cursor-pointer">
+      <input type="checkbox" checked={on} onChange={onClick} />
+      {label}
+    </label>
   );
 }
 

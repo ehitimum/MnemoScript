@@ -11,9 +11,18 @@
  * just seed+params and re-derive via `fromNoise`.
  */
 import { createNoise2D } from 'simplex-noise';
-import type { BiomePreset } from './mapTypes';
+import type { BiomePreset, MapStyle } from './mapTypes';
 
 export const TERRAIN_COLS = 320;
+
+/**
+ * Terrain grid width scales with the map so brushes stay fine on big/4K maps
+ * (a fixed grid would make each cell huge — and tiny brushes useless — at 4K).
+ * Capped for render performance.
+ */
+export function terrainCols(w: number): number {
+  return Math.max(360, Math.min(960, Math.round(w / 4.5)));
+}
 
 /* ── seeded RNG (shared with the generator) ─────────────────────────────── */
 export function mulberry32(seed: number): () => number {
@@ -58,8 +67,18 @@ const PALETTES: Record<BiomePreset, Palette> = {
   },
 };
 
+type RGB = [number, number, number];
 function clamp(v: number, lo: number, hi: number): number { return v < lo ? lo : v > hi ? hi : v; }
+function clamp01(v: number): number { return v < 0 ? 0 : v > 1 ? 1 : v; }
 function smooth(t: number): number { return t * t * (3 - 2 * t); }
+/** Source-over composite of a layer (la 0..1) onto an accumulator (0..255 + alpha 0..255). */
+function over(r: number, g: number, b: number, a: number, lr: number, lg: number, lb: number, la: number) {
+  const acc = a / 255;
+  const outA = la + acc * (1 - la);
+  if (outA <= 0) return { r: 0, g: 0, b: 0, a: 0 };
+  const f = (cl: number, cAcc: number) => (cl * la + cAcc * acc * (1 - la)) / outA;
+  return { r: f(lr, r), g: f(lg, g), b: f(lb, b), a: outA * 255 };
+}
 function hexToRgb(hex: string): [number, number, number] {
   const m = hex.replace('#', '');
   const n = parseInt(m.length === 3 ? m.replace(/(.)/g, '$1$1') : m, 16);
@@ -85,26 +104,28 @@ export class HeightMap {
   tex: Float32Array;     // static mottle noise (-1..1) for land texture
   seaLevel: number;
   preset: BiomePreset;
+  style: MapStyle;       // which render path render() uses
 
-  constructor(cols: number, rows: number, seaLevel: number, preset: BiomePreset, data?: Float32Array) {
+  constructor(cols: number, rows: number, seaLevel: number, preset: BiomePreset, data?: Float32Array, style: MapStyle = 'classic') {
     this.cols = cols;
     this.rows = rows;
     this.seaLevel = seaLevel;
     this.preset = preset;
+    this.style = style;
     this.data = data ?? new Float32Array(cols * rows);
     this.tex = makeTexture(cols, rows);
   }
 
-  static blank(w: number, h: number, preset: BiomePreset, seaLevel = 0.4): HeightMap {
-    const cols = TERRAIN_COLS;
-    const rows = Math.max(60, Math.round((cols * h) / w));
-    return new HeightMap(cols, rows, seaLevel, preset);
+  static blank(w: number, h: number, preset: BiomePreset, seaLevel = 0.4, style: MapStyle = 'classic'): HeightMap {
+    const cols = terrainCols(w);
+    const rows = Math.max(80, Math.round((cols * h) / w));
+    return new HeightMap(cols, rows, seaLevel, preset, undefined, style);
   }
 
   /** Procedural fbm landmass shaped by a radial falloff. */
-  static fromNoise(params: GenLikeParams, w: number, h: number): HeightMap {
-    const cols = TERRAIN_COLS;
-    const rows = Math.max(60, Math.round((cols * h) / w));
+  static fromNoise(params: GenLikeParams, w: number, h: number, style: MapStyle = 'classic'): HeightMap {
+    const cols = terrainCols(w);
+    const rows = Math.max(80, Math.round((cols * h) / w));
     const rng = mulberry32(params.seed || 1);
     const noise = createNoise2D(rng);
     const octaves = clamp(Math.round(params.roughness), 1, 6);
@@ -131,7 +152,7 @@ export class HeightMap {
     for (let k = 0; k < data.length; k++) data[k] = (data[k] - min) / span;
 
     const seaLevel = 1 - clamp(params.landAmount, 0.1, 0.92);
-    return new HeightMap(cols, rows, seaLevel, params.biomePreset, data);
+    return new HeightMap(cols, rows, seaLevel, params.biomePreset, data, style);
   }
 
   /** Sample elevation at canvas-space (x,y). */
@@ -144,29 +165,45 @@ export class HeightMap {
     return this.at(x, y, w, h) >= this.seaLevel;
   }
 
-  /** Raise (land) or lower (sea) elevation under a soft circular brush. */
+  /**
+   * Paint terrain under a circular brush. Rather than nudging by a fixed
+   * increment (which makes small/quick strokes do nothing), each cell eases
+   * toward a target elevation — land toward a hill above sea level, sea toward
+   * open water below it — so a single decisive stroke reliably carves, even at
+   * a 1-cell radius. A hard core + soft edge keeps tiny brushes (thin rivers)
+   * crisp instead of mushy.
+   */
   paint(cx: number, cy: number, radius: number, strength: number, raise: boolean, w: number, h: number): void {
     const gx = (cx / w) * this.cols;
     const gy = (cy / h) * this.rows;
-    const gr = Math.max(1, (radius / w) * this.cols);
+    const gr = Math.max(0.85, (radius / w) * this.cols);
+    const core = gr * 0.55;                 // inner full-strength radius
     const i0 = Math.max(0, Math.floor(gx - gr));
     const i1 = Math.min(this.cols - 1, Math.ceil(gx + gr));
     const j0 = Math.max(0, Math.floor(gy - gr));
     const j1 = Math.min(this.rows - 1, Math.ceil(gy + gr));
-    const dir = raise ? 1 : -1;
+    // Targets sit a clear margin past sea level so the result actually reads as
+    // land / water without slamming straight to the palette extremes.
+    const target = raise ? Math.min(1, this.seaLevel + 0.4) : Math.max(0, this.seaLevel - 0.32);
     for (let j = j0; j <= j1; j++) {
       for (let i = i0; i <= i1; i++) {
         const d = Math.hypot(i - gx, j - gy);
         if (d > gr) continue;
-        const fall = smooth(1 - d / gr);
+        const fall = d <= core ? 1 : smooth(clamp(1 - (d - core) / (gr - core + 1e-6), 0, 1));
+        const t = clamp(strength * fall, 0, 1);
         const idx = j * this.cols + i;
-        this.data[idx] = clamp(this.data[idx] + dir * strength * 0.12 * fall, 0, 1);
+        this.data[idx] = clamp(lerp(this.data[idx], target, t), 0, 1);
       }
     }
   }
 
-  /** Styled terrain raster (sea + glow + biomes + texture). */
+  /** Styled terrain raster — dispatches on the chosen visual style. */
   render(): HTMLCanvasElement {
+    return this.style === 'handdrawn' ? this.renderInk() : this.renderClassic();
+  }
+
+  /** Classic Inkarnate-style raster (sea depth + coastline glow + biomes + texture). */
+  renderClassic(): HTMLCanvasElement {
     const { cols, rows, data, seaLevel, tex } = this;
     const pal = PALETTES[this.preset];
     const deep = hexToRgb(pal.deep), sea = hexToRgb(pal.sea), shallow = hexToRgb(pal.shallow);
@@ -211,6 +248,114 @@ export class HeightMap {
     return cv;
   }
 
+  /**
+   * Hand-drawn / parchment raster: the land is left bare (transparent) so the
+   * paper shows through, the sea is a soft watercolour with concentric ripple
+   * lines hugging the coast, a tan shore band seats the landmass, and high
+   * ground gets a faint relief shadow. The crisp inked coastline itself is a
+   * vector overlay (see {@link coastSegments}) drawn on the Konva stage.
+   */
+  renderInk(): HTMLCanvasElement {
+    const { cols, rows, data, seaLevel, tex } = this;
+    const dist = signedCoastDistance(data, cols, rows, seaLevel); // <0 land, >0 sea (cells)
+
+    // Parchment-friendly palette (ink on paper).
+    const seaCoast: RGB = [143, 185, 201];
+    const seaOpen: RGB = [193, 217, 224];
+    const ripple: RGB = [86, 130, 147];
+    const sand: RGB = [216, 197, 158];
+    const relief: RGB = [104, 84, 56];
+
+    const cv = document.createElement('canvas');
+    cv.width = cols; cv.height = rows;
+    const ctx = cv.getContext('2d')!;
+    const img = ctx.createImageData(cols, rows);
+    const px = img.data;
+
+    const RING = 8.5;          // ripple spacing in cells
+    const RINGS = 4;           // how many ripple rings emanate from shore
+    const SAND = 2.6;          // tan shore band width in cells
+
+    for (let k = 0; k < data.length; k++) {
+      const e = data[k];
+      const d = dist[k];
+      let r = 0, g = 0, b = 0, a = 0;
+
+      if (e < seaLevel) {
+        // ── open water ────────────────────────────────────────────────
+        const fade = clamp(d / (RING * RINGS), 0, 1);
+        let col = lerpRgb(seaCoast, seaOpen, fade);
+        // concentric ripple lines, fading offshore
+        if (d < RING * (RINGS + 0.5)) {
+          const phase = Math.abs((d % RING) - 0) ; // distance past a ring
+          const near = Math.min(phase, RING - phase);
+          const line = smooth(clamp(1 - near / 1.3, 0, 1)) * (1 - fade) * 0.55;
+          col = lerpRgb(col, ripple, line);
+        }
+        r = col[0]; g = col[1]; b = col[2]; a = 235;
+      } else {
+        // ── land: mostly bare paper, with a shore band + relief ───────
+        const ld = -d; // distance inland from the coast (cells)
+        // tan shore band
+        if (ld < SAND) {
+          const sa = smooth(1 - ld / SAND) * 0.55;
+          ({ r, g, b, a } = over(r, g, b, a, sand[0], sand[1], sand[2], sa));
+        }
+        // faint relief shadow on higher ground (gives mountains some weight)
+        const t = clamp((e - seaLevel) / (1 - seaLevel), 0, 1);
+        const rel = clamp(t - 0.3, 0, 1);
+        if (rel > 0) {
+          const ra = rel * 0.17 * (0.7 + tex[k] * 0.3);
+          ({ r, g, b, a } = over(r, g, b, a, relief[0], relief[1], relief[2], clamp01(ra)));
+        }
+      }
+
+      const o = k * 4;
+      px[o] = clamp(r, 0, 255); px[o + 1] = clamp(g, 0, 255); px[o + 2] = clamp(b, 0, 255); px[o + 3] = clamp(a, 0, 255);
+    }
+    ctx.putImageData(img, 0, 0);
+    return cv;
+  }
+
+  /**
+   * Marching-squares contour of the coastline (iso = seaLevel), returned as a
+   * flat list of canvas-space segments [x0,y0,x1,y1, …]. Drawn as a crisp inked
+   * line by the canvas, independent of the smoothed raster above.
+   */
+  coastSegments(w: number, h: number): number[] {
+    const { cols, rows, data, seaLevel: L } = this;
+    const out: number[] = [];
+    const sx = w / (cols - 1);
+    const sy = h / (rows - 1);
+    for (let j = 0; j < rows - 1; j++) {
+      for (let i = 0; i < cols - 1; i++) {
+        const tl = data[j * cols + i];
+        const tr = data[j * cols + i + 1];
+        const bl = data[(j + 1) * cols + i];
+        const br = data[(j + 1) * cols + i + 1];
+        const c = (tl >= L ? 1 : 0) | (tr >= L ? 2 : 0) | (br >= L ? 4 : 0) | (bl >= L ? 8 : 0);
+        if (c === 0 || c === 15) continue;
+        // edge crossing points (grid space)
+        const top = (): [number, number] => [i + (L - tl) / (tr - tl), j];
+        const right = (): [number, number] => [i + 1, j + (L - tr) / (br - tr)];
+        const bot = (): [number, number] => [i + (L - bl) / (br - bl), j + 1];
+        const left = (): [number, number] => [i, j + (L - tl) / (bl - tl)];
+        const seg = (p: [number, number], q: [number, number]) => out.push(p[0] * sx, p[1] * sy, q[0] * sx, q[1] * sy);
+        switch (c) {
+          case 1: case 14: seg(left(), top()); break;
+          case 2: case 13: seg(top(), right()); break;
+          case 3: case 12: seg(left(), right()); break;
+          case 4: case 11: seg(right(), bot()); break;
+          case 6: case 9: seg(top(), bot()); break;
+          case 7: case 8: seg(left(), bot()); break;
+          case 5: seg(left(), top()); seg(right(), bot()); break;   // saddle
+          case 10: seg(top(), right()); seg(left(), bot()); break;  // saddle
+        }
+      }
+    }
+    return out;
+  }
+
   /** Encode the grid to a compact grayscale PNG data-URL for persistence. */
   toDataURL(): string {
     const cv = document.createElement('canvas');
@@ -227,7 +372,7 @@ export class HeightMap {
   }
 
   /** Rebuild a heightmap from a stored grayscale PNG. */
-  static fromDataURL(url: string, seaLevel: number, preset: BiomePreset): Promise<HeightMap> {
+  static fromDataURL(url: string, seaLevel: number, preset: BiomePreset, style: MapStyle = 'classic'): Promise<HeightMap> {
     return new Promise((resolve, reject) => {
       const image = new Image();
       image.onload = () => {
@@ -239,7 +384,7 @@ export class HeightMap {
         const px = ctx.getImageData(0, 0, cols, rows).data;
         const data = new Float32Array(cols * rows);
         for (let k = 0; k < data.length; k++) data[k] = px[k * 4] / 255;
-        resolve(new HeightMap(cols, rows, seaLevel, preset, data));
+        resolve(new HeightMap(cols, rows, seaLevel, preset, data, style));
       };
       image.onerror = reject;
       image.src = url;
@@ -265,6 +410,49 @@ function makeTexture(cols: number, rows: number): Float32Array {
       out[j * cols + i] = clamp(a + b, -1, 1);
     }
   }
+  return out;
+}
+
+/** Two-pass chamfer distance transform: distance (in cells) to nearest source. */
+function chamfer(source: Uint8Array, cols: number, rows: number): Float32Array {
+  const INF = 1e9;
+  const O = 1, D = Math.SQRT2;
+  const d = new Float32Array(cols * rows);
+  for (let k = 0; k < d.length; k++) d[k] = source[k] ? 0 : INF;
+  for (let j = 0; j < rows; j++) {
+    for (let i = 0; i < cols; i++) {
+      const k = j * cols + i;
+      let v = d[k];
+      if (i > 0) v = Math.min(v, d[k - 1] + O);
+      if (j > 0) v = Math.min(v, d[k - cols] + O);
+      if (i > 0 && j > 0) v = Math.min(v, d[k - cols - 1] + D);
+      if (i < cols - 1 && j > 0) v = Math.min(v, d[k - cols + 1] + D);
+      d[k] = v;
+    }
+  }
+  for (let j = rows - 1; j >= 0; j--) {
+    for (let i = cols - 1; i >= 0; i--) {
+      const k = j * cols + i;
+      let v = d[k];
+      if (i < cols - 1) v = Math.min(v, d[k + 1] + O);
+      if (j < rows - 1) v = Math.min(v, d[k + cols] + O);
+      if (i < cols - 1 && j < rows - 1) v = Math.min(v, d[k + cols + 1] + D);
+      if (i > 0 && j < rows - 1) v = Math.min(v, d[k + cols - 1] + D);
+      d[k] = v;
+    }
+  }
+  return d;
+}
+
+/** Signed distance to the coastline: negative on land, positive in sea (cells). */
+function signedCoastDistance(data: Float32Array, cols: number, rows: number, seaLevel: number): Float32Array {
+  const land = new Uint8Array(cols * rows);
+  const sea = new Uint8Array(cols * rows);
+  for (let k = 0; k < land.length; k++) { if (data[k] >= seaLevel) land[k] = 1; else sea[k] = 1; }
+  const dl = chamfer(land, cols, rows); // sea cells → distance into the water
+  const ds = chamfer(sea, cols, rows);  // land cells → distance inland
+  const out = new Float32Array(cols * rows);
+  for (let k = 0; k < out.length; k++) out[k] = data[k] >= seaLevel ? -ds[k] : dl[k];
   return out;
 }
 

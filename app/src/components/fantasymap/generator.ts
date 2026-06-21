@@ -13,6 +13,7 @@ import { Delaunay } from 'd3-delaunay';
 import type { GenParams, MapRegion, MapItem } from './mapTypes';
 import { mapId } from './mapTypes';
 import { SCATTER_SETS } from './iconLibrary';
+import { INK_SCATTER_SETS, INK_DARK } from './inkIcons';
 import { HeightMap, mulberry32, randomSeed } from './heightmap';
 
 export { mulberry32, randomSeed, HeightMap };
@@ -32,6 +33,7 @@ export function generateRegions(params: GenParams, hm: HeightMap, w: number, h: 
     if (hm.isLand(x, y, w, h)) pts.push([x, y]);
   }
   if (pts.length < 2) return [];
+  const ink = params.style === 'handdrawn';
   const delaunay = Delaunay.from(pts);
   const voronoi = delaunay.voronoi([0, 0, w, h]);
   const regions: MapRegion[] = [];
@@ -43,10 +45,12 @@ export function generateRegions(params: GenParams, hm: HeightMap, w: number, h: 
     regions.push({
       id: mapId('reg'),
       name: fantasyName(rng),
+      // Hand-drawn maps want named areas without loud colour fills (the demo
+      // shows labels, not blocks); the classic style keeps the tinted regions.
       points: flat,
-      fill: regionTint(i),
-      stroke: '#6b5a3e',
-      opacity: 0.26,
+      fill: ink ? '#b98e52' : regionTint(i),
+      stroke: ink ? '#7c5c34' : '#6b5a3e',
+      opacity: ink ? 0.1 : 0.26,
       z: i,
       labelPos: { x: pts[i][0], y: pts[i][1] },
     });
@@ -58,15 +62,33 @@ export function generateRegions(params: GenParams, hm: HeightMap, w: number, h: 
 export function scatterIcons(params: GenParams, hm: HeightMap, w: number, h: number): MapItem[] {
   if (params.scatterDensity <= 0) return [];
   const rng = mulberry32((params.seed || 1) ^ 0x85ebca6b);
+  const ink = params.style === 'handdrawn';
+  const sets = ink ? INK_SCATTER_SETS : SCATTER_SETS;
+  const tint = ink ? INK_DARK : '#3a2f23';
   const items: MapItem[] = [];
   const step = Math.round(70 - params.scatterDensity * 34); // 36..70
   const CAP = 600;
   const jitter = step * 0.5;
   let z = 0;
 
-  const place = (x: number, y: number, set: string[], size: number) => {
+  const place = (x: number, y: number, set: string[], size: number, label?: string) => {
     const libId = set[Math.floor(rng() * set.length)];
-    items.push({ id: mapId('it'), libId, x, y, width: size, height: size, scale: 1, rotation: 0, z: z++, tint: '#3a2f23' });
+    items.push({ id: mapId('it'), libId, x, y, width: size, height: size, scale: 1, rotation: 0, z: z++, tint, label });
+  };
+
+  // A short mountain range: a few overlapping peaks along a jittered ridge line
+  // so highlands read as a massif rather than scattered single icons.
+  const placeRange = (x: number, y: number, size: number) => {
+    const n = 2 + Math.floor(rng() * 3);
+    const ang = rng() * Math.PI;
+    const dx = Math.cos(ang), dy = Math.sin(ang) * 0.5;
+    for (let s = 0; s < n && items.length < CAP; s++) {
+      const off = (s - (n - 1) / 2) * size * 0.62;
+      const px = x + dx * off + (rng() - 0.5) * size * 0.25;
+      const py = y + dy * off + (rng() - 0.5) * size * 0.25;
+      if (!hm.isLand(px, py, w, h)) continue;
+      place(px, py, sets.mountains, size * (0.85 + rng() * 0.4));
+    }
   };
 
   for (let y = step; y < h - step && items.length < CAP; y += step) {
@@ -78,12 +100,17 @@ export function scatterIcons(params: GenParams, hm: HeightMap, w: number, h: num
       const t = (e - hm.seaLevel) / (1 - hm.seaLevel);
       const roll = rng();
       if (params.scatterTerrain && t > 0.66 && roll < 0.7) {
-        place(jx, jy, SCATTER_SETS.mountains, 46);
+        if (ink) placeRange(jx, jy, 48);
+        else place(jx, jy, sets.mountains, 46);
       } else if (params.scatterTerrain && t > 0.28 && t <= 0.66 && roll < 0.4) {
-        const set = params.biomePreset === 'arid' ? SCATTER_SETS.desert : SCATTER_SETS.forest;
+        const set = params.biomePreset === 'arid' ? sets.desert : sets.forest;
         place(jx, jy, set, 38);
       } else if (params.scatterSettlements && t <= 0.28 && roll < 0.16) {
-        place(jx, jy, rng() < 0.2 ? SCATTER_SETS.city : SCATTER_SETS.settlement, rng() < 0.2 ? 50 : 40);
+        const city = rng() < 0.2;
+        // hand-drawn maps caption their settlements (red place names); the
+        // classic style leaves them unlabelled to avoid clutter.
+        const label = ink && (city || rng() < 0.5) ? fantasyName(rng) : undefined;
+        place(jx, jy, city ? sets.city : sets.settlement, city ? 50 : 40, label);
       }
     }
   }
@@ -106,6 +133,6 @@ function regionTint(i: number): string { return REGION_TINTS[i % REGION_TINTS.le
 
 /** Run the whole pipeline; returns the heightmap + the pieces written to the doc. */
 export function generateMap(params: GenParams, w: number, h: number) {
-  const hm = HeightMap.fromNoise(params, w, h);
+  const hm = HeightMap.fromNoise(params, w, h, params.style);
   return { hm, regions: generateRegions(params, hm, w, h), items: scatterIcons(params, hm, w, h) };
 }

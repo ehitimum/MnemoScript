@@ -1,5 +1,5 @@
 import { Dice5, Wand2, RefreshCw, Eraser, X } from 'lucide-react';
-import type { GenParams, GenShape, BiomePreset } from './mapTypes';
+import type { GenParams, GenShape, BiomePreset, MapStyle } from './mapTypes';
 
 interface Props {
   params: GenParams;
@@ -10,6 +10,11 @@ interface Props {
   onClear: () => void;
   onClose: () => void;
 }
+
+const STYLES: { id: MapStyle; label: string }[] = [
+  { id: 'handdrawn', label: 'Hand-drawn' },
+  { id: 'classic', label: 'Classic' },
+];
 
 const SHAPES: { id: GenShape; label: string }[] = [
   { id: 'continent', label: 'Continent' },
@@ -41,6 +46,21 @@ export default function GeneratePanel({
           <X className="w-4 h-4" />
         </button>
       </div>
+
+      {/* Engine style */}
+      <Field label="Art style">
+        <div className="flex gap-1">
+          {STYLES.map((s) => (
+            <button
+              key={s.id}
+              onClick={() => set('style', s.id)}
+              className={`fm-seg ${params.style === s.id ? 'is-active' : ''}`}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+      </Field>
 
       {/* Shape */}
       <Field label="Landmass shape">

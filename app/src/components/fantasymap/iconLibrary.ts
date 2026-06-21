@@ -31,9 +31,10 @@ import {
   GiCompass, GiPositionMarker, GiCrossedSwords, GiShield, GiBlackFlag,
   GiScrollUnfurled, GiTreasureMap, GiTwoCoins,
 } from 'react-icons/gi';
+import { INK_ICONS } from './inkIcons';
 
 export type IconCategory =
-  | 'Terrain' | 'Settlements' | 'Sites' | 'Water' | 'Creatures' | 'Markers';
+  | 'Hand-drawn' | 'Terrain' | 'Settlements' | 'Sites' | 'Water' | 'Creatures' | 'Markers';
 
 export interface IconDef {
   id: string;            // stable id stored in MapItem.libId
@@ -50,6 +51,9 @@ function ic(name: string, category: IconCategory, Icon: IconType, tags: string[]
 }
 
 export const ICONS: IconDef[] = [
+  // ── Hand-drawn (our own cohesive ink set; see inkIcons.ts) ───────────
+  ...INK_ICONS,
+
   // ── Terrain ──────────────────────────────────────────────────────────
   ic('Mountains', 'Terrain', GiMountains, ['mountain', 'peak', 'range', 'alps']),
   ic('Hills', 'Terrain', GiHills, ['hill', 'highland']),
@@ -132,7 +136,7 @@ export const ICONS: IconDef[] = [
 ];
 
 export const CATEGORIES: IconCategory[] =
-  ['Terrain', 'Settlements', 'Sites', 'Water', 'Creatures', 'Markers'];
+  ['Hand-drawn', 'Terrain', 'Settlements', 'Sites', 'Water', 'Creatures', 'Markers'];
 
 const BY_ID = new Map(ICONS.map((d) => [d.id, d]));
 

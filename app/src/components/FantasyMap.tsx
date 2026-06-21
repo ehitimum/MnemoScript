@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { Stage, Layer, Rect, Line, Image as KonvaImage, Text, Transformer, Shape } from 'react-konva';
 import type Konva from 'konva';
@@ -16,11 +17,12 @@ import { toAssetUrl } from '../lib/assets';
 import { toItemUrl } from '../lib/mapAssets';
 import { useMediaQuery } from '../lib/useMediaQuery';
 import type {
-  FantasyMapDoc, GenParams, MapItem, MapRegion, MapRoute, MapLabel, MapKind, LayerId,
+  FantasyMapDoc, GenParams, MapItem, MapRegion, MapRoute, MapLabel, MapKind, MapStyle, MapDecor, LayerId,
 } from './fantasymap/mapTypes';
 import { parseMapDoc, mapId, mapKindDef, DEFAULT_GEN_PARAMS } from './fantasymap/mapTypes';
 import { generateMap } from './fantasymap/generator';
 import { HeightMap, randomSeed } from './fantasymap/heightmap';
+import { iconDataUrl } from './fantasymap/iconLibrary';
 import { makeParchment } from './fantasymap/parchment';
 import { useImage } from './fantasymap/useImage';
 import { useMapHistory } from './fantasymap/useMapHistory';
@@ -52,6 +54,10 @@ const TOOLS: { id: Tool; label: string; Icon: typeof MousePointer2 }[] = [
 
 type CtxMenu = { x: number; y: number; sel: Selection | null } | null;
 
+/** Pre-rendered ink compass for the hand-drawn decorative chrome. */
+const COMPASS_URL = iconDataUrl('ink-compass', '#5b4632');
+const SERIF_FONT = "Georgia, 'Iowan Old Style', 'Times New Roman', serif";
+
 export default function FantasyMap({ document: docProp, projectId, onUpdateContent, onRequestSave }: FantasyMapProps) {
   const isMobile = useMediaQuery('(max-width: 768px)');
 
@@ -71,11 +77,14 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
   const clipboard = useRef<MapItem | null>(null);
 
   // Brush settings (land/sea/scatter) + live-stroke refs.
-  const [brushSize, setBrushSize] = useState(90);
-  const [brushStrength, setBrushStrength] = useState(0.6);
+  const [brushSize, setBrushSize] = useState(40);
+  const [brushStrength, setBrushStrength] = useState(0.7);
   const [scatterSpacing, setScatterSpacing] = useState(46);
-  const paintingRef = useRef<{ raise: boolean } | null>(null);
+  const paintingRef = useRef<{ raise: boolean; last: { x: number; y: number } } | null>(null);
   const scatterRef = useRef<{ last: { x: number; y: number } } | null>(null);
+  // Brush cursor (screen px within the canvas wrap) — drawn as a DOM overlay so
+  // moving it never forces a Konva redraw of the map.
+  const [brushCursor, setBrushCursor] = useState<{ x: number; y: number } | null>(null);
 
   const [leftOpen, setLeftOpen] = useState(!isMobile);
   const [rightOpen, setRightOpen] = useState(!isMobile);
@@ -89,10 +98,15 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
 
   // ── Terrain heightmap (paintable; shared with the generator) ──────────
   const [terrainCanvas, setTerrainCanvas] = useState<HTMLCanvasElement | null>(null);
+  const [coastSegs, setCoastSegs] = useState<number[] | null>(null);
   const heightRef = useRef<HeightMap | null>(null);
   const renderRaf = useRef(0);
   const renderTerrain = useCallback(() => {
-    setTerrainCanvas(heightRef.current ? heightRef.current.render() : null);
+    const hm = heightRef.current;
+    if (!hm) { setTerrainCanvas(null); setCoastSegs(null); return; }
+    setTerrainCanvas(hm.render());
+    const c = docRef.current.canvas;
+    setCoastSegs(hm.style === 'handdrawn' ? hm.coastSegments(c.width, c.height) : null);
   }, []);
   const scheduleRender = useCallback(() => {
     if (renderRaf.current) return;
@@ -102,15 +116,16 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
   const syncHeightFromDoc = useCallback((d: FantasyMapDoc) => {
     const t = d.terrain;
     if (t.mode === 'generated' && t.params) {
-      heightRef.current = HeightMap.fromNoise(t.params, d.canvas.width, d.canvas.height);
+      heightRef.current = HeightMap.fromNoise(t.params, d.canvas.width, d.canvas.height, d.style);
       renderTerrain();
     } else if (t.mode === 'painted' && t.heightPng) {
-      HeightMap.fromDataURL(t.heightPng, t.seaLevel ?? 0.4, t.biomePreset ?? 'temperate')
+      HeightMap.fromDataURL(t.heightPng, t.seaLevel ?? 0.4, t.biomePreset ?? 'temperate', d.style)
         .then((hm) => { heightRef.current = hm; renderTerrain(); })
         .catch(() => {});
     } else {
       heightRef.current = null;
       setTerrainCanvas(null);
+      setCoastSegs(null);
     }
   }, [renderTerrain]);
 
@@ -145,11 +160,12 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
   const H = doc.canvas.height;
 
   const fitToScreen = useCallback(() => {
+    const { width: Wd, height: Hd } = docRef.current.canvas;
     const pad = 40;
-    const scale = Math.min((size.w - pad * 2) / W, (size.h - pad * 2) / H);
-    const s = Math.max(0.05, Math.min(scale, 4));
-    setView({ x: (size.w - W * s) / 2, y: (size.h - H * s) / 2, scale: s });
-  }, [size, W, H]);
+    const scale = Math.min((size.w - pad * 2) / Wd, (size.h - pad * 2) / Hd);
+    const s = Math.max(0.02, Math.min(scale, 4));
+    setView({ x: (size.w - Wd * s) / 2, y: (size.h - Hd * s) / 2, scale: s });
+  }, [size]);
 
   // Fit once on first measure.
   const fittedRef = useRef(false);
@@ -270,7 +286,8 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
   };
 
   const addLabel = (mx: number, my: number) => {
-    const label: MapLabel = { id: mapId('lb'), text: 'New label', x: mx, y: my, size: 22, color: '#3a2f23', rotation: 0, bold: true };
+    const color = docRef.current.style === 'handdrawn' ? '#9e2b25' : '#3a2f23';
+    const label: MapLabel = { id: mapId('lb'), text: 'New label', x: mx, y: my, size: 22, color, rotation: 0, bold: true };
     mutate((d) => ({ ...d, labels: [...d.labels, label] }));
     setSelection({ type: 'label', id: label.id });
     setTool('select');
@@ -299,7 +316,7 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
 
   // ── Brush painting (land/sea heightmap + icon scatter) ────────────────
   const paintAt = (mx: number, my: number, raise: boolean) => {
-    if (!heightRef.current) heightRef.current = HeightMap.blank(W, H, genParams.biomePreset, 0.4);
+    if (!heightRef.current) heightRef.current = HeightMap.blank(W, H, genParams.biomePreset, 0.4, docRef.current.style);
     heightRef.current.paint(mx, my, brushSize, brushStrength, raise, W, H);
     scheduleRender();
   };
@@ -334,7 +351,7 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
 
     if (tool === 'land' || tool === 'sea') {
       history.snapshot(docRef.current);
-      paintingRef.current = { raise: tool === 'land' };
+      paintingRef.current = { raise: tool === 'land', last: m };
       paintAt(m.x, m.y, tool === 'land');
       return;
     }
@@ -361,7 +378,18 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
     if (!paintingRef.current && !scatterRef.current) return;
     const m = pointerToMap();
     if (!m) return;
-    if (paintingRef.current) { paintAt(m.x, m.y, paintingRef.current.raise); return; }
+    if (paintingRef.current) {
+      // Interpolate along the stroke so fast drags leave a continuous line
+      // (essential for thin rivers) instead of dotted dabs.
+      const last = paintingRef.current.last;
+      const dx = m.x - last.x, dy = m.y - last.y;
+      const dist = Math.hypot(dx, dy);
+      const stepPx = Math.max(2, brushSize * 0.5);
+      const n = Math.max(1, Math.round(dist / stepPx));
+      for (let k = 1; k <= n; k++) paintAt(last.x + (dx * k) / n, last.y + (dy * k) / n, paintingRef.current.raise);
+      paintingRef.current.last = m;
+      return;
+    }
     if (scatterRef.current) {
       const last = scatterRef.current.last;
       if (Math.hypot(m.x - last.x, m.y - last.y) >= scatterSpacing) {
@@ -375,6 +403,15 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
     if (paintingRef.current) { paintingRef.current = null; commitTerrainPaint(); }
     scatterRef.current = null;
   };
+
+  // Brush cursor overlay: track the pointer over the canvas wrap (DOM, not Konva).
+  const onWrapPointerMove = (e: ReactPointerEvent) => {
+    if (!BRUSH_TOOLS.includes(tool)) { if (brushCursor) setBrushCursor(null); return; }
+    const r = wrapRef.current?.getBoundingClientRect();
+    if (!r) return;
+    setBrushCursor({ x: e.clientX - r.left, y: e.clientY - r.top });
+  };
+  const onWrapPointerLeave = () => setBrushCursor(null);
 
   // End brush strokes even if the pointer is released outside the canvas.
   useEffect(() => {
@@ -398,7 +435,7 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
     const { hm, regions, items } = generateMap(params, W, H);
     heightRef.current = hm;
     renderTerrain();
-    mutate((d) => ({ ...d, terrain: { mode: 'generated', seed: params.seed, params }, regions, items }));
+    mutate((d) => ({ ...d, style: params.style, terrain: { mode: 'generated', seed: params.seed, params }, regions, items }));
     setSelection(null);
     requestAnimationFrame(fitToScreen);
   };
@@ -409,6 +446,7 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
     const shapes: GenParams['shape'][] = ['island', 'continent', 'archipelago'];
     const presets: GenParams['biomePreset'][] = ['temperate', 'arid', 'arctic', 'volcanic', 'verdant'];
     const p: GenParams = {
+      style: genParams.style, // keep the chosen engine; randomise the world only
       shape: shapes[Math.floor(r() * shapes.length)],
       seed: randomSeed(),
       landAmount: 0.35 + r() * 0.45,
@@ -470,10 +508,43 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
   const onToggleLayer = (layer: LayerId, key: 'visible' | 'locked') =>
     mutate((d) => ({ ...d, layersMeta: { ...d.layersMeta, [layer]: { ...d.layersMeta[layer], [key]: !d.layersMeta[layer][key] } } }), false);
   const onChangeKind = (kind: MapKind) => mutate((d) => ({ ...d, kind }));
+  const onChangeStyle = (style: MapStyle) => {
+    mutate((d) => ({
+      ...d,
+      style,
+      // turn the decorative chrome on for hand-drawn, off for the classic look
+      decor: style === 'handdrawn'
+        ? { frame: true, compass: true, cartouche: true }
+        : { frame: false, compass: false, cartouche: false },
+    }));
+    setGenParams((p) => ({ ...p, style }));
+    if (heightRef.current) { heightRef.current.style = style; renderTerrain(); }
+  };
+  const onToggleDecor = (key: keyof MapDecor) =>
+    mutate((d) => ({ ...d, decor: { ...d.decor, [key]: !d.decor[key] } }), false);
   const onPatchCanvas = (patch: Partial<FantasyMapDoc['canvas']>) => mutate((d) => ({ ...d, canvas: { ...d.canvas, ...patch } }), false);
   const onPatchBackground = (patch: Partial<FantasyMapDoc['canvas']['background']>) =>
     mutate((d) => ({ ...d, canvas: { ...d.canvas, background: { ...d.canvas.background, ...patch } } }), false);
   const onPatchGrid = (patch: Partial<FantasyMapDoc['grid']>) => mutate((d) => ({ ...d, grid: { ...d.grid, ...patch } }), false);
+
+  // Resize the canvas (e.g. up to 4K) and scale all content proportionally so
+  // nothing shifts. Terrain re-derives at the new resolution on the next sync.
+  const onResizeCanvas = (w: number, h: number) => {
+    const d0 = docRef.current;
+    if (w === d0.canvas.width && h === d0.canvas.height) return;
+    const sx = w / d0.canvas.width, sy = h / d0.canvas.height, s = (sx + sy) / 2;
+    const sp = (pts: number[]) => pts.map((v, i) => (i % 2 ? v * sy : v * sx));
+    mutate((d) => ({
+      ...d,
+      canvas: { ...d.canvas, width: w, height: h },
+      items: d.items.map((it) => ({ ...it, x: it.x * sx, y: it.y * sy, scale: it.scale * s })),
+      regions: d.regions.map((r) => ({ ...r, points: sp(r.points), labelPos: r.labelPos ? { x: r.labelPos.x * sx, y: r.labelPos.y * sy } : undefined })),
+      routes: d.routes.map((r) => ({ ...r, points: sp(r.points), width: Math.max(1, Math.round(r.width * s)) })),
+      labels: d.labels.map((l) => ({ ...l, x: l.x * sx, y: l.y * sy, size: Math.max(8, Math.round(l.size * s)) })),
+    }));
+    setSelection(null);
+    requestAnimationFrame(() => { syncHeightFromDoc(docRef.current); fitToScreen(); });
+  };
 
   // ── Drag start (one history snapshot per gesture) ─────────────────────
   const onObjDragStart = () => history.snapshot(docRef.current);
@@ -486,6 +557,12 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
 
   const selectable = tool === 'select';
   const kindDef = mapKindDef(doc.kind);
+
+  // Hand-drawn styling for captions/labels + the decorative compass image.
+  const isInk = doc.style === 'handdrawn';
+  const labelFill = isInk ? '#9e2b25' : '#2b2317';
+  const labelFont = isInk ? SERIF_FONT : undefined;
+  const compassImg = useImage(isInk && doc.decor.compass ? COMPASS_URL : undefined);
 
   return (
     <div className="flex-1 flex flex-col bg-background overflow-hidden relative">
@@ -552,8 +629,9 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
           </span>
           <label className="flex items-center gap-1.5">
             <span className="text-[10px] text-muted-foreground">Size</span>
-            <input type="range" className="fm-range w-24" min={20} max={320} step={5}
+            <input type="range" className="fm-range w-24" min={4} max={280} step={2}
               value={brushSize} onChange={(e) => setBrushSize(Number(e.target.value))} />
+            <span className="text-[10px] text-muted-foreground/70 tabular-nums w-7">{brushSize}</span>
           </label>
           {(tool === 'land' || tool === 'sea') && (
             <label className="flex items-center gap-1.5">
@@ -594,7 +672,8 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
         )}
 
         {/* Canvas */}
-        <div ref={wrapRef} className="flex-1 min-h-0 relative fm-canvas-wrap" onContextMenu={(e) => e.preventDefault()}>
+        <div ref={wrapRef} className="flex-1 min-h-0 relative fm-canvas-wrap" onContextMenu={(e) => e.preventDefault()}
+          onPointerMove={onWrapPointerMove} onPointerLeave={onWrapPointerLeave}>
           <Stage
             ref={stageRef}
             width={size.w}
@@ -632,6 +711,25 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
                 <KonvaImage image={terrainImg} x={0} y={0} width={W} height={H} listening={false} />
               )}
 
+              {/* Inked coastline (hand-drawn style): crisp vector contour over the soft raster */}
+              {lm.terrain.visible && isInk && coastSegs && coastSegs.length > 0 && (
+                <Shape
+                  listening={false}
+                  stroke="#5b4632"
+                  strokeWidth={1.7 / view.scale}
+                  lineCap="round"
+                  lineJoin="round"
+                  sceneFunc={(ctx, shape) => {
+                    ctx.beginPath();
+                    for (let i = 0; i < coastSegs.length; i += 4) {
+                      ctx.moveTo(coastSegs[i], coastSegs[i + 1]);
+                      ctx.lineTo(coastSegs[i + 2], coastSegs[i + 3]);
+                    }
+                    ctx.strokeShape(shape);
+                  }}
+                />
+              )}
+
               {/* Grid */}
               {doc.grid.type !== 'none' && (
                 <GridLayer type={doc.grid.type} W={W} H={H} size={doc.grid.size} color={doc.grid.color} opacity={doc.grid.opacity} scale={view.scale} />
@@ -658,7 +756,8 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
               {/* Region labels */}
               {lm.regions.visible && sortedRegions.map((r) => r.labelPos && (
                 <Text key={r.id + '_t'} text={r.name} x={r.labelPos.x} y={r.labelPos.y} fontSize={18} fontStyle="bold"
-                  fill="#2b2317" align="center" offsetX={r.name.length * 4.5} listening={false} opacity={0.85} />
+                  fill={isInk ? '#4a3a22' : '#2b2317'} fontFamily={labelFont}
+                  align="center" offsetX={r.name.length * 4.5} listening={false} opacity={0.85} />
               ))}
 
               {/* Items */}
@@ -670,10 +769,12 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
                   snap={snap} />
               ))}
 
-              {/* Item captions */}
+              {/* Item captions (red serif place-names in the hand-drawn style) */}
               {lm.items.visible && sortedItems.map((it) => it.label && (
                 <Text key={it.id + '_c'} text={it.label} x={it.x} y={it.y + (it.height * it.scale) / 2 + 2}
-                  fontSize={13} fontStyle="bold" fill="#2b2317" align="center" offsetX={it.label.length * 3.2} listening={false} />
+                  fontSize={13} fontStyle="bold" fill={labelFill} fontFamily={labelFont}
+                  align="center" offsetX={it.label.length * 3.2} listening={false}
+                  shadowColor={isInk ? '#f3ead2' : undefined} shadowBlur={isInk ? 3 : 0} shadowOpacity={isInk ? 0.9 : 0} />
               ))}
 
               {/* Labels */}
@@ -698,11 +799,30 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
                   closed={draft.kind === 'region'} fill={draft.kind === 'region' ? '#2563eb22' : undefined} listening={false} />
               )}
 
+              {/* Decorative map chrome (hand-drawn style): frame, compass, title cartouche */}
+              {isInk && (
+                <MapChrome W={W} H={H} scale={view.scale} decor={doc.decor} title={docProp.title} compassImg={compassImg} />
+              )}
+
               <Transformer ref={trRef} rotateEnabled keepRatio
                 anchorSize={9} borderStroke="#2563eb" anchorStroke="#2563eb"
                 boundBoxFunc={(oldB, newB) => (newB.width < 8 || newB.height < 8 ? oldB : newB)} />
             </Layer>
           </Stage>
+
+          {/* Brush cursor (size preview) */}
+          {brushCursor && BRUSH_TOOLS.includes(tool) && (
+            <div
+              className="fm-brush-cursor"
+              style={{
+                left: brushCursor.x,
+                top: brushCursor.y,
+                width: Math.max(6, brushSize * view.scale * 2),
+                height: Math.max(6, brushSize * view.scale * 2),
+                borderColor: tool === 'sea' ? '#2f7dbf' : tool === 'land' ? '#3f9e57' : '#8a5ad6',
+              }}
+            />
+          )}
 
           {/* Empty hint */}
           {doc.terrain.mode === 'none' && doc.items.length === 0 && doc.regions.length === 0 && (
@@ -724,7 +844,9 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
               onPatchObject={(t, id, p) => patchObject(t, id, p)}
               onDeleteObject={deleteObject}
               onPatchCanvas={onPatchCanvas} onPatchBackground={onPatchBackground} onPatchGrid={onPatchGrid}
-              onToggleLayer={onToggleLayer} onChangeKind={onChangeKind} onExport={exportPng}
+              onResizeCanvas={onResizeCanvas}
+              onToggleLayer={onToggleLayer} onChangeKind={onChangeKind}
+              onChangeStyle={onChangeStyle} onToggleDecor={onToggleDecor} onExport={exportPng}
             />
           </div>
         )}
@@ -896,6 +1018,65 @@ function CtxItem({ icon: Icon, label, danger, onSelect }: { icon: typeof Copy; l
       className={`flex items-center gap-2.5 w-full text-left px-2.5 py-2 rounded-md cursor-pointer transition-colors ${danger ? 'text-destructive hover:bg-destructive/10' : 'text-foreground/90 hover:bg-secondary/60'}`}>
       <Icon className="w-4 h-4 shrink-0" /><span className="text-sm font-medium">{label}</span>
     </button>
+  );
+}
+
+/* ── decorative map chrome (hand-drawn style) ────────────────────────────── */
+function MapChrome({ W, H, scale, decor, title, compassImg }: {
+  W: number; H: number; scale: number; decor: MapDecor; title: string; compassImg: HTMLImageElement | undefined;
+}) {
+  const ink = '#6b5436';
+  const m = Math.max(16, Math.min(W, H) * 0.022);    // outer margin
+  const gap = Math.max(5, Math.min(W, H) * 0.009);   // double-line gap
+  const cs = Math.min(W, H) * 0.13;                  // compass size
+  const cpad = m + gap + cs * 0.12;
+  const fontSize = Math.min(W, H) * 0.034;
+  const tw = Math.min(W * 0.72, Math.max(title.length * fontSize * 0.6 + fontSize * 2.4, fontSize * 6));
+  const th = fontSize * 1.85;
+  const bx = (W - tw) / 2;
+  const by = m + gap * 1.6;
+
+  return (
+    <>
+      {decor.frame && (
+        <Shape
+          listening={false}
+          sceneFunc={(konvaCtx) => {
+            const ctx = konvaCtx as unknown as CanvasRenderingContext2D;
+            ctx.strokeStyle = ink;
+            ctx.fillStyle = ink;
+            ctx.lineJoin = 'miter';
+            ctx.lineWidth = 2.6 / scale;
+            ctx.strokeRect(m, m, W - 2 * m, H - 2 * m);
+            ctx.lineWidth = 1.2 / scale;
+            ctx.strokeRect(m + gap, m + gap, W - 2 * (m + gap), H - 2 * (m + gap));
+            // corner diamonds on the inner frame
+            const ds = Math.min(W, H) * 0.012;
+            for (const cx of [m + gap, W - m - gap]) {
+              for (const cy of [m + gap, H - m - gap]) {
+                ctx.beginPath();
+                ctx.moveTo(cx, cy - ds); ctx.lineTo(cx + ds, cy); ctx.lineTo(cx, cy + ds); ctx.lineTo(cx - ds, cy);
+                ctx.closePath(); ctx.fill();
+              }
+            }
+          }}
+        />
+      )}
+
+      {decor.compass && compassImg && (
+        <KonvaImage image={compassImg} x={cpad} y={H - cpad - cs} width={cs} height={cs} listening={false} opacity={0.9} />
+      )}
+
+      {decor.cartouche && title && (
+        <>
+          <Rect x={bx} y={by} width={tw} height={th} cornerRadius={th * 0.22}
+            fill="#efe2c2" stroke={ink} strokeWidth={1.4 / scale} opacity={0.96} listening={false}
+            shadowColor="#000" shadowBlur={10} shadowOpacity={0.18} />
+          <Text x={bx} y={by} width={tw} height={th} text={title} align="center" verticalAlign="middle"
+            fontSize={fontSize} fontStyle="bold" fontFamily={SERIF_FONT} fill="#3a2a1c" listening={false} />
+        </>
+      )}
+    </>
   );
 }
 

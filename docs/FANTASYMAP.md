@@ -8,26 +8,46 @@ It mirrors the MindMap architecture: the whole map is serialised to a JSON strin
 in `Document.content`, auto-saved (debounced) through `onUpdateContent`, and
 keyed by document id so it re-parses cleanly on open.
 
+## Two art styles
+
+Every map has an **art style** (switch it in **Generate** or the inspector's *Art style*):
+
+- **Hand-drawn (ink)** — the default. A parchment/atlas look: bare paper land, a soft
+  watercolour sea with **concentric ripple lines** hugging an **inked coastline**, faint
+  relief shading on high ground, our own **hand-drawn ink icon set** (mountains drawn as
+  *ranges*, conifer forests, towns/castles), **red serif place-names**, and optional
+  decorative **chrome** — an ornate frame, a compass rose and a title cartouche. This mimics
+  the popular hand-drawn asset-pack look without any third-party art.
+- **Classic (colour)** — the original Inkarnate-style engine: sea-depth gradient, a soft
+  coastline glow, elevation-banded **biome colours** and a mottled land texture.
+
+Both engines share the same paintable heightmap, so you can generate or brush in either
+style and switch between them at any time — nothing is lost.
+
 ## What you can do
 
-- **Auto-generate** a map: open **Generate** and set the numbers you want —
+- **Auto-generate** a map: open **Generate**, pick the **art style**, and set the numbers —
   **# regions**, **# biomes**, landmass shape (island / continent / archipelago),
   land amount, coastline detail, biome preset and icon-scatter density. Hit
   **Generate**, **Regenerate** (new seed) or **🎲 Randomize** (randomises every
   field). Everything it makes stays fully hand-editable.
-- **Paint terrain with brushes** (Inkarnate-style): the **Land brush** raises a
-  coastline and terrain, the **Sea brush** carves water — both edit a shared
-  heightmap that's rendered with a procedural look: parchment paper base, a soft
-  **coastline glow**, elevation-banded **biome colours** and a subtle mottled land
-  texture. A generated map is fully paintable afterwards (and vice-versa).
+- **Paint terrain with brushes**: the **Land brush** raises terrain & coastline, the
+  **Sea brush** carves water — both edit a shared heightmap. A live **brush-size ring**
+  follows the cursor; the brush **size** goes right down to a few pixels (great for thin
+  rivers and inlets) and strokes are interpolated so fast drags stay continuous. Each dab
+  eases the ground toward land/water, so even a tiny brush carves decisively. The terrain
+  grid resolution scales with the map, so brushes stay fine on large/4K canvases. A
+  generated map is fully paintable afterwards (and vice-versa).
 - **Scatter brush**: pick a library icon, then drag to paint many of it at once
   (jittered position + size) — great for forests, hills and clustered buildings.
 - **Build by hand** with the rest of the toolbar: Select/move, Pan, Place one icon
   (Stamp), Draw region (named polygon), Draw road/river, Add label.
-- **Icon library** (left panel): ~60 curated fantasy glyphs across Terrain,
-  Settlements, Sites, Water, Creatures and Markers — searchable and recolourable.
+- **Icon library** (left panel): our own cohesive **Hand-drawn** ink set plus ~60 curated
+  game-icons glyphs across Terrain, Settlements, Sites, Water, Creatures and Markers —
+  searchable and recolourable. Hand-drawn icons can be stamped or painted in either style.
 - **Inspector** (right panel): edit the selected object (size, rotation, colour,
-  label, lock), plus map settings (kind, background, grid) and layer visibility.
+  label, lock), plus map settings (kind, **canvas size** up to **4K**, art style,
+  background, grid) and layer visibility. Changing size scales all content proportionally.
 - **Undo/redo** (buttons + Ctrl+Z / Ctrl+Y), right-click/long-press **context
   menu** (copy, duplicate, bring to front/back, lock, delete), zoom & fit.
 - **Export** the whole map to **PNG** from the inspector.
@@ -59,5 +79,9 @@ bulk folder/pack import as named sets, and Azgaar `.map` parsing.
 
 ## Credits
 
-Built-in icons come from **game-icons.net** (CC BY 3.0) via `react-icons/gi`.
-See [app/public/mapicons/CREDITS.md](../app/public/mapicons/CREDITS.md).
+The **Hand-drawn** ink icon set ([inkIcons.ts](../app/src/components/fantasymap/inkIcons.ts))
+is original work bundled with MnemoScript — no attribution required. The remaining built-in
+icons come from **game-icons.net** (CC BY 3.0) via `react-icons/gi`; keep that attribution
+(see [app/public/mapicons/CREDITS.md](../app/public/mapicons/CREDITS.md)). When you own a
+commercial map-asset pack (e.g. Deface Games / Inkarnate exports), import it via **Import →
+My Imports** rather than bundling it — its art stays under its own licence.

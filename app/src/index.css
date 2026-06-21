@@ -710,3 +710,15 @@
   max-width: 92vw;
   overflow-x: auto;
 }
+
+/* Brush size-preview ring that follows the cursor over the map. */
+.fm-brush-cursor {
+  position: absolute;
+  border: 1.5px dashed currentColor;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 20;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.35) inset;
+  opacity: 0.85;
+}

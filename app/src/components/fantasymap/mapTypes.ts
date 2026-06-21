@@ -12,6 +12,23 @@
 
 export type MapKind = 'world' | 'region';
 
+/**
+ * Visual engine style. Both render paths ship side-by-side:
+ *  • 'classic'   — the Inkarnate-style coloured terrain (sea depth, coastline
+ *                  glow, elevation-banded biomes, mottled land texture).
+ *  • 'handdrawn' — the parchment ink look (bare-paper land, an inked coastline
+ *                  with concentric water ripples, faint relief shading) plus a
+ *                  hand-drawn icon set and an optional decorative frame.
+ */
+export type MapStyle = 'classic' | 'handdrawn';
+
+/** Decorative "map chrome" drawn on top of everything (hand-drawn style). */
+export interface MapDecor {
+  frame: boolean;     // ornate double border with corner flourishes
+  compass: boolean;   // compass rose in a corner
+  cartouche: boolean; // title banner at the top
+}
+
 export type LayerId = 'terrain' | 'regions' | 'routes' | 'items' | 'labels';
 
 export interface MapBackground {
@@ -89,6 +106,7 @@ export type BiomePreset = 'temperate' | 'arid' | 'arctic' | 'volcanic' | 'verdan
 /** Everything the Auto-Generation menu collects. A generation is fully
  *  reproducible from these values + the seed. */
 export interface GenParams {
+  style: MapStyle;          // which render engine to produce
   shape: GenShape;
   seed: number;
   landAmount: number;       // 0..1 — higher means more land above sea level
@@ -123,6 +141,10 @@ export interface ImportedAsset {
 export interface FantasyMapDoc {
   version: 1;
   kind: MapKind;
+  /** Visual engine. Governs terrain render, the auto-applied icon set and chrome. */
+  style: MapStyle;
+  /** Decorative frame / compass / title banner (used by the hand-drawn style). */
+  decor: MapDecor;
   canvas: {
     width: number;
     height: number;
@@ -174,6 +196,7 @@ export function mapKindDef(kind: MapKind): MapKindDef {
 }
 
 export const DEFAULT_GEN_PARAMS: GenParams = {
+  style: 'handdrawn',
   shape: 'continent',
   seed: 1,
   landAmount: 0.52,
@@ -197,6 +220,8 @@ export function createDefaultMapDoc(kind: MapKind = 'world'): FantasyMapDoc {
   return {
     version: 1,
     kind,
+    style: 'handdrawn',
+    decor: { frame: true, compass: true, cartouche: true },
     canvas: {
       width: def.defaultSize.width,
       height: def.defaultSize.height,
@@ -222,6 +247,11 @@ export function parseMapDoc(content: string, fallbackKind: MapKind = 'world'): F
     return {
       ...base,
       ...raw,
+      // Legacy maps (saved before styles existed) were the coloured engine and
+      // had no chrome — default them to 'classic' with no frame so they're
+      // unchanged; newly-created maps carry their own style/decor.
+      style: raw.style === 'handdrawn' || raw.style === 'classic' ? raw.style : 'classic',
+      decor: { ...{ frame: false, compass: false, cartouche: false }, ...(raw.decor ?? {}) },
       canvas: { ...base.canvas, ...(raw.canvas ?? {}), background: { ...base.canvas.background, ...(raw.canvas?.background ?? {}) } },
       grid: { ...base.grid, ...(raw.grid ?? {}) },
       terrain: { ...base.terrain, ...(raw.terrain ?? {}) },
