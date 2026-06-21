@@ -47,7 +47,7 @@ const TOOLS: { id: Tool; label: string; Icon: typeof MousePointer2 }[] = [
   { id: 'sea', label: 'Sea brush — carve water', Icon: Droplets },
   { id: 'stamp', label: 'Place one icon', Icon: MapPin },
   { id: 'scatter', label: 'Scatter brush — paint many icons', Icon: SprayCan },
-  { id: 'region', label: 'Draw region', Icon: Hexagon },
+  { id: 'region', label: 'Draw region — freehand, dotted outline', Icon: Hexagon },
   { id: 'route', label: 'Draw road / river', Icon: Spline },
   { id: 'label', label: 'Add label', Icon: TypeIcon },
 ];
@@ -71,10 +71,14 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
   const [picked, setPicked] = useState<PickedIcon | null>(null);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [draft, setDraft] = useState<{ kind: 'region' | 'route'; points: number[] } | null>(null);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
   const [genOpen, setGenOpen] = useState(false);
   const [genParams, setGenParams] = useState<GenParams>({ ...DEFAULT_GEN_PARAMS, seed: randomSeed() });
   const [ctxMenu, setCtxMenu] = useState<CtxMenu>(null);
+  const [naming, setNaming] = useState<string | null>(null); // item id being named inline
   const clipboard = useRef<MapItem | null>(null);
+  const freehandRef = useRef(false); // a region is being traced by hand
 
   // Brush settings (land/sea/scatter) + live-stroke refs.
   const [brushSize, setBrushSize] = useState(40);
@@ -285,6 +289,13 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
     setSelection({ type: 'item', id: item.id });
   };
 
+  // Inline naming: double-click an asset to type a name that shows beneath it.
+  const startNaming = (id: string) => {
+    history.snapshot(docRef.current);
+    setSelection({ type: 'item', id });
+    setNaming(id);
+  };
+
   const addLabel = (mx: number, my: number) => {
     const color = docRef.current.style === 'handdrawn' ? '#9e2b25' : '#3a2f23';
     const label: MapLabel = { id: mapId('lb'), text: 'New label', x: mx, y: my, size: 22, color, rotation: 0, bold: true };
@@ -363,11 +374,18 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
     }
     if (tool === 'stamp' && picked) { stampAt(m.x, m.y); return; }
     if (tool === 'label') { addLabel(m.x, m.y); return; }
-    if (tool === 'region' || tool === 'route') {
+    if (tool === 'region') {
+      // Freehand: press and drag to trace the boundary (dotted), release to close.
+      history.snapshot(docRef.current);
+      freehandRef.current = true;
+      setDraft({ kind: 'region', points: [m.x, m.y] });
+      return;
+    }
+    if (tool === 'route') {
+      // Roads/rivers stay click-to-add-point (precise polylines).
       setDraft((dr) => {
-        const kind = tool as 'region' | 'route';
-        if (!dr || dr.kind !== kind) return { kind, points: [m.x, m.y] };
-        return { kind, points: [...dr.points, m.x, m.y] };
+        if (!dr || dr.kind !== 'route') return { kind: 'route', points: [m.x, m.y] };
+        return { kind: 'route', points: [...dr.points, m.x, m.y] };
       });
       return;
     }
@@ -375,6 +393,18 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
   };
 
   const onStageMouseMove = () => {
+    if (freehandRef.current) {
+      const m = pointerToMap();
+      if (!m) return;
+      setDraft((d) => {
+        if (!d) return d;
+        const n = d.points.length;
+        const lx = d.points[n - 2], ly = d.points[n - 1];
+        if (Math.hypot(m.x - lx, m.y - ly) >= 14) return { ...d, points: [...d.points, m.x, m.y] };
+        return d;
+      });
+      return;
+    }
     if (!paintingRef.current && !scatterRef.current) return;
     const m = pointerToMap();
     if (!m) return;
@@ -399,7 +429,23 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
     }
   };
 
+  const commitFreehandRegion = (d: { kind: 'region' | 'route'; points: number[] } | null) => {
+    if (!d || d.kind !== 'region' || d.points.length < 8) return;
+    const ink = docRef.current.style === 'handdrawn';
+    const region: MapRegion = {
+      id: mapId('reg'), name: 'New region', points: d.points,
+      fill: ink ? '#b98e52' : '#5aa05a', stroke: ink ? '#7c5c34' : '#3a2f23',
+      opacity: 0.14, z: nextZ(docRef.current.regions),
+      labelPos: { x: avg(d.points, 0), y: avg(d.points, 1) },
+    };
+    // History was snapshotted when the stroke began.
+    mutate((dd) => ({ ...dd, regions: [...dd.regions, region] }), false);
+    setSelection({ type: 'region', id: region.id });
+    setTool('select');
+  };
+
   const endStroke = () => {
+    if (freehandRef.current) { freehandRef.current = false; commitFreehandRegion(draftRef.current); setDraft(null); }
     if (paintingRef.current) { paintingRef.current = null; commitTerrainPaint(); }
     scatterRef.current = null;
   };
@@ -563,6 +609,9 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
   const labelFill = isInk ? '#9e2b25' : '#2b2317';
   const labelFont = isInk ? SERIF_FONT : undefined;
   const compassImg = useImage(isInk && doc.decor.compass ? COMPASS_URL : undefined);
+  // Paper colour fills each ink icon's occlusion silhouette so overlapping
+  // assets hide each other instead of showing through.
+  const paperColor = doc.canvas.background.value || '#e9dcc0';
 
   return (
     <div className="flex-1 flex flex-col bg-background overflow-hidden relative">
@@ -614,8 +663,14 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
 
       {draft && (
         <div className="absolute top-12 left-1/2 -translate-x-1/2 z-30 bg-popover border border-border/50 rounded-full px-3 py-1 text-xs shadow-lg flex items-center gap-2">
-          <span>Click to add points · double-click or Enter to finish · Esc to cancel</span>
-          <button className="fm-btn fm-btn-sm" onClick={commitDraft}>Finish</button>
+          {draft.kind === 'route' ? (
+            <>
+              <span>Click to add points · double-click or Enter to finish · Esc to cancel</span>
+              <button className="fm-btn fm-btn-sm" onClick={commitDraft}>Finish</button>
+            </>
+          ) : (
+            <span>Drawing region — drag around the area, release to close</span>
+          )}
         </div>
       )}
 
@@ -737,7 +792,7 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
 
               {/* Regions */}
               {lm.regions.visible && sortedRegions.map((r) => (
-                <RegionShape key={r.id} region={r} selected={selection?.id === r.id}
+                <RegionShape key={r.id} region={r} selected={selection?.id === r.id} scale={view.scale}
                   selectable={selectable && !lm.regions.locked && !r.locked}
                   onSelect={() => setSelection({ type: 'region', id: r.id })}
                   onDragStart={onObjDragStart}
@@ -763,7 +818,9 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
               {/* Items */}
               {lm.items.visible && sortedItems.map((it) => (
                 <ItemNode key={it.id} item={it} selectable={selectable && !lm.items.locked && !it.locked}
+                  paper={paperColor}
                   onSelect={() => setSelection({ type: 'item', id: it.id })}
+                  onName={() => startNaming(it.id)}
                   onDragStart={onObjDragStart}
                   onChange={(patch) => patchObject('item', it.id, patch, false)}
                   snap={snap} />
@@ -823,6 +880,26 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
               }}
             />
           )}
+
+          {/* Inline asset naming (double-click an asset) */}
+          {naming && (() => {
+            const it = doc.items.find((i) => i.id === naming);
+            if (!it) return null;
+            const sx = view.x + it.x * view.scale;
+            const sy = view.y + (it.y + (it.height * it.scale) / 2 + 8) * view.scale;
+            return (
+              <input
+                autoFocus
+                className="fm-name-input"
+                style={{ left: sx, top: sy }}
+                value={it.label ?? ''}
+                placeholder="Name…"
+                onChange={(e) => patchObject('item', it.id, { label: e.target.value }, false)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); setNaming(null); } }}
+                onBlur={() => setNaming(null)}
+              />
+            );
+          })()}
 
           {/* Empty hint */}
           {doc.terrain.mode === 'none' && doc.items.length === 0 && doc.regions.length === 0 && (
@@ -887,11 +964,11 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
 
 /* ── Konva sub-nodes (each needs its own image hook) ─────────────────────── */
 
-function ItemNode({ item, selectable, onSelect, onDragStart, onChange, snap }: {
-  item: MapItem; selectable: boolean; onSelect: () => void; onDragStart: () => void;
-  onChange: (patch: Partial<MapItem>) => void; snap: (n: number) => number;
+function ItemNode({ item, selectable, paper, onSelect, onName, onDragStart, onChange, snap }: {
+  item: MapItem; selectable: boolean; paper: string; onSelect: () => void; onName: () => void;
+  onDragStart: () => void; onChange: (patch: Partial<MapItem>) => void; snap: (n: number) => number;
 }) {
-  const img = useImage(toItemUrl(item));
+  const img = useImage(toItemUrl(item, paper));
   if (!img) return null;
   const w = item.width;
   const h = item.height;
@@ -912,6 +989,8 @@ function ItemNode({ item, selectable, onSelect, onDragStart, onChange, snap }: {
       onMouseDown={(e) => { if (selectable) { e.cancelBubble = true; onSelect(); } }}
       onClick={(e) => { if (selectable) { e.cancelBubble = true; onSelect(); } }}
       onTap={(e) => { if (selectable) { e.cancelBubble = true; onSelect(); } }}
+      onDblClick={(e) => { if (selectable) { e.cancelBubble = true; onName(); } }}
+      onDblTap={(e) => { if (selectable) { e.cancelBubble = true; onName(); } }}
       onDragStart={onDragStart}
       onDragEnd={(e) => onChange({ x: snap(e.target.x()), y: snap(e.target.y()) })}
       onTransformEnd={(e) => {
@@ -923,17 +1002,23 @@ function ItemNode({ item, selectable, onSelect, onDragStart, onChange, snap }: {
   );
 }
 
-function RegionShape({ region, selected, selectable, onSelect, onDragStart, onMoved }: {
-  region: MapRegion; selected: boolean; selectable: boolean; onSelect: () => void; onDragStart: () => void; onMoved: (pts: number[]) => void;
+function RegionShape({ region, selected, selectable, scale, onSelect, onDragStart, onMoved }: {
+  region: MapRegion; selected: boolean; selectable: boolean; scale: number;
+  onSelect: () => void; onDragStart: () => void; onMoved: (pts: number[]) => void;
 }) {
   return (
     <Line
       points={region.points}
       closed
-      fill={region.fill}
-      opacity={region.opacity}
+      // Faint fill (alpha baked in) under a solid dotted border so the boundary
+      // reads as a hand-drawn dotted line, not a colour block.
+      fill={withAlpha(region.fill, region.opacity)}
       stroke={selected ? '#2563eb' : region.stroke}
-      strokeWidth={selected ? 3 : 1.5}
+      strokeWidth={(selected ? 2.6 : 1.8) / scale}
+      dash={[2 / scale, 7 / scale]}
+      lineCap="round"
+      lineJoin="round"
+      tension={0.04}
       draggable={selectable}
       onMouseDown={(e) => { if (selectable) { e.cancelBubble = true; onSelect(); } }}
       onClick={(e) => { if (selectable) { e.cancelBubble = true; onSelect(); } }}
@@ -942,6 +1027,14 @@ function RegionShape({ region, selected, selectable, onSelect, onDragStart, onMo
       onDragEnd={(e) => { const dx = e.target.x(); const dy = e.target.y(); e.target.position({ x: 0, y: 0 }); onMoved(shiftPoints(region.points, dx, dy)); }}
     />
   );
+}
+
+/** Append an alpha byte to a #rgb / #rrggbb colour (a in 0..1). */
+function withAlpha(hex: string, a: number): string {
+  let h = hex.replace('#', '');
+  if (h.length === 3) h = h.split('').map((c) => c + c).join('');
+  const aa = Math.round(Math.max(0, Math.min(1, a)) * 255).toString(16).padStart(2, '0');
+  return `#${h}${aa}`;
 }
 
 function RouteShape({ route, selected, selectable, onSelect, onDragStart, onMoved }: {

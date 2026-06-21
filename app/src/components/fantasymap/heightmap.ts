@@ -173,7 +173,7 @@ export class HeightMap {
    * a 1-cell radius. A hard core + soft edge keeps tiny brushes (thin rivers)
    * crisp instead of mushy.
    */
-  paint(cx: number, cy: number, radius: number, strength: number, raise: boolean, w: number, h: number): void {
+  paint(cx: number, cy: number, radius: number, strength: number, raise: boolean, w: number, h: number, depth = 0.32): void {
     const gx = (cx / w) * this.cols;
     const gy = (cy / h) * this.rows;
     const gr = Math.max(0.85, (radius / w) * this.cols);
@@ -183,8 +183,9 @@ export class HeightMap {
     const j0 = Math.max(0, Math.floor(gy - gr));
     const j1 = Math.min(this.rows - 1, Math.ceil(gy + gr));
     // Targets sit a clear margin past sea level so the result actually reads as
-    // land / water without slamming straight to the palette extremes.
-    const target = raise ? Math.min(1, this.seaLevel + 0.4) : Math.max(0, this.seaLevel - 0.32);
+    // land / water. `depth` lets the water brush make shallow lakes/rivers vs
+    // deep open sea.
+    const target = raise ? Math.min(1, this.seaLevel + 0.4) : Math.max(0, this.seaLevel - depth);
     for (let j = j0; j <= j1; j++) {
       for (let i = i0; i <= i1; i++) {
         const d = Math.hypot(i - gx, j - gy);

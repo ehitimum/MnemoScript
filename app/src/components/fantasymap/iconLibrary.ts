@@ -169,19 +169,23 @@ export const SCATTER_SETS = {
 const urlCache = new Map<string, string>();
 
 /**
- * Render a library glyph to a tinted SVG data-URL (cached by id+colour). The Gi
- * components emit `fill="currentColor"`; we bake the literal colour in so the
- * image is self-contained when loaded by Konva (where `currentColor` has no
+ * Render a library glyph to a tinted SVG data-URL (cached by id+colour+paper).
+ * The Gi components emit `fill="currentColor"`; we bake the literal colour in so
+ * the image is self-contained when loaded by Konva (where `currentColor` has no
  * context and would fall back to black).
+ *
+ * Our hand-drawn ink icons additionally carry an opaque silhouette painted with
+ * the `PAPERFILL` token — swapped here for the map's `paper` colour — so a front
+ * icon's solid body occludes whatever it overlaps (see inkIcons.ts).
  */
-export function iconDataUrl(libId: string, color = '#3a2f23'): string {
-  const key = `${libId}|${color}`;
+export function iconDataUrl(libId: string, color = '#3a2f23', paper = '#e9dcc0'): string {
+  const key = `${libId}|${color}|${paper}`;
   const hit = urlCache.get(key);
   if (hit) return hit;
   const def = BY_ID.get(libId);
   if (!def) return '';
   let svg = renderToStaticMarkup(createElement(def.Icon, { size: 256 }));
-  svg = svg.replace(/currentColor/g, color);
+  svg = svg.replace(/PAPERFILL/g, paper).replace(/currentColor/g, color);
   if (!/xmlns=/.test(svg)) svg = svg.replace('<svg', '<svg xmlns="http://www.w3.org/2000/svg"');
   const url = `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
   urlCache.set(key, url);

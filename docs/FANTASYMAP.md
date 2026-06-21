@@ -41,7 +41,15 @@ style and switch between them at any time — nothing is lost.
 - **Scatter brush**: pick a library icon, then drag to paint many of it at once
   (jittered position + size) — great for forests, hills and clustered buildings.
 - **Build by hand** with the rest of the toolbar: Select/move, Pan, Place one icon
-  (Stamp), Draw region (named polygon), Draw road/river, Add label.
+  (Stamp), **Draw region** (freehand — press & drag to trace the boundary, release to
+  close; rendered as a **dotted outline**), Draw road/river, Add label.
+- **Name your assets**: **double-click** any placed icon to type a name that appears
+  **below** it (or edit it in the inspector). The library includes **naming/site assets**
+  — banner, signpost, scroll, site marker (✕) and monument — meant for labelling regions
+  and points of interest.
+- **Smart overlap**: by default a hand-drawn asset placed over another **occludes** it —
+  its solid paper body hides the part of the asset behind it, so overlapping mountains and
+  trees read as a range instead of a tangle of lines (front asset wins).
 - **Icon library** (left panel): our own cohesive **Hand-drawn** ink set plus ~60 curated
   game-icons glyphs across Terrain, Settlements, Sites, Water, Creatures and Markers —
   searchable and recolourable. Hand-drawn icons can be stamped or painted in either style.
