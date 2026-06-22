@@ -54,11 +54,18 @@ All return an `ApiResponse<T>` = `{ success, data, error }` envelope.
   renders `<MindMap>` for `docType==='mindmap'`, else `<Editor>`. localStorage holds only UI prefs.
 
 ## Editor extensions (`src/components/Editor.tsx`)
-`StarterKit` (+ heading/list keymaps) · `Placeholder` · `LinguisticCheck` (grammar) ·
-**`ImageWithAsset`** (asset-rendering image node) · **`SlashCommand`** (the `/` menu).
+`StarterKit` (+ heading/list keymaps) · `Placeholder` · `TextAlign` · **`TaskList`/`TaskItem`**
+(`/todo` checkbox lists, nestable) · `LinguisticCheck` (grammar) · **`ImageWithAsset`**
+(asset-rendering image node) · **`SlashCommand`** (the `/` menu).
 The slash menu (`SlashCommand.ts` + `SlashMenu.tsx` + `slashItems.ts`) is built on
 `@tiptap/suggestion`; its React popup is positioned at the caret via the suggestion `clientRect`
 (same manual technique as the grammar popover — no tippy.js).
+
+**To-do lists** are a Notes-only feature: the `Editor` + `RightSidebar` ("To-do List" button)
+render only for `docType==='text'`, so task lists never appear in mind maps or fantasy maps.
+Type `/todo` (or click the sidebar button) to insert a checkbox list; checked items strike
+through. They serialise to HTML in `Document.content` like every other block — no extra
+persistence. Checkbox styling lives in the `.ProseMirror ul[data-type="taskList"]` rules.
 
 ## Feature components
 - **`MindMap.tsx`** — React Flow canvas; serializes `{nodes,edges}` to `content` (debounced).

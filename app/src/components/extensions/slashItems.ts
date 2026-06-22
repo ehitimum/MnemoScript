@@ -7,6 +7,7 @@ import {
   Heading3,
   List,
   ListOrdered,
+  ListTodo,
   Quote,
   Code,
   Minus,
@@ -69,6 +70,13 @@ export function getSlashItems(opts: SlashOptions): SlashItem[] {
       icon: ListOrdered,
       keywords: ['ordered', 'ol', 'number'],
       action: (e, r) => e.chain().focus().deleteRange(r).toggleOrderedList().run(),
+    },
+    {
+      title: 'To-do list',
+      description: 'Track tasks with checkboxes',
+      icon: ListTodo,
+      keywords: ['todo', 'todolist', 'task', 'tasks', 'checkbox', 'checklist', 'check', 'tick'],
+      action: (e, r) => e.chain().focus().deleteRange(r).toggleTaskList().run(),
     },
     {
       title: 'Quote',

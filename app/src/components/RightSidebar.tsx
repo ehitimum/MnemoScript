@@ -7,6 +7,7 @@ import {
   Underline,
   List,
   ListOrdered,
+  ListTodo,
   Type,
   AlignLeft,
   AlignCenter,
@@ -132,6 +133,18 @@ function RightSidebar({
                 </button>
               ))}
             </div>
+
+            {/* To-do list — Notes only. The right sidebar is rendered solely for
+                text documents, so this stays out of mind maps / fantasy maps. */}
+            <button
+              onClick={() => editor.chain().focus().toggleTaskList().run()}
+              title="To-do list (or type /todo)"
+              style={getBtnStyle(editor.isActive('taskList'))}
+              className={`${iconBtn} w-full gap-2 text-xs font-medium`}
+            >
+              <ListTodo className="w-3.5 h-3.5" />
+              To-do List
+            </button>
           </div>
         )}
 

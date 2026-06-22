@@ -2,6 +2,8 @@ import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import TextAlign from '@tiptap/extension-text-align';
+import TaskList from '@tiptap/extension-task-list';
+import TaskItem from '@tiptap/extension-task-item';
 import { useEffect, useState } from 'react';
 import type { Editor as CoreEditor, Range } from '@tiptap/core';
 import type { Document } from '../types';
@@ -132,12 +134,18 @@ function Editor({
             'Mod-3': () => this.editor.commands.toggleHeading({ level: 3 }),
             
             'Tab': () => {
+              if (this.editor.isActive('taskList')) {
+                return this.editor.commands.sinkListItem('taskItem');
+              }
               if (this.editor.isActive('bulletList') || this.editor.isActive('orderedList')) {
                 return this.editor.commands.sinkListItem('listItem');
               }
               return false;
             },
             'Shift-Tab': () => {
+              if (this.editor.isActive('taskList')) {
+                return this.editor.commands.liftListItem('taskItem');
+              }
               if (this.editor.isActive('bulletList') || this.editor.isActive('orderedList')) {
                 return this.editor.commands.liftListItem('listItem');
               }
@@ -157,6 +165,11 @@ function Editor({
       TextAlign.configure({
         types: ['heading', 'paragraph'],
       }),
+      // "/todo" task lists — classic checkbox to-do items. Nestable so tasks can
+      // have sub-tasks; serialised to HTML in `Document.content` like every other
+      // block, so they persist through the normal save path.
+      TaskList,
+      TaskItem.configure({ nested: true }),
       LinguisticCheck,
       ImageWithAsset,
       SlashCommand.configure({ onImage: handleSlashImage }),
@@ -513,7 +526,78 @@ function Editor({
           .ProseMirror ol ol ol {
             list-style-type: lower-roman;
           }
-          
+
+          /* ── /todo task lists ─────────────────────────────────────────── */
+          .ProseMirror ul[data-type="taskList"] {
+            list-style: none;
+            margin-left: 0 !important;
+            padding-left: 2px;
+          }
+          .ProseMirror ul[data-type="taskList"] li {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.65em;
+            margin: 0.15em 0;
+            color: inherit;
+          }
+          .ProseMirror ul[data-type="taskList"] li > label {
+            flex: 0 0 auto;
+            margin-top: 0.18em;
+            user-select: none;
+          }
+          .ProseMirror ul[data-type="taskList"] li > div {
+            flex: 1 1 auto;
+            min-width: 0;
+          }
+          .ProseMirror ul[data-type="taskList"] li > div > p {
+            margin-bottom: 0.3em;
+            transition: opacity 0.18s ease;
+          }
+          /* Nested sub-tasks tuck in under their parent. */
+          .ProseMirror ul[data-type="taskList"] ul[data-type="taskList"] {
+            margin-top: 0.2em;
+          }
+          .ProseMirror ul[data-type="taskList"] input[type="checkbox"] {
+            appearance: none;
+            -webkit-appearance: none;
+            width: 1.05em;
+            height: 1.05em;
+            margin: 0;
+            border: 2px solid color-mix(in srgb, var(--primary) 60%, transparent);
+            border-radius: 6px;
+            background: transparent;
+            cursor: pointer;
+            position: relative;
+            flex: 0 0 auto;
+            transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+          }
+          .ProseMirror ul[data-type="taskList"] input[type="checkbox"]:hover {
+            border-color: var(--primary);
+          }
+          .ProseMirror ul[data-type="taskList"] input[type="checkbox"]:active {
+            transform: scale(0.9);
+          }
+          .ProseMirror ul[data-type="taskList"] input[type="checkbox"]:checked {
+            background: var(--primary);
+            border-color: var(--primary);
+          }
+          .ProseMirror ul[data-type="taskList"] input[type="checkbox"]:checked::after {
+            content: '';
+            position: absolute;
+            left: 0.32em;
+            top: 0.12em;
+            width: 0.28em;
+            height: 0.55em;
+            border: solid var(--primary-foreground);
+            border-width: 0 2px 2px 0;
+            transform: rotate(45deg);
+          }
+          /* Completed tasks fade and strike through. */
+          .ProseMirror ul[data-type="taskList"] li[data-checked="true"] > div {
+            text-decoration: line-through;
+            opacity: 0.5;
+          }
+
           .ProseMirror p {
             margin-bottom: 1.25em;
             tab-size: 4;
