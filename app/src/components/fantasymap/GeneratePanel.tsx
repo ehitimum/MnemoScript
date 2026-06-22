@@ -100,6 +100,11 @@ export default function GeneratePanel({
         onChange={(v) => set('roughness', v)}
       />
       <SliderField
+        label="Ruggedness · smooth → rugged" min={0} max={1} step={0.02}
+        value={params.ruggedness} fmt={(v) => `${Math.round(v * 100)}%`}
+        onChange={(v) => set('ruggedness', v)}
+      />
+      <SliderField
         label="Icon scatter" min={0} max={1} step={0.05}
         value={params.scatterDensity} fmt={(v) => `${Math.round(v * 100)}%`}
         onChange={(v) => set('scatterDensity', v)}

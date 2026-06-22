@@ -106,24 +106,38 @@ export class HeightMap {
   preset: BiomePreset;
   style: MapStyle;       // which render path render() uses
 
-  constructor(cols: number, rows: number, seaLevel: number, preset: BiomePreset, data?: Float32Array, style: MapStyle = 'classic') {
+  // Ruggedness (0 = smooth … 1 = rugged): domain-warps the field so coastlines
+  // become fractal (bays/peninsulas) and the interior gets uneven ridges. It's a
+  // render-time distortion of the grid, so it works on generated AND painted maps
+  // and stays coherent across the raster, the inked coastline and the ripples.
+  private _ruggedness = 0;
+  private effDirty = true;
+  private eff?: Float32Array;       // cached warped field
+  private warpX?: Float32Array;     // per-cell displacement (cells) at ruggedness 1
+  private warpY?: Float32Array;
+
+  constructor(cols: number, rows: number, seaLevel: number, preset: BiomePreset, data?: Float32Array, style: MapStyle = 'classic', ruggedness = 0) {
     this.cols = cols;
     this.rows = rows;
     this.seaLevel = seaLevel;
     this.preset = preset;
     this.style = style;
+    this._ruggedness = ruggedness;
     this.data = data ?? new Float32Array(cols * rows);
     this.tex = makeTexture(cols, rows);
   }
 
-  static blank(w: number, h: number, preset: BiomePreset, seaLevel = 0.4, style: MapStyle = 'classic'): HeightMap {
+  get ruggedness(): number { return this._ruggedness; }
+  set ruggedness(v: number) { const n = clamp(v, 0, 1); if (n !== this._ruggedness) { this._ruggedness = n; this.effDirty = true; } }
+
+  static blank(w: number, h: number, preset: BiomePreset, seaLevel = 0.4, style: MapStyle = 'classic', ruggedness = 0): HeightMap {
     const cols = terrainCols(w);
     const rows = Math.max(80, Math.round((cols * h) / w));
-    return new HeightMap(cols, rows, seaLevel, preset, undefined, style);
+    return new HeightMap(cols, rows, seaLevel, preset, undefined, style, ruggedness);
   }
 
   /** Procedural fbm landmass shaped by a radial falloff. */
-  static fromNoise(params: GenLikeParams, w: number, h: number, style: MapStyle = 'classic'): HeightMap {
+  static fromNoise(params: GenLikeParams, w: number, h: number, style: MapStyle = 'classic', ruggedness = 0): HeightMap {
     const cols = terrainCols(w);
     const rows = Math.max(80, Math.round((cols * h) / w));
     const rng = mulberry32(params.seed || 1);
@@ -152,14 +166,61 @@ export class HeightMap {
     for (let k = 0; k < data.length; k++) data[k] = (data[k] - min) / span;
 
     const seaLevel = 1 - clamp(params.landAmount, 0.1, 0.92);
-    return new HeightMap(cols, rows, seaLevel, params.biomePreset, data, style);
+    return new HeightMap(cols, rows, seaLevel, params.biomePreset, data, style, ruggedness);
+  }
+
+  /**
+   * The effective (ruggedness-warped) field that every consumer reads. At
+   * ruggedness 0 this is just `data` (zero cost); otherwise each cell samples the
+   * base grid at a noise-displaced position so the land/sea boundary turns
+   * fractal. Cached and invalidated by painting or a ruggedness change.
+   */
+  effData(): Float32Array {
+    if (this._ruggedness <= 0.001) return this.data;
+    if (!this.effDirty && this.eff) return this.eff;
+    this.ensureWarp();
+    const { cols, rows, data } = this;
+    const wx = this.warpX!, wy = this.warpY!, r = this._ruggedness;
+    const eff = this.eff && this.eff.length === data.length ? this.eff : new Float32Array(data.length);
+    for (let j = 0; j < rows; j++) {
+      for (let i = 0; i < cols; i++) {
+        const k = j * cols + i;
+        eff[k] = sampleBilinear(data, cols, rows, i + r * wx[k], j + r * wy[k]);
+      }
+    }
+    this.eff = eff;
+    this.effDirty = false;
+    return eff;
+  }
+
+  /** Build the per-cell warp displacement (cells, at ruggedness 1) once per map. */
+  private ensureWarp(): void {
+    if (this.warpX) return;
+    const { cols, rows } = this;
+    const ax1 = createNoise2D(mulberry32(0x51ed));
+    const ay1 = createNoise2D(mulberry32(0x7c2f));
+    const ax2 = createNoise2D(mulberry32(0x9e37));
+    const ay2 = createNoise2D(mulberry32(0xa53c));
+    const wx = new Float32Array(cols * rows);
+    const wy = new Float32Array(cols * rows);
+    const A1 = cols * 0.028, A2 = cols * 0.011;   // coarse bays + finer crinkle
+    const f1 = 6 / cols, f2 = 17 / cols;
+    for (let j = 0; j < rows; j++) {
+      for (let i = 0; i < cols; i++) {
+        const k = j * cols + i;
+        wx[k] = ax1(i * f1, j * f1) * A1 + ax2(i * f2, j * f2) * A2;
+        wy[k] = ay1(i * f1, j * f1) * A1 + ay2(i * f2, j * f2) * A2;
+      }
+    }
+    this.warpX = wx; this.warpY = wy;
   }
 
   /** Sample elevation at canvas-space (x,y). */
   at(x: number, y: number, w: number, h: number): number {
+    const eff = this.effData();
     const i = clamp(Math.floor((x / w) * this.cols), 0, this.cols - 1);
     const j = clamp(Math.floor((y / h) * this.rows), 0, this.rows - 1);
-    return this.data[j * this.cols + i];
+    return eff[j * this.cols + i];
   }
   isLand(x: number, y: number, w: number, h: number): boolean {
     return this.at(x, y, w, h) >= this.seaLevel;
@@ -196,6 +257,7 @@ export class HeightMap {
         this.data[idx] = clamp(lerp(this.data[idx], target, t), 0, 1);
       }
     }
+    this.effDirty = true; // base field changed → re-warp on next read
   }
 
   /** Styled terrain raster — dispatches on the chosen visual style. */
@@ -205,7 +267,8 @@ export class HeightMap {
 
   /** Classic Inkarnate-style raster (sea depth + coastline glow + biomes + texture). */
   renderClassic(): HTMLCanvasElement {
-    const { cols, rows, data, seaLevel, tex } = this;
+    const { cols, rows, seaLevel, tex } = this;
+    const data = this.effData();
     const pal = PALETTES[this.preset];
     const deep = hexToRgb(pal.deep), sea = hexToRgb(pal.sea), shallow = hexToRgb(pal.shallow);
     const glow = hexToRgb(pal.glow), sand = hexToRgb(pal.sand);
@@ -257,7 +320,8 @@ export class HeightMap {
    * vector overlay (see {@link coastSegments}) drawn on the Konva stage.
    */
   renderInk(): HTMLCanvasElement {
-    const { cols, rows, data, seaLevel, tex } = this;
+    const { cols, rows, seaLevel, tex } = this;
+    const data = this.effData();
     const dist = signedCoastDistance(data, cols, rows, seaLevel); // <0 land, >0 sea (cells)
 
     // Parchment-friendly palette (ink on paper).
@@ -324,7 +388,8 @@ export class HeightMap {
    * line by the canvas, independent of the smoothed raster above.
    */
   coastSegments(w: number, h: number): number[] {
-    const { cols, rows, data, seaLevel: L } = this;
+    const { cols, rows, seaLevel: L } = this;
+    const data = this.effData();
     const out: number[] = [];
     const sx = w / (cols - 1);
     const sy = h / (rows - 1);
@@ -373,7 +438,7 @@ export class HeightMap {
   }
 
   /** Rebuild a heightmap from a stored grayscale PNG. */
-  static fromDataURL(url: string, seaLevel: number, preset: BiomePreset, style: MapStyle = 'classic'): Promise<HeightMap> {
+  static fromDataURL(url: string, seaLevel: number, preset: BiomePreset, style: MapStyle = 'classic', ruggedness = 0): Promise<HeightMap> {
     return new Promise((resolve, reject) => {
       const image = new Image();
       image.onload = () => {
@@ -385,12 +450,24 @@ export class HeightMap {
         const px = ctx.getImageData(0, 0, cols, rows).data;
         const data = new Float32Array(cols * rows);
         for (let k = 0; k < data.length; k++) data[k] = px[k * 4] / 255;
-        resolve(new HeightMap(cols, rows, seaLevel, preset, data, style));
+        resolve(new HeightMap(cols, rows, seaLevel, preset, data, style, ruggedness));
       };
       image.onerror = reject;
       image.src = url;
     });
   }
+}
+
+/** Bilinear sample of a grid (clamped at edges) — used for domain warping. */
+function sampleBilinear(data: Float32Array, cols: number, rows: number, x: number, y: number): number {
+  const cx = x < 0 ? 0 : x > cols - 1 ? cols - 1 : x;
+  const cy = y < 0 ? 0 : y > rows - 1 ? rows - 1 : y;
+  const i0 = Math.floor(cx), j0 = Math.floor(cy);
+  const i1 = Math.min(cols - 1, i0 + 1), j1 = Math.min(rows - 1, j0 + 1);
+  const fx = cx - i0, fy = cy - j0;
+  const a = data[j0 * cols + i0], b = data[j0 * cols + i1];
+  const c = data[j1 * cols + i0], d = data[j1 * cols + i1];
+  return a + (b - a) * fx + (c - a) * fy + (a - b - c + d) * fx * fy;
 }
 
 /* ── helpers ─────────────────────────────────────────────────────────────── */

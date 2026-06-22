@@ -42,6 +42,11 @@ style and switch between them at any time — nothing is lost.
   open ocean), **Lake** (one click drops a contained, shallow pond; drag to enlarge) or
   **River** (a thin, shallow channel — just drag where it should flow). All three are the
   same heightmap water, so they connect and render with the coastline + ripples.
+- **Ruggedness (smooth ⟷ rugged)**: a single slider (in **Generate** and the inspector's
+  *Map* section) domain-warps the terrain so coastlines turn fractal — bays, peninsulas,
+  fjords — and the interior gets uneven ridges instead of smooth blobs. It's a live,
+  render-time effect, so it reshapes **any** map — generated *or* hand-painted — in real
+  time, and 0% is identical to the old smooth look.
 - **Scatter brush**: pick a library icon, then drag to paint many of it at once
   (jittered position + size) — great for forests, hills and clustered buildings.
 - **Build by hand** with the rest of the toolbar: Select/move, Pan, Place one icon

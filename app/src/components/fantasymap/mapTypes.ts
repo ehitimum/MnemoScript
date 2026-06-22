@@ -117,6 +117,7 @@ export interface GenParams {
   seed: number;
   landAmount: number;       // 0..1 — higher means more land above sea level
   roughness: number;        // 1..6 fbm octaves (coastline detail)
+  ruggedness: number;       // 0..1 — domain-warp: smooth → fractal coast & ridges
   biomePreset: BiomePreset;
   biomeCount: number;       // 2..10 elevation bands the palette is quantised to
   regionCount: number;      // 0..60 named Voronoi regions
@@ -130,6 +131,7 @@ export interface TerrainState {
   seed?: number;
   params?: GenParams;
   imagePath?: string;       // when mode === 'image'
+  ruggedness?: number;      // 0..1 domain-warp applied at render time (all modes)
   // when mode === 'painted' (brush-edited or baked-from-generated):
   heightPng?: string;       // grayscale PNG data-URL of the heightmap grid
   seaLevel?: number;
@@ -243,6 +245,7 @@ export const DEFAULT_GEN_PARAMS: GenParams = {
   seed: 1,
   landAmount: 0.52,
   roughness: 4,
+  ruggedness: 0.35,
   biomePreset: 'temperate',
   biomeCount: 6,
   regionCount: 7,
