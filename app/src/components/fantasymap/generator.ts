@@ -133,6 +133,6 @@ function regionTint(i: number): string { return REGION_TINTS[i % REGION_TINTS.le
 
 /** Run the whole pipeline; returns the heightmap + the pieces written to the doc. */
 export function generateMap(params: GenParams, w: number, h: number) {
-  const hm = HeightMap.fromNoise(params, w, h, params.style);
+  const hm = HeightMap.fromNoise(params, w, h, params.style, params.ruggedness);
   return { hm, regions: generateRegions(params, hm, w, h), items: scatterIcons(params, hm, w, h) };
 }

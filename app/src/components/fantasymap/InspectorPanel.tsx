@@ -18,6 +18,7 @@ interface Props {
   onPatchBackground: (patch: Partial<FantasyMapDoc['canvas']['background']>) => void;
   onPatchGrid: (patch: Partial<FantasyMapDoc['grid']>) => void;
   onResizeCanvas: (w: number, h: number) => void;
+  onSetRuggedness: (v: number) => void;
   onToggleLayer: (layer: LayerId, key: 'visible' | 'locked') => void;
   onChangeKind: (kind: MapKind) => void;
   onChangeStyle: (style: MapStyle) => void;
@@ -106,6 +107,9 @@ export default function InspectorPanel(props: Props) {
             <DecorToggle label="Title" on={doc.decor.cartouche} onClick={() => props.onToggleDecor('cartouche')} />
           </div>
         )}
+        <SliderRow label="Ruggedness · smooth → rugged" min={0} max={1} step={0.02}
+          value={doc.terrain.ruggedness ?? 0.35}
+          onChange={(v) => props.onSetRuggedness(v)} fmt={(v) => `${Math.round(v * 100)}%`} />
         <Row label="Size">
           <select
             className="fm-input"

@@ -124,11 +124,12 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
   // Rebuild the live heightmap from a document's terrain state (mount, undo, redo).
   const syncHeightFromDoc = useCallback((d: FantasyMapDoc) => {
     const t = d.terrain;
+    const rug = t.ruggedness ?? t.params?.ruggedness ?? 0;
     if (t.mode === 'generated' && t.params) {
-      heightRef.current = HeightMap.fromNoise(t.params, d.canvas.width, d.canvas.height, d.style);
+      heightRef.current = HeightMap.fromNoise(t.params, d.canvas.width, d.canvas.height, d.style, rug);
       renderTerrain();
     } else if (t.mode === 'painted' && t.heightPng) {
-      HeightMap.fromDataURL(t.heightPng, t.seaLevel ?? 0.4, t.biomePreset ?? 'temperate', d.style)
+      HeightMap.fromDataURL(t.heightPng, t.seaLevel ?? 0.4, t.biomePreset ?? 'temperate', d.style, rug)
         .then((hm) => { heightRef.current = hm; renderTerrain(); })
         .catch(() => {});
     } else {
@@ -341,7 +342,7 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
   // Sea-brush feature presets: how deep the carve is (and how thin the river).
   const SEA_DEPTH = { sea: 0.34, lake: 0.16, river: 0.12 };
   const paintAt = (mx: number, my: number, raise: boolean) => {
-    if (!heightRef.current) heightRef.current = HeightMap.blank(W, H, genParams.biomePreset, 0.4, docRef.current.style);
+    if (!heightRef.current) heightRef.current = HeightMap.blank(W, H, genParams.biomePreset, 0.4, docRef.current.style, docRef.current.terrain.ruggedness ?? genParams.ruggedness);
     const depth = raise ? 0.4 : SEA_DEPTH[seaMode];
     const radius = !raise && seaMode === 'river' ? brushSize * 0.5 : brushSize;
     heightRef.current.paint(mx, my, radius, brushStrength, raise, W, H, depth);
@@ -350,7 +351,7 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
   // Lake feature: one click drops a contained, shallow pond (several strong
   // passes so the whole footprint reliably crosses below sea level at once).
   const stampLake = (mx: number, my: number) => {
-    if (!heightRef.current) heightRef.current = HeightMap.blank(W, H, genParams.biomePreset, 0.4, docRef.current.style);
+    if (!heightRef.current) heightRef.current = HeightMap.blank(W, H, genParams.biomePreset, 0.4, docRef.current.style, docRef.current.terrain.ruggedness ?? genParams.ruggedness);
     for (let k = 0; k < 4; k++) heightRef.current.paint(mx, my, brushSize, 1, false, W, H, SEA_DEPTH.lake);
     scheduleRender();
   };
@@ -360,7 +361,7 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
     // History was snapshotted at stroke start; persist without a second snapshot.
     mutate((d) => ({
       ...d,
-      terrain: { mode: 'painted', heightPng: hm.toDataURL(), seaLevel: hm.seaLevel, biomePreset: hm.preset },
+      terrain: { mode: 'painted', heightPng: hm.toDataURL(), seaLevel: hm.seaLevel, biomePreset: hm.preset, ruggedness: hm.ruggedness },
     }), false);
   };
   const scatterStamp = (mx: number, my: number) => {
@@ -571,7 +572,7 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
     const { hm, regions, items } = generateMap(params, W, H);
     heightRef.current = hm;
     renderTerrain();
-    mutate((d) => ({ ...d, style: params.style, terrain: { mode: 'generated', seed: params.seed, params }, regions, items }));
+    mutate((d) => ({ ...d, style: params.style, terrain: { mode: 'generated', seed: params.seed, params, ruggedness: params.ruggedness }, regions, items }));
     setSelection(null);
     requestAnimationFrame(fitToScreen);
   };
@@ -587,6 +588,7 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
       seed: randomSeed(),
       landAmount: 0.35 + r() * 0.45,
       roughness: 2 + Math.floor(r() * 5),
+      ruggedness: 0.15 + r() * 0.7,
       biomePreset: presets[Math.floor(r() * presets.length)],
       biomeCount: 3 + Math.floor(r() * 7),
       regionCount: 3 + Math.floor(r() * 18),
@@ -658,6 +660,11 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
   };
   const onToggleDecor = (key: keyof MapDecor) =>
     mutate((d) => ({ ...d, decor: { ...d.decor, [key]: !d.decor[key] } }), false);
+  // Live ruggedness: warp the existing terrain (generated or painted) on the fly.
+  const onSetRuggedness = (v: number) => {
+    mutate((d) => ({ ...d, terrain: { ...d.terrain, ruggedness: v } }), false);
+    if (heightRef.current) { heightRef.current.ruggedness = v; scheduleRender(); }
+  };
   const onPatchCanvas = (patch: Partial<FantasyMapDoc['canvas']>) => mutate((d) => ({ ...d, canvas: { ...d.canvas, ...patch } }), false);
   const onPatchBackground = (patch: Partial<FantasyMapDoc['canvas']['background']>) =>
     mutate((d) => ({ ...d, canvas: { ...d.canvas, background: { ...d.canvas.background, ...patch } } }), false);
@@ -1067,7 +1074,7 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
               onPatchObject={(t, id, p) => patchObject(t, id, p)}
               onDeleteObject={deleteObject}
               onPatchCanvas={onPatchCanvas} onPatchBackground={onPatchBackground} onPatchGrid={onPatchGrid}
-              onResizeCanvas={onResizeCanvas}
+              onResizeCanvas={onResizeCanvas} onSetRuggedness={onSetRuggedness}
               onToggleLayer={onToggleLayer} onChangeKind={onChangeKind}
               onChangeStyle={onChangeStyle} onToggleDecor={onToggleDecor} onExport={exportPng}
             />
