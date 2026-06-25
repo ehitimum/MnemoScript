@@ -45,7 +45,6 @@ class TtsController {
 
   private sentences: Sentence[] = [];
   private index = 0;
-  private current: SpeechSynthesisUtterance | null = null;
   /** Guards the `end` handler so stop()/replacement doesn't auto-advance. */
   private speakToken = 0;
 
@@ -115,7 +114,6 @@ class TtsController {
     if (!hasSynthesis) return;
     this.speakToken++; // invalidate any in-flight end handler
     window.speechSynthesis.cancel();
-    this.current = null;
     this.sentences = [];
     this.index = 0;
     if (this.status !== 'idle') {
@@ -256,7 +254,6 @@ class TtsController {
       this.speakCurrent();
     };
 
-    this.current = utt;
     window.speechSynthesis.speak(utt);
   }
 
@@ -272,7 +269,6 @@ class TtsController {
 
   private finish() {
     this.status = 'idle';
-    this.current = null;
     this.emit();
     clearReadAloudHighlight(this.editor);
   }
