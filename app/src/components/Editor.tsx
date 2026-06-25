@@ -17,6 +17,7 @@ import { SlashCommand } from './extensions/SlashCommand';
 import { ImageWithAsset } from './extensions/ImageWithAsset';
 import { api } from '../lib/api';
 import { useReadAloud } from '../lib/speech/useReadAloud';
+import { useDictation } from '../lib/speech/useDictation';
 import { useMediaQuery } from '../lib/useMediaQuery';
 import type { LTMatch } from './grammar-service';
 
@@ -234,6 +235,10 @@ function Editor({
   // controls (voice, speed, pause) live in the RightSidebar.
   const readAloud = useReadAloud(editor ?? null);
 
+  // Voice-to-Text dictation. Toolbar mic toggles capture; the denoise toggle +
+  // model-load progress live in the RightSidebar.
+  const dictation = useDictation(editor ?? null);
+
   useEffect(() => {
     if (editor) {
       onEditorReady(editor as TiptapEditor);
@@ -425,12 +430,38 @@ function Editor({
               )}
             </button>
 
+            {/* Voice-to-Text dictation toggle. Loading = model warmup;
+                listening pulses; a red ring shows when speech is detected. */}
             <button
-              className="w-7 h-7 flex items-center justify-center rounded hover:bg-secondary/60 active:scale-95 cursor-pointer text-foreground/80 hover:text-primary transition-all duration-150"
-              title="Speech-to-Text Dictation (Experimental)"
-              onClick={() => alert('Speech-to-Text Dictation feature is currently in development. Stay tuned for updates!')}
+              className={`relative w-7 h-7 flex items-center justify-center rounded active:scale-95 transition-all duration-150 ${
+                dictation.supported
+                  ? 'cursor-pointer hover:bg-secondary/60 text-foreground/80 hover:text-primary'
+                  : 'opacity-30 cursor-not-allowed'
+              } ${dictation.status === 'listening' ? 'bg-red-500/15 ring-1 ring-red-500/50' : ''} ${
+                dictation.status === 'loading' ? 'animate-pulse' : ''
+              }`}
+              title={
+                !dictation.supported
+                  ? 'Dictation is not available on this device'
+                  : dictation.error
+                    ? dictation.error
+                    : dictation.status === 'loading'
+                      ? `Loading speech model… ${Math.round(dictation.loadProgress * 100)}%`
+                      : dictation.status === 'listening'
+                        ? 'Stop dictation'
+                        : 'Dictate (speech to text)'
+              }
+              disabled={!dictation.supported}
+              onClick={() => dictation.toggle()}
             >
-              <img src={listIcon1} alt="Speech-to-Text" className="w-4 h-4 opacity-80" />
+              <img
+                src={listIcon1}
+                alt="Speech-to-Text"
+                className={`w-4 h-4 ${dictation.status === 'listening' ? 'opacity-100' : 'opacity-80'}`}
+              />
+              {dictation.status === 'listening' && dictation.speaking && (
+                <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-red-500 animate-ping" />
+              )}
             </button>
           </div>
         </div>

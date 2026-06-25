@@ -55,8 +55,9 @@ All return an `ApiResponse<T>` = `{ success, data, error }` envelope.
 
 ## Editor extensions (`src/components/Editor.tsx`)
 `StarterKit` (+ heading/list keymaps) · `Placeholder` · `TextAlign` · **`TaskList`/`TaskItem`**
-(`/todo` checkbox lists, nestable) · `LinguisticCheck` (grammar) · **`ImageWithAsset`**
-(asset-rendering image node) · **`SlashCommand`** (the `/` menu).
+(`/todo` checkbox lists, nestable) · `LinguisticCheck` (grammar) · **`ReadAloudHighlight`**
+(karaoke highlight for TTS) · **`ImageWithAsset`** (asset-rendering image node) · **`SlashCommand`**
+(the `/` menu).
 The slash menu (`SlashCommand.ts` + `SlashMenu.tsx` + `slashItems.ts`) is built on
 `@tiptap/suggestion`; its React popup is positioned at the caret via the suggestion `clientRect`
 (same manual technique as the grammar popover — no tippy.js).
@@ -66,6 +67,32 @@ render only for `docType==='text'`, so task lists never appear in mind maps or f
 Type `/todo` (or click the sidebar button) to insert a checkbox list; checked items strike
 through. They serialise to HTML in `Document.content` like every other block — no extra
 persistence. Checkbox styling lives in the `.ProseMirror ul[data-type="taskList"]` rules.
+
+## Speech: Read-Aloud (TTS) + Voice-to-Text (dictation)
+Both live under `src/lib/speech/` and are **Notes/Chapters/Scenes-only** (the `Editor` +
+`RightSidebar` mount only for `docType==='text'`). Toolbar buttons live in `Editor.tsx`; full
+controls live in `RightSidebar.tsx`.
+
+- **Read-Aloud (TTS)** — `ttsController.ts` wraps the WebView's `speechSynthesis` (no deps).
+  It splits the active text (current selection, else whole doc) into sentences (`Intl.Segmenter`),
+  speaks them one at a time, and drives a karaoke highlight via the `ReadAloudHighlight` decoration
+  extension (`components/extensions/ReadAloudHighlight.ts`): `.tts-sentence` always, `.tts-word`
+  where the engine emits boundary events; the active node auto-scrolls. Sentence/word positions
+  come from the shared `lib/proseFlatText.ts` (`buildFlatText`, also used by grammar highlighting).
+  Hook: `useReadAloud(editor)`. Highlight CSS is in the `Editor.tsx` `<style>` block.
+
+- **Voice-to-Text (offline)** — two-stage pipeline under `lib/speech/dictation/`:
+  `mic → [① browser denoise] → [② Silero VAD gate] → [Whisper worker] → caret`. The VAD
+  (`@ricky0123/vad-web`, "gatekeeper" model) drops silence/gaps/dud sound and emits only speech
+  segments; each is transcribed by Whisper (`@huggingface/transformers`, `whisper-tiny.en`, q8) in
+  a Web Worker (`transcriber.worker.ts`). `dictationController.ts` orchestrates; `useDictation`
+  inserts each segment at the caret. Heavy libs are **dynamically imported** (kept out of the main
+  bundle). Offline assets (`npm run setup:speech` → `scripts/setup_speech_assets.mjs`) copy the VAD
+  worklet + Silero ONNX → `public/vad/` and onnxruntime-web wasm → `public/ort/`; ORT runs
+  single-threaded (no COOP/COEP). The Whisper model downloads + caches on first use — drop a copy
+  under `public/models/` for a fully-offline first run. Android needs `RECORD_AUDIO` in the
+  (regenerated) `gen/android` manifest. Mic capture depends on the WebView granting the permission
+  (WebView2 `PermissionRequested` / Android runtime) — verify on-device.
 
 ## Feature components
 - **`MindMap.tsx`** — React Flow canvas; serializes `{nodes,edges}` to `content` (debounced).
