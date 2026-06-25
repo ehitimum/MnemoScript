@@ -9,11 +9,14 @@ import type { Editor as CoreEditor, Range } from '@tiptap/core';
 import type { Document } from '../types';
 import type { ThemeType } from '../App';
 import type { Editor as TiptapEditor } from '@tiptap/react';
+import { Volume2, Square } from 'lucide-react';
 import listIcon1 from '../assets/microphone.png';
 import { LinguisticCheck, getActiveGrammarError } from './LinguisticCheck';
+import { ReadAloudHighlight } from './extensions/ReadAloudHighlight';
 import { SlashCommand } from './extensions/SlashCommand';
 import { ImageWithAsset } from './extensions/ImageWithAsset';
 import { api } from '../lib/api';
+import { useReadAloud } from '../lib/speech/useReadAloud';
 import { useMediaQuery } from '../lib/useMediaQuery';
 import type { LTMatch } from './grammar-service';
 
@@ -171,6 +174,8 @@ function Editor({
       TaskList,
       TaskItem.configure({ nested: true }),
       LinguisticCheck,
+      // Karaoke highlight for Read-Aloud (TTS). Driven imperatively by ttsController.
+      ReadAloudHighlight,
       ImageWithAsset,
       SlashCommand.configure({ onImage: handleSlashImage }),
     ],
@@ -224,6 +229,10 @@ function Editor({
       });
     }
   }, [editor, spellcheckActive]);
+
+  // Read-Aloud (TTS). The toolbar button is a quick play/stop toggle; full
+  // controls (voice, speed, pause) live in the RightSidebar.
+  const readAloud = useReadAloud(editor ?? null);
 
   useEffect(() => {
     if (editor) {
@@ -390,14 +399,39 @@ function Editor({
             <span className="opacity-80">📄</span>
             <span className="truncate">{doc.title}</span>
           </div>
-          <div>
-            <button 
-              className="w-7 h-7 flex items-center justify-center rounded hover:bg-secondary/60 active:scale-95 cursor-pointer text-foreground/80 hover:text-primary transition-all duration-150" 
-              title="Speech-to-Text Dictation (Experimental)" 
+          <div className="flex items-center gap-1">
+            {/* Read Aloud (TTS) quick toggle. Disabled when the WebView has no
+                speechSynthesis. Active state pulses while speaking. */}
+            <button
+              className={`w-7 h-7 flex items-center justify-center rounded active:scale-95 transition-all duration-150 ${
+                readAloud.supported
+                  ? 'cursor-pointer hover:bg-secondary/60 text-foreground/80 hover:text-primary'
+                  : 'opacity-30 cursor-not-allowed text-foreground/50'
+              } ${readAloud.status !== 'idle' ? 'text-primary bg-primary/10 animate-pulse' : ''}`}
+              title={
+                !readAloud.supported
+                  ? 'Read Aloud is not available on this device'
+                  : readAloud.status === 'idle'
+                    ? 'Read Aloud (select text to read just that part)'
+                    : 'Stop reading'
+              }
+              disabled={!readAloud.supported}
+              onClick={() => (readAloud.status === 'idle' ? readAloud.play() : readAloud.stop())}
+            >
+              {readAloud.status === 'idle' ? (
+                <Volume2 className="w-4 h-4" />
+              ) : (
+                <Square className="w-3.5 h-3.5 fill-current" />
+              )}
+            </button>
+
+            <button
+              className="w-7 h-7 flex items-center justify-center rounded hover:bg-secondary/60 active:scale-95 cursor-pointer text-foreground/80 hover:text-primary transition-all duration-150"
+              title="Speech-to-Text Dictation (Experimental)"
               onClick={() => alert('Speech-to-Text Dictation feature is currently in development. Stay tuned for updates!')}
             >
               <img src={listIcon1} alt="Speech-to-Text" className="w-4 h-4 opacity-80" />
-            </button>  
+            </button>
           </div>
         </div>
       )}
@@ -596,6 +630,21 @@ function Editor({
           .ProseMirror ul[data-type="taskList"] li[data-checked="true"] > div {
             text-decoration: line-through;
             opacity: 0.5;
+          }
+
+          /* ── Read-Aloud karaoke highlight ─────────────────────────────────
+             Driven by the ReadAloudHighlight decoration plugin. The active
+             sentence gets a soft wash; the active word (where the engine emits
+             boundary events) gets a stronger box. */
+          .ProseMirror .tts-sentence {
+            background-color: color-mix(in srgb, var(--primary) 16%, transparent);
+            border-radius: 3px;
+            transition: background-color 0.2s ease;
+          }
+          .ProseMirror .tts-word {
+            background-color: color-mix(in srgb, var(--primary) 42%, transparent);
+            border-radius: 3px;
+            box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 55%, transparent);
           }
 
           .ProseMirror p {

@@ -14,7 +14,13 @@ import {
   AlignRight,
   AlignJustify,
   Baseline,
+  Volume2,
+  Play,
+  Pause,
+  Square,
+  Gauge,
 } from 'lucide-react';
+import { useReadAloud } from '../lib/speech/useReadAloud';
 
 interface RightSidebarProps {
   editor: TiptapEditor | null;
@@ -39,6 +45,9 @@ function RightSidebar({
   lineHeight,
   setLineHeight,
 }: RightSidebarProps) {
+  // Called before the early return so hook order stays stable across renders.
+  const readAloud = useReadAloud(editor);
+
   if (!isOpen) return null;
 
   const getBtnStyle = (isActive: boolean) => {
@@ -186,6 +195,103 @@ function RightSidebar({
                 <AlignJustify className="w-3.5 h-3.5" />
               </button>
             </div>
+          </div>
+        )}
+
+        {/* Read Aloud (TTS) — Notes only, like the rest of this sidebar. */}
+        {editor && (
+          <div className="flex flex-col gap-2.5">
+            <h4 className={sectionLabel}>Read Aloud</h4>
+
+            {!readAloud.supported ? (
+              <p className="text-3xs text-muted-foreground/70 leading-relaxed">
+                Text-to-speech isn’t available on this device’s WebView.
+              </p>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button
+                    onClick={() =>
+                      readAloud.status === 'playing'
+                        ? readAloud.pause()
+                        : readAloud.status === 'paused'
+                          ? readAloud.resume()
+                          : readAloud.play()
+                    }
+                    title={
+                      readAloud.status === 'playing'
+                        ? 'Pause'
+                        : readAloud.status === 'paused'
+                          ? 'Resume'
+                          : 'Play — reads the selection if any, else the whole document'
+                    }
+                    style={getBtnStyle(readAloud.status !== 'idle')}
+                    className={`${iconBtn} gap-2 text-xs font-medium`}
+                  >
+                    {readAloud.status === 'playing' ? (
+                      <>
+                        <Pause className="w-3.5 h-3.5" /> Pause
+                      </>
+                    ) : (
+                      <>
+                        <Play className="w-3.5 h-3.5" />
+                        {readAloud.status === 'paused' ? 'Resume' : 'Play'}
+                      </>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => readAloud.stop()}
+                    disabled={readAloud.status === 'idle'}
+                    title="Stop"
+                    className={`${iconBtn} gap-2 text-xs font-medium ${
+                      readAloud.status === 'idle' ? 'opacity-40 cursor-not-allowed' : ''
+                    }`}
+                  >
+                    <Square className="w-3 h-3 fill-current" /> Stop
+                  </button>
+                </div>
+
+                {/* Voice picker */}
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs text-foreground/80 flex items-center gap-1.5">
+                    <Volume2 className="w-3.5 h-3.5 text-primary/80" /> Voice
+                  </label>
+                  <select
+                    className="w-full bg-secondary/40 border border-border/30 text-foreground text-xs rounded-lg px-2.5 py-1.5 focus:border-primary/50 focus:ring-1 focus:ring-primary/20 outline-none cursor-pointer transition-all duration-200"
+                    value={readAloud.voiceURI ?? ''}
+                    onChange={(e) => readAloud.setVoice(e.target.value || null)}
+                  >
+                    <option value="">System default</option>
+                    {readAloud.voices.map((v) => (
+                      <option key={v.voiceURI} value={v.voiceURI}>
+                        {v.name} ({v.lang})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Speed slider */}
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex justify-between text-xs text-foreground/80">
+                    <label className="flex items-center gap-1.5">
+                      <Gauge className="w-3.5 h-3.5 text-primary/80" /> Speed
+                    </label>
+                    <span className="font-mono font-medium text-primary text-xs">
+                      {readAloud.rate.toFixed(1)}×
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0.5"
+                    max="2"
+                    step="0.1"
+                    className="w-full accent-primary h-1.5 bg-secondary rounded-lg cursor-pointer"
+                    value={readAloud.rate}
+                    onChange={(e) => readAloud.setRate(parseFloat(e.target.value))}
+                  />
+                </div>
+              </>
+            )}
           </div>
         )}
 
