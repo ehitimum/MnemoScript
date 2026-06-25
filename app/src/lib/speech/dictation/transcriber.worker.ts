@@ -13,11 +13,12 @@ import { pipeline, env } from '@huggingface/transformers';
 
 const ctx = self as unknown as DedicatedWorkerGlobalScope;
 
-// Skip the local-model lookup: there is no bundled model yet, and a missing
-// /models/* request can resolve to the SPA's index.html (HTTP 200) and wedge the
-// loader. The model is fetched from the HF hub on first use and then cached.
-env.allowLocalModels = false;
-env.allowRemoteModels = true;
+// Fully offline: the model is bundled under app/public/models (see
+// `npm run fetch:model`). Load it locally and never touch the network — the HF
+// hub fetch was failing inside the WebView, and bundling is the offline-first goal.
+env.allowLocalModels = true;
+env.localModelPath = '/models/';
+env.allowRemoteModels = false;
 // IMPORTANT: do NOT point this at our /ort copy. transformers.js bundles its own
 // onnxruntime-web build (a different version); its wasm is emitted by Vite and
 // matched automatically. Overriding wasmPaths to a mismatched ORT version hangs

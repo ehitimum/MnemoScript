@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "setup:speech": "node ../scripts/setup_speech_assets.mjs",
+    "fetch:model": "node ../scripts/fetch_whisper_model.mjs",
     "dev:tauri": "tauri dev",
     "build:tauri": "tauri build",
     "android:init": "tauri android init",

@@ -12,6 +12,12 @@ dist
 dist-ssr
 *.local
 
+# Offline speech assets — regenerated from node_modules / HF by
+# `npm run setup:speech` and `npm run fetch:model` (kept out of git: large binaries).
+public/vad
+public/ort
+public/models
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

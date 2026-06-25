@@ -87,12 +87,18 @@ controls live in `RightSidebar.tsx`.
   segments; each is transcribed by Whisper (`@huggingface/transformers`, `whisper-tiny.en`, q8) in
   a Web Worker (`transcriber.worker.ts`). `dictationController.ts` orchestrates; `useDictation`
   inserts each segment at the caret. Heavy libs are **dynamically imported** (kept out of the main
-  bundle). Offline assets (`npm run setup:speech` → `scripts/setup_speech_assets.mjs`) copy the VAD
-  worklet + Silero ONNX → `public/vad/` and onnxruntime-web wasm → `public/ort/`; ORT runs
-  single-threaded (no COOP/COEP). The Whisper model downloads + caches on first use — drop a copy
-  under `public/models/` for a fully-offline first run. Android needs `RECORD_AUDIO` in the
-  (regenerated) `gen/android` manifest. Mic capture depends on the WebView granting the permission
-  (WebView2 `PermissionRequested` / Android runtime) — verify on-device.
+  bundle). **Offline setup (two scripts; outputs gitignored):** `npm run setup:speech`
+  (`scripts/setup_speech_assets.mjs`) copies the VAD worklet + Silero ONNX to `public/vad/` and
+  onnxruntime-web wasm to `public/ort/`; `npm run fetch:model` (`scripts/fetch_whisper_model.mjs`)
+  downloads the Whisper **q8 / `_quantized`** files (~42 MB) to
+  `public/models/onnx-community/whisper-tiny.en/`. The worker loads the model **locally**
+  (`allowRemoteModels=false`, `localModelPath='/models/'`) so dictation is fully offline with no
+  first-run download. ORT runs single-threaded (no COOP/COEP). **Version trap:** `vad-web` + the
+  `/ort/` copy are both onnxruntime-web 1.27, but transformers.js bundles its *own* ORT (1.26-dev)
+  and uses its Vite-emitted wasm — never point its `wasmPaths` at `/ort/` (ABI mismatch hangs model
+  init). Android needs `RECORD_AUDIO` in the (regenerated) `gen/android` manifest. Mic capture
+  depends on the WebView granting the permission (WebView2 `PermissionRequested` / Android runtime)
+  — verify on-device.
 
 ## Feature components
 - **`MindMap.tsx`** — React Flow canvas; serializes `{nodes,edges}` to `content` (debounced).
