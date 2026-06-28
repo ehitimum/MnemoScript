@@ -7,15 +7,31 @@ import { createDefaultMapDoc } from './components/fantasymap/mapTypes';
 // The map studio pulls in Konva + the icon set + an SVG renderer, so load it on
 // demand (only when a fantasy-map document is opened) to keep the initial bundle lean.
 const FantasyMap = lazy(() => import('./components/FantasyMap'));
-import Header from './components/Header';
+import DesktopTopBar from './components/DesktopTopBar';
+import CommandPalette, { type Command } from './components/CommandPalette';
 import RightSidebar from './components/RightSidebar';
+import MobileShell from './components/mobile/MobileShell';
 import ProjectCreationModal from './components/ProjectCreationModal';
 import BookCompiler from './components/BookCompiler';
 import { api } from './lib/api';
 import { useMediaQuery } from './lib/useMediaQuery';
 import type { Project, Document, DocType, Folder } from './types';
 import type { Editor as TiptapEditor } from '@tiptap/react';
-import { Plus, Settings, FolderOpen, ArrowRight, BookOpen, Save } from 'lucide-react';
+import {
+  Plus,
+  Settings,
+  FolderOpen,
+  ArrowRight,
+  BookOpen,
+  Save,
+  FileDown,
+  PanelLeft,
+  PanelRight,
+  Palette,
+  Copy,
+  Info,
+  X,
+} from 'lucide-react';
 
 export type ThemeType = 'dark' | 'light' | 'glass' | 'ocean' | 'forest' | 'sunset';
 
@@ -72,15 +88,17 @@ function App() {
   // Narrow viewports (mobile browser, or a small/resized desktop window) get
   // collapsible drawer sidebars; wide ones keep the classic docked layout.
   const isMobile = useMediaQuery('(max-width: 768px)');
+  // Desktop is editor-first: the explorer is open, the format panel is summoned
+  // on demand (toolbar toggle or ⌘K). Mobile uses its own shell.
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(!isMobile);
-  const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(!isMobile);
+  const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
+  const [isPaletteOpen, setIsPaletteOpen] = useState(false);
 
-  // When crossing the breakpoint, hide both sidebars on mobile and restore them
-  // on desktop. Fires only on an actual breakpoint change, so it won't fight a
-  // user's manual toggles within the same size class.
+  // When crossing the breakpoint, show the explorer on desktop and collapse the
+  // panels on mobile. The format panel stays closed by default.
   useEffect(() => {
     setIsLeftSidebarOpen(!isMobile);
-    setIsRightSidebarOpen(!isMobile);
+    setIsRightSidebarOpen(false);
   }, [isMobile]);
 
   const [activeEditor, setActiveEditor] = useState<TiptapEditor | null>(null);
@@ -389,27 +407,112 @@ function App() {
     api.listProjects().then(setProjects).catch(() => {});
   };
 
+  // Desktop keyboard shortcuts: ⌘K / Ctrl+K toggles the command palette; ⌘S saves.
+  useEffect(() => {
+    if (isMobile) return;
+    const onKey = (e: KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setIsPaletteOpen((o) => !o);
+      } else if (mod && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        if (selectedDocumentRef.current) persistCurrent();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isMobile, persistCurrent]);
+
+  // Command palette entries — the desktop action surface (replaces the menubar).
+  const themeCommands: Command[] = (
+    [
+      ['dark', 'Midnight'],
+      ['light', 'Parchment'],
+      ['glass', 'Nebula'],
+      ['ocean', 'Ocean'],
+      ['forest', 'Forest'],
+      ['sunset', 'Sunset'],
+    ] as [ThemeType, string][]
+  ).map(([id, label]) => ({ id: `theme-${id}`, label: `Theme: ${label}`, group: 'Theme', icon: Palette, run: () => setTheme(id) }));
+
+  const commands: Command[] = [
+    { id: 'new-project', label: 'New Project', group: 'File', icon: Plus, run: () => setIsCreateModalOpen(true) },
+    { id: 'save', label: 'Save Document', group: 'File', icon: Save, disabled: !selectedDocument, run: persistCurrent },
+    { id: 'compile', label: 'Compile to PDF Book', group: 'File', icon: FileDown, disabled: !selectedProject, run: () => setIsCompilerOpen(true) },
+    { id: 'close-project', label: 'Close Project', group: 'File', icon: X, disabled: !selectedProject, run: handleCloseProject },
+    {
+      id: 'copy-text',
+      label: 'Copy Document Text',
+      group: 'Edit',
+      icon: Copy,
+      disabled: !selectedDocument,
+      run: () => { if (activeEditor) navigator.clipboard.writeText(activeEditor.getText()); },
+    },
+    { id: 'toggle-explorer', label: 'Toggle Explorer', group: 'View', icon: PanelLeft, run: () => setIsLeftSidebarOpen(!isLeftSidebarOpen) },
+    { id: 'toggle-format', label: 'Toggle Format Panel', group: 'View', icon: PanelRight, run: () => setIsRightSidebarOpen(!isRightSidebarOpen) },
+    { id: 'settings', label: 'Settings', group: 'Tools', icon: Settings, run: () => setIsEditingSettings(true) },
+    { id: 'autosave', label: autoSaveEnabled ? 'Disable Auto-Save' : 'Enable Auto-Save', group: 'Tools', icon: Save, run: () => setAutoSaveEnabled(!autoSaveEnabled) },
+    ...themeCommands,
+    { id: 'about', label: 'About MnemoScript', group: 'Help', icon: Info, run: () => alert('MnemoScript — local-first writing studio') },
+  ];
+
   return (
     <div className="h-screen flex flex-col bg-background text-foreground transition-colors duration-300 safe-area-insets">
-      <Header
+      {isMobile ? (
+        <MobileShell
+          selectedProject={selectedProject}
+          selectedDocument={selectedDocument}
+          documents={documents}
+          folders={folders}
+          projects={projects}
+          activeEditor={activeEditor}
+          onOpenProject={handleOpenProject}
+          onCloseProject={handleCloseProject}
+          onNewProject={() => setIsCreateModalOpen(true)}
+          onSelectDocument={(doc) => { setSelectedDocument(doc); setIsEditingSettings(false); }}
+          onCreateDocument={handleCreateDocument}
+          onCreateFolder={handleCreateFolder}
+          onRenameDocument={handleRenameDocument}
+          onDeleteDocuments={handleDeleteDocuments}
+          onDuplicateDocuments={handleDuplicateDocuments}
+          onMoveDocuments={handleMoveDocuments}
+          onUpdateDocumentContent={handleUpdateDocumentContent}
+          onEditorReady={setActiveEditor}
+          persistCurrent={persistCurrent}
+          editorFont={editorFont}
+          setEditorFont={setEditorFont}
+          editorSize={editorSize}
+          setEditorSize={setEditorSize}
+          lineHeight={lineHeight}
+          setLineHeight={setLineHeight}
+          editorPadding={editorPadding}
+          setEditorPadding={setEditorPadding}
+          spellcheckActive={spellcheckActive}
+          setSpellcheckActive={setSpellcheckActive}
+          autoSaveInterval={autoSaveInterval}
+          setAutoSaveInterval={setAutoSaveInterval}
+          defaultSavePath={defaultSavePath}
+          setDefaultSavePath={setDefaultSavePath}
+          theme={theme}
+          setTheme={setTheme}
+        />
+      ) : (
+        <>
+      <DesktopTopBar
         selectedProject={selectedProject}
         selectedDocument={selectedDocument}
-        onCloseProject={handleCloseProject}
-        onSaveDocument={persistCurrent}
-        onCompileBook={() => setIsCompilerOpen(true)}
-        setTheme={setTheme}
+        onOpenPalette={() => setIsPaletteOpen(true)}
+        onNew={() => setIsCreateModalOpen(true)}
+        onSave={persistCurrent}
+        canSave={!!selectedDocument}
+        onCompile={() => setIsCompilerOpen(true)}
+        canCompile={!!selectedProject}
+        showPanelToggles={!!selectedProject && !isEditingSettings}
         isLeftSidebarOpen={isLeftSidebarOpen}
         setIsLeftSidebarOpen={setIsLeftSidebarOpen}
         isRightSidebarOpen={isRightSidebarOpen}
         setIsRightSidebarOpen={setIsRightSidebarOpen}
-        onOpenCreateModal={() => setIsCreateModalOpen(true)}
-        onOpenProjectFolder={() => setIsCreateModalOpen(true)}
-        onCopyText={() => { if (activeEditor) navigator.clipboard.writeText(activeEditor.getText()); } }
-        onOpenSettings={() => setIsEditingSettings(true)}
-        autoSaveEnabled={autoSaveEnabled}
-        onChangeAutoSave={setAutoSaveEnabled}
-        theme={theme}
-        isMobile={isMobile}
       />
 
       {!selectedProject ? (
@@ -424,7 +527,7 @@ function App() {
                 MnemoScript Studio
               </h1>
               <p className="text-md text-muted-foreground max-w-md">
-                A premium, local-first workspace environment designed for modern writers.
+                A calm, local-first home for your writing.
               </p>
             </div>
 
@@ -451,8 +554,8 @@ function App() {
                   <Settings className="w-5 h-5" />
                 </div>
                 <div className="flex-1">
-                  <h3 className="text-lg font-medium text-foreground mb-1 group-hover:text-primary transition-colors">Workspace Settings</h3>
-                  <p className="text-sm text-muted-foreground leading-relaxed">Customize default paths, auto-save timers, editor scales, and global color profiles.</p>
+                  <h3 className="text-lg font-medium text-foreground mb-1 group-hover:text-primary transition-colors">Settings</h3>
+                  <p className="text-sm text-muted-foreground leading-relaxed">Theme, typography, auto-save, and where your projects are stored.</p>
                 </div>
               </button>
             </div>
@@ -461,7 +564,7 @@ function App() {
             {projects.length > 0 && (
               <div className="flex flex-col gap-4 mt-2">
                 <h3 className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
-                  Recent Workspace Projects
+                  Recent Projects
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-h-[280px] overflow-y-auto pr-1">
                   {projects.map(proj => (
@@ -594,7 +697,7 @@ function App() {
       <footer className="h-6 bg-accent text-accent-foreground flex items-center justify-between px-3 text-xs border-t border-border/40 select-none z-50 transition-colors duration-200">
         <div className="hidden sm:flex items-center gap-2 truncate max-w-[50%]">
           <span className="opacity-70 font-mono truncate">
-            {selectedProject ? `${selectedProject.path}/${selectedDocument ? selectedDocument.title : ''}` : 'No workspace mounted'}
+            {selectedProject ? `${selectedProject.path}/${selectedDocument ? selectedDocument.title : ''}` : 'No project open'}
           </span>
         </div>
         <div className="flex items-center gap-4">
@@ -623,10 +726,13 @@ function App() {
             onClick={persistCurrent}
           >
             <Save className="w-3 h-3" />
-            Save Target
+            Save
           </button>
         </div>
       </footer>
+        {isPaletteOpen && <CommandPalette onClose={() => setIsPaletteOpen(false)} commands={commands} />}
+        </>
+      )}
 
       <ProjectCreationModal
         isOpen={isCreateModalOpen}

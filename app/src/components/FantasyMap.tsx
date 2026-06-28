@@ -211,6 +211,57 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
     return { x: (p.x - view.x) / view.scale, y: (p.y - view.y) / view.scale };
   };
 
+  // ── Touch: two-finger pinch-to-zoom + pan ───────────────────────────────
+  // Single-finger touch falls through to the existing draw/drag handlers; two
+  // fingers zoom around their midpoint and pan as that midpoint moves.
+  const pinchRef = useRef<{ dist: number; center: { x: number; y: number } | null }>({ dist: 0, center: null });
+
+  const touchPoints = (touches: TouchList) => {
+    const rect = stageRef.current?.container().getBoundingClientRect();
+    if (!rect) return null;
+    return Array.from(touches).map((t) => ({ x: t.clientX - rect.left, y: t.clientY - rect.top }));
+  };
+
+  const onStageTouchStart = (e: KonvaEventObject<TouchEvent>) => {
+    if (e.evt.touches.length >= 2) {
+      e.evt.preventDefault();
+      pinchRef.current = { dist: 0, center: null };
+    }
+  };
+
+  const onStageTouchMove = (e: KonvaEventObject<TouchEvent>) => {
+    const touches = e.evt.touches;
+    if (touches.length >= 2) {
+      e.evt.preventDefault();
+      const pts = touchPoints(touches);
+      if (!pts) return;
+      const [p1, p2] = pts;
+      const dist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+      const center = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+      const prev = pinchRef.current;
+      if (!prev.center || prev.dist === 0) {
+        pinchRef.current = { dist, center };
+        return;
+      }
+      setView((v) => {
+        const s = Math.max(0.05, Math.min(v.scale * (dist / prev.dist), 6));
+        const pointTo = { x: (center.x - v.x) / v.scale, y: (center.y - v.y) / v.scale };
+        return { x: center.x - pointTo.x * s, y: center.y - pointTo.y * s, scale: s };
+      });
+      pinchRef.current = { dist, center };
+      return;
+    }
+    onStageMouseMove();
+  };
+
+  const onStageTouchEnd = (e: KonvaEventObject<TouchEvent>) => {
+    if (pinchRef.current.center) {
+      if (e.evt.touches.length < 2) pinchRef.current = { dist: 0, center: null };
+      return;
+    }
+    endStroke();
+  };
+
   // Build the terrain raster once on mount (component is keyed by doc id).
   useEffect(() => { syncHeightFromDoc(docRef.current); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const terrainImg = useImage(doc.terrain.mode === 'image' ? toAssetUrl(doc.terrain.imagePath || '') : undefined);
@@ -859,10 +910,11 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
             onWheel={onWheel}
             onMouseDown={onStageMouseDown}
             onTap={onStageMouseDown as unknown as (e: KonvaEventObject<Event>) => void}
+            onTouchStart={onStageTouchStart}
             onMouseMove={onStageMouseMove}
-            onTouchMove={onStageMouseMove}
+            onTouchMove={onStageTouchMove}
             onMouseUp={endStroke}
-            onTouchEnd={endStroke}
+            onTouchEnd={onStageTouchEnd}
             onMouseLeave={endStroke}
             onDblClick={onStageDblClick}
             onDblTap={onStageDblClick}

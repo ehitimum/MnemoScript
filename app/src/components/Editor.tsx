@@ -9,8 +9,7 @@ import type { Editor as CoreEditor, Range } from '@tiptap/core';
 import type { Document } from '../types';
 import type { ThemeType } from '../App';
 import type { Editor as TiptapEditor } from '@tiptap/react';
-import { Volume2, Square } from 'lucide-react';
-import listIcon1 from '../assets/microphone.png';
+import { Volume2, Square, Mic, MicOff } from 'lucide-react';
 import { LinguisticCheck, getActiveGrammarError } from './LinguisticCheck';
 import { ReadAloudHighlight } from './extensions/ReadAloudHighlight';
 import { SlashCommand } from './extensions/SlashCommand';
@@ -61,6 +60,9 @@ interface EditorProps {
   setDefaultSavePath: (path: string) => void;
   theme: ThemeType;
   setTheme: (theme: ThemeType) => void;
+  /** 'mobile' hides the desktop toolbar and uses the native caret; the mobile
+   *  shell provides its own chrome. Defaults to 'desktop'. */
+  chrome?: 'desktop' | 'mobile';
 }
 
 function Editor({
@@ -84,7 +86,9 @@ function Editor({
   setDefaultSavePath,
   theme,
   setTheme,
+  chrome = 'desktop',
 }: EditorProps) {
+  const isMobileChrome = chrome === 'mobile';
   const [grammarError, setGrammarError] = useState<GrammarErrorData | null>(null);
   const [caretCoords, setCaretCoords] = useState<CaretCoords>({ top: 0, left: 0, height: 20, visible: false });
   const isMobile = useMediaQuery('(max-width: 768px)');
@@ -105,6 +109,9 @@ function Editor({
   };
 
   const updateCaret = (editorInstance: TiptapEditor) => {
+    // Mobile uses the native caret, so skip the custom-caret state updates
+    // entirely — they fire on every keystroke/selection and hurt typing latency.
+    if (isMobileChrome) return;
     try {
       const { state, view } = editorInstance;
       const { selection } = state;
@@ -278,23 +285,23 @@ function Editor({
         {/* Settings Tab Bar */}
         <div className="h-10 bg-secondary/25 border-b border-border/30 flex">
           <div className="flex items-center px-4 gap-2 text-xs font-semibold text-foreground bg-background border-t-2 border-primary border-r border-border/20 select-none">
-            <span>⚙️ Workspace Preferences</span>
+            <span>⚙️ Settings</span>
           </div>
         </div>
         
         {/* Settings Workspace Grid */}
         <div className="flex-1 max-w-4xl w-full mx-auto p-6 md:p-10 flex flex-col gap-8">
           <div className="flex flex-col gap-2">
-            <h2 className="text-2xl font-semibold tracking-tight text-foreground">Global Preferences</h2>
-            <p className="text-xs text-muted-foreground">Adjust styling themes, typography scales, autosave rules, and folder routes.</p>
+            <h2 className="text-2xl font-semibold tracking-tight text-foreground">Settings</h2>
+            <p className="text-xs text-muted-foreground">Theme, typography, auto-save, and where your work is stored.</p>
           </div>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Theme Card */}
             <div className="bg-secondary/10 border border-border/30 rounded-xl p-5 shadow-xs flex flex-col gap-3">
-              <h3 className="text-sm font-semibold text-primary">Workspace Color Profile</h3>
+              <h3 className="text-sm font-semibold text-primary">Theme</h3>
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs text-muted-foreground">Choose your theme context</label>
+                <label className="text-xs text-muted-foreground">Choose your color theme</label>
                 <select 
                   className="w-full bg-secondary/40 border border-border/30 text-foreground text-sm rounded-lg px-3 py-2 focus:border-primary/50 focus:ring-1 focus:ring-primary/20 outline-none cursor-pointer transition-all duration-200" 
                   value={theme} 
@@ -341,19 +348,19 @@ function Editor({
 
             {/* Background Automated Loop Card */}
             <div className="bg-secondary/10 border border-border/30 rounded-xl p-5 shadow-xs flex flex-col gap-3">
-              <h3 className="text-sm font-semibold text-primary">Autosave & Checking Engine</h3>
+              <h3 className="text-sm font-semibold text-primary">Auto-save & Spellcheck</h3>
               <div className="flex flex-col gap-4">
                 <label className="flex items-center gap-2.5 text-xs text-foreground cursor-pointer group">
-                  <input 
-                    type="checkbox" 
+                  <input
+                    type="checkbox"
                     className="w-4 h-4 rounded border-border text-primary focus:ring-primary/20 accent-primary cursor-pointer"
-                    checked={spellcheckActive} 
-                    onChange={(e) => setSpellcheckActive(e.target.checked)} 
+                    checked={spellcheckActive}
+                    onChange={(e) => setSpellcheckActive(e.target.checked)}
                   />
-                  <span className="group-hover:text-primary transition-colors">Activate Realtime Spellcheck Highlighting</span>
+                  <span className="group-hover:text-primary transition-colors">Highlight spelling &amp; grammar</span>
                 </label>
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-xs text-muted-foreground">File Saving Intervals</label>
+                  <label className="text-xs text-muted-foreground">Auto-save interval</label>
                   <select 
                     className="w-full bg-secondary/40 border border-border/30 text-foreground text-sm rounded-lg px-3 py-2 focus:border-primary/50 focus:ring-1 focus:ring-primary/20 outline-none cursor-pointer transition-all duration-200" 
                     value={autoSaveInterval} 
@@ -370,9 +377,9 @@ function Editor({
             {/* Save Location Path Card — desktop only; mobile storage is app-private. */}
             {!isMobile && (
               <div className="bg-secondary/10 border border-border/30 rounded-xl p-5 shadow-xs flex flex-col gap-3">
-                <h3 className="text-sm font-semibold text-primary">Default Repository Location</h3>
+                <h3 className="text-sm font-semibold text-primary">Default Save Folder</h3>
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-xs text-muted-foreground">Global storage saving root path</label>
+                  <label className="text-xs text-muted-foreground">Where new projects are saved</label>
                   <input
                     type="text"
                     className="w-full bg-secondary/40 border border-border/30 text-foreground text-sm rounded-lg px-3 py-2 focus:border-primary/50 focus:ring-1 focus:ring-primary/20 outline-none placeholder:text-muted-foreground/50 transition-all duration-200"
@@ -398,7 +405,7 @@ function Editor({
 
   return (
     <div className="flex-1 flex flex-col bg-background overflow-hidden relative" onClick={handleWrapperAreaClick}>
-      {doc && (
+      {doc && !isMobileChrome && (
         <div className="h-10 bg-secondary/20 border-b border-border/30 flex justify-between items-center px-4 select-none">
           <div className="flex items-center gap-2 px-4 py-2 text-xs font-semibold text-foreground bg-background border-t-2 border-primary border-r border-border/20">
             <span className="opacity-80">📄</span>
@@ -454,11 +461,11 @@ function Editor({
               disabled={!dictation.supported}
               onClick={() => dictation.toggle()}
             >
-              <img
-                src={listIcon1}
-                alt="Speech-to-Text"
-                className={`w-4 h-4 ${dictation.status === 'listening' ? 'opacity-100' : 'opacity-80'}`}
-              />
+              {dictation.status === 'listening' ? (
+                <MicOff className="w-4 h-4 text-red-500" />
+              ) : (
+                <Mic className="w-4 h-4" />
+              )}
               {dictation.status === 'listening' && dictation.speaking && (
                 <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-red-500 animate-ping" />
               )}
@@ -481,8 +488,8 @@ function Editor({
       >
         <EditorContent editor={editor} />
         
-        {/* smooth cursor caret */}
-        {editor && caretCoords.visible && (
+        {/* smooth cursor caret — desktop only; mobile uses the native caret */}
+        {editor && caretCoords.visible && !isMobileChrome && (
           <div
             className="smooth-caret"
             style={{
@@ -561,7 +568,7 @@ function Editor({
 
           .ProseMirror {
             color: var(--editor-text-color);
-            caret-color: transparent !important;
+            caret-color: ${isMobileChrome ? 'var(--accent-color)' : 'transparent'} !important;
             -webkit-font-smoothing: antialiased;
             -moz-osx-font-smoothing: grayscale;
             text-rendering: optimizeLegibility;
@@ -681,7 +688,8 @@ function Editor({
           .ProseMirror p {
             margin-bottom: 1.25em;
             tab-size: 4;
-            transition: all 0.2s ease;
+            /* No transition here: animating all properties reflows on every
+               keystroke as text changes, which makes typing feel laggy. */
           }
           
           .ProseMirror blockquote {
