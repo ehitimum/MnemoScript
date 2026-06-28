@@ -50,8 +50,28 @@ All return an `ApiResponse<T>` = `{ success, data, error }` envelope.
   stored as a raw disk path and resolved to a Tauri asset URL (`convertFileSrc`) only at render
   time. Asset protocol is enabled in `tauri.conf.json` (`app.security.assetProtocol`) +
   `Cargo.toml` (`protocol-asset` feature).
-- **`App.tsx`** — owns app state, persistence (auto-save loop + manual save via refs), and routing:
-  renders `<MindMap>` for `docType==='mindmap'`, else `<Editor>`. localStorage holds only UI prefs.
+- **`App.tsx`** — owns all app state, persistence (auto-save loop + manual save via refs), and the
+  data handlers. It is a thin router that **branches on `isMobile`** (`useMediaQuery('(max-width:
+  768px)')`): `<MobileShell>` on phones, else the desktop layout. Both shells get the same handlers.
+  localStorage holds only UI prefs.
+
+## Responsive shells (desktop vs. mobile are different UIs)
+The desktop and Android UIs are intentionally **separate** (a phone is not a shrunken desktop):
+- **Desktop** = `DesktopTopBar` (slim app bar; the old VS Code menubar is gone) + a **⌘K
+  `CommandPalette`** (most actions live here) + the docked `Sidebar` (explorer) and summonable
+  `RightSidebar` ("Format", **closed by default**) + a slim status bar. Editor-first, more whitespace.
+- **Mobile** (`src/components/mobile/`) = `MobileShell` with a **bottom tab bar** (Library / Write /
+  Tools / Settings), a slim `MobileTopBar` on the Write screen, `MobileLibrary` (a clean grouped
+  document list + new-doc `BottomSheet`, replacing the explorer tree), the reused `Editor` in
+  **`chrome="mobile"`** mode (no desktop toolbar, native caret), a `ToolsSheet` `BottomSheet`
+  (format/read-aloud/dictation), and a full-screen `MobileSettings` (theme swatches + typography).
+- **Shared controls** (`src/components/controls/`): `FormatControls`, `ReadAloudControls`,
+  `DictationControls` (size `'sm'`|`'lg'`) are used by *both* `RightSidebar` and `ToolsSheet` — wrap
+  the existing `useReadAloud`/`useDictation` hooks + `editor.chain()` commands. Don't duplicate them.
+- **Touch:** `index.html` viewport is `user-scalable=no, maximum-scale=1` (no accidental page zoom);
+  `index.css` adds `touch-action: manipulation` + the `.mn-*` primitives (sheet, tabbar, fab, rows).
+  `FantasyMap` has two-finger pinch-zoom/pan (Konva `onTouch*`); React Flow (`MindMap`) pinches by
+  default once the page-zoom hijack is removed.
 
 ## Editor extensions (`src/components/Editor.tsx`)
 `StarterKit` (+ heading/list keymaps) · `Placeholder` · `TextAlign` · **`TaskList`/`TaskItem`**

@@ -5,6 +5,34 @@ Newest entries first. Dates are absolute.
 
 ---
 
+## 2026-06-25 — UI redesign: separate mobile app shell + bolder desktop reshape
+
+The single VS Code-style shell felt cramped/misaligned on phones and IDE-like for non-technical
+writers. Goal: **simple UX, elegant UI** (the user clarified "simple" = experience, not plain visuals).
+
+- **`App.tsx` now branches on `isMobile`** → `<MobileShell>` vs. the desktop layout. All state +
+  handlers stay in App; both shells receive them.
+- **Mobile (new, `src/components/mobile/`)** — a phone-native shell: bottom **tab bar**
+  (Library / Write / Tools / Settings), `MobileTopBar`, `MobileLibrary` (grouped doc list + new-doc
+  `BottomSheet`, replaces the explorer tree), the reused `Editor` in **`chrome="mobile"`** (no
+  desktop toolbar, native caret), a `ToolsSheet` bottom sheet, and `MobileSettings` (theme swatches).
+- **Desktop reshape** — replaced the menubar with a slim **`DesktopTopBar`** + a **⌘K
+  `CommandPalette`** (New/Save/Compile/Close, toggle panels, themes, settings…). Right "Format" panel
+  is **closed by default** (editor-first); ⌘K / Ctrl+S shortcuts. Jargon sweep ("Repository"→"Save
+  folder", "Save Target"→"Save", "Workspace mounted"→"No project open", etc.).
+- **Shared controls** (`src/components/controls/`): extracted `FormatControls`/`ReadAloudControls`/
+  `DictationControls` from `RightSidebar` so the desktop panel and mobile sheet reuse one source.
+- **Touch fixes** — viewport `user-scalable=no,maximum-scale=1` (kills accidental page pinch-zoom);
+  `touch-action: manipulation`; FantasyMap gets Konva two-finger pinch-zoom/pan; React Flow pinch now
+  works. New `.mn-*` CSS primitives (sheet/tabbar/fab/rows/palette).
+- **Verified**: `npm run build` ✓; new components lint-clean (remaining lint errors are pre-existing
+  React-Compiler warnings in FantasyMap/MindMap/hooks). Visual check via headless-Chrome CDP at
+  390 px (mobile, **0 horizontal overflow**) + 1300 px (desktop): welcome, library, settings (theme
+  swatches), and the ⌘K palette all render cleanly. **Needs device testing**: data flows that require
+  the Tauri backend (create/open project, editor on a phone), and on-device pinch-zoom.
+
+---
+
 ## 2026-06-25 — Read-Aloud (TTS) + offline Voice-to-Text (dictation)
 
 Two accessibility/authoring features for text docs (Notes / Chapters / Scenes). Both are
