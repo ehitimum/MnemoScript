@@ -4,7 +4,8 @@
  * A medium-res Float32 grid (0..1 elevation) that BOTH the procedural generator
  * fills AND the landmass brush edits. `render()` turns it into a styled terrain
  * raster: sea depth gradient, a soft **coastline glow** (the classic fantasy-map
- * halo), elevation-banded biome colours and a subtle mottled land texture.
+ * halo), elevation-banded biome colours, a hillshade relief and a subtle mottled
+ * land texture.
  *
  * Persistence: the grid is encoded to a small grayscale PNG (`toDataURL`) stored
  * in the document; `fromDataURL` rebuilds it. Generated terrain can instead store
@@ -21,7 +22,7 @@ export const TERRAIN_COLS = 320;
  * Capped for render performance.
  */
 export function terrainCols(w: number): number {
-  return Math.max(360, Math.min(960, Math.round(w / 4.5)));
+  return Math.max(400, Math.min(1024, Math.round(w / 3.75)));
 }
 
 /* ── seeded RNG (shared with the generator) ─────────────────────────────── */
@@ -265,7 +266,7 @@ export class HeightMap {
     return this.style === 'handdrawn' ? this.renderInk() : this.renderClassic();
   }
 
-  /** Classic Inkarnate-style raster (sea depth + coastline glow + biomes + texture). */
+  /** Classic Inkarnate-style raster (sea depth + coastline glow + biomes + relief + texture). */
   renderClassic(): HTMLCanvasElement {
     const { cols, rows, seaLevel, tex } = this;
     const data = this.effData();
@@ -278,6 +279,9 @@ export class HeightMap {
     const mask = new Float32Array(cols * rows);
     for (let k = 0; k < data.length; k++) mask[k] = data[k] >= seaLevel ? 1 : 0;
     const halo = boxBlur(mask, cols, rows, 3, 2);
+    // Relief: a soft hillshade (light from the north-west) gives the land
+    // sculpted valleys and ridges instead of flat colour bands.
+    const shade = hillshade(data, cols, rows, 2.2);
 
     const cv = document.createElement('canvas');
     cv.width = cols; cv.height = rows;
@@ -293,6 +297,9 @@ export class HeightMap {
         const base = t < 0.6 ? lerpRgb(deep, sea, t / 0.6) : lerpRgb(sea, shallow, (t - 0.6) / 0.4);
         const h = clamp((halo[k] - 0.05) * 1.4, 0, 1) * 0.65; // glow strength near coast
         rgb = lerpRgb(base, glow, h);
+        // a whisper of texture keeps open water from looking like a flat fill
+        const v = 1 + tex[k] * 0.035;
+        rgb = [rgb[0] * v, rgb[1] * v, rgb[2] * v];
       } else {
         const t = clamp((e - seaLevel) / (1 - seaLevel), 0, 1); // 0 coast .. 1 peak
         if (t < 0.03) {
@@ -301,7 +308,7 @@ export class HeightMap {
           const f = t * (land.length - 1);
           const bi = Math.min(land.length - 2, Math.floor(f));
           rgb = lerpRgb(land[bi], land[bi + 1], f - bi);
-          const v = 1 + tex[k] * 0.13;                         // mottle
+          const v = (1 + tex[k] * 0.11) * (0.82 + shade[k] * 0.36); // mottle × relief
           rgb = [rgb[0] * v, rgb[1] * v, rgb[2] * v];
         }
       }
@@ -316,8 +323,8 @@ export class HeightMap {
    * Hand-drawn / parchment raster: the land is left bare (transparent) so the
    * paper shows through, the sea is a soft watercolour with concentric ripple
    * lines hugging the coast, a tan shore band seats the landmass, and high
-   * ground gets a faint relief shadow. The crisp inked coastline itself is a
-   * vector overlay (see {@link coastSegments}) drawn on the Konva stage.
+   * ground gets slope-aware relief shading. The crisp inked coastline itself is
+   * a vector overlay (see {@link coastPolylines}) drawn on the Konva stage.
    */
   renderInk(): HTMLCanvasElement {
     const { cols, rows, seaLevel, tex } = this;
@@ -340,6 +347,8 @@ export class HeightMap {
     const RING = 8.5;          // ripple spacing in cells
     const RINGS = 4;           // how many ripple rings emanate from shore
     const SAND = 2.6;          // tan shore band width in cells
+    // Slope-based relief so highlands read as shaded hills, not a flat wash.
+    const shade = hillshade(data, cols, rows, 3);
 
     for (let k = 0; k < data.length; k++) {
       const e = data[k];
@@ -352,12 +361,14 @@ export class HeightMap {
         let col = lerpRgb(seaCoast, seaOpen, fade);
         // concentric ripple lines, fading offshore
         if (d < RING * (RINGS + 0.5)) {
-          const phase = Math.abs((d % RING) - 0) ; // distance past a ring
+          const phase = Math.abs(d % RING); // distance past a ring
           const near = Math.min(phase, RING - phase);
           const line = smooth(clamp(1 - near / 1.3, 0, 1)) * (1 - fade) * 0.55;
           col = lerpRgb(col, ripple, line);
         }
-        r = col[0]; g = col[1]; b = col[2]; a = 235;
+        // Let a little parchment grain show through open water so it reads
+        // as a wash rather than a flat fill.
+        r = col[0]; g = col[1]; b = col[2]; a = 232 - fade * 34 + tex[k] * 6;
       } else {
         // ── land: mostly bare paper, with a shore band + relief ───────
         const ld = -d; // distance inland from the coast (cells)
@@ -366,11 +377,13 @@ export class HeightMap {
           const sa = smooth(1 - ld / SAND) * 0.55;
           ({ r, g, b, a } = over(r, g, b, a, sand[0], sand[1], sand[2], sa));
         }
-        // faint relief shadow on higher ground (gives mountains some weight)
+        // relief on higher ground: darken the shadowed (south-east facing)
+        // slopes only; lit slopes stay bare paper. `shade` is 0.5 on flat ground.
         const t = clamp((e - seaLevel) / (1 - seaLevel), 0, 1);
         const rel = clamp(t - 0.3, 0, 1);
         if (rel > 0) {
-          const ra = rel * 0.17 * (0.7 + tex[k] * 0.3);
+          const slopeDark = clamp01((0.5 - shade[k]) * 2);
+          const ra = rel * (0.08 + slopeDark * 0.22) * (0.75 + tex[k] * 0.25);
           ({ r, g, b, a } = over(r, g, b, a, relief[0], relief[1], relief[2], clamp01(ra)));
         }
       }
@@ -384,8 +397,7 @@ export class HeightMap {
 
   /**
    * Marching-squares contour of the coastline (iso = seaLevel), returned as a
-   * flat list of canvas-space segments [x0,y0,x1,y1, …]. Drawn as a crisp inked
-   * line by the canvas, independent of the smoothed raster above.
+   * flat list of canvas-space segments [x0,y0,x1,y1, …].
    */
   coastSegments(w: number, h: number): number[] {
     const { cols, rows, seaLevel: L } = this;
@@ -420,6 +432,16 @@ export class HeightMap {
       }
     }
     return out;
+  }
+
+  /**
+   * The coastline as smooth polylines (flat [x,y,…] arrays in canvas space).
+   * Marching-squares segments are chained by shared endpoints and
+   * Chaikin-smoothed, which turns the jaggy per-cell contour into the flowing
+   * inked line a cartographer would draw.
+   */
+  coastPolylines(w: number, h: number): number[][] {
+    return chainSegments(this.coastSegments(w, h)).map((poly) => chaikin(poly, 2));
   }
 
   /** Encode the grid to a compact grayscale PNG data-URL for persistence. */
@@ -489,6 +511,98 @@ function makeTexture(cols: number, rows: number): Float32Array {
     }
   }
   return out;
+}
+
+/**
+ * Lambertian hillshade of a height grid, light from the north-west. Returns
+ * 0..1 per cell (0.5 = flat). `z` exaggerates relief.
+ */
+function hillshade(data: Float32Array, cols: number, rows: number, z: number): Float32Array {
+  const out = new Float32Array(cols * rows);
+  const lx = -0.6, ly = -0.6, lz = 0.53; // normalised light direction (NW, about 32 deg up)
+  for (let j = 0; j < rows; j++) {
+    const j0 = j > 0 ? j - 1 : j, j1 = j < rows - 1 ? j + 1 : j;
+    for (let i = 0; i < cols; i++) {
+      const i0 = i > 0 ? i - 1 : i, i1 = i < cols - 1 ? i + 1 : i;
+      const dzdx = (data[j * cols + i1] - data[j * cols + i0]) * z * cols * 0.5;
+      const dzdy = (data[j1 * cols + i] - data[j0 * cols + i]) * z * rows * 0.5;
+      // surface normal = (-dzdx, -dzdy, 1)
+      const len = Math.sqrt(dzdx * dzdx + dzdy * dzdy + 1);
+      const dot = (-dzdx * lx - dzdy * ly + lz) / len;
+      out[j * cols + i] = clamp01(dot * 0.5 + 0.5);
+    }
+  }
+  return out;
+}
+
+/** Chain [x0,y0,x1,y1,…] segments into polylines by matching endpoints. */
+function chainSegments(segs: number[]): number[][] {
+  const n = segs.length / 4;
+  if (n === 0) return [];
+  const key = (x: number, y: number) => `${Math.round(x * 4)},${Math.round(y * 4)}`;
+  // endpoint key -> segment indices touching it
+  const at = new Map<string, number[]>();
+  for (let s = 0; s < n; s++) {
+    for (const k of [key(segs[s * 4], segs[s * 4 + 1]), key(segs[s * 4 + 2], segs[s * 4 + 3])]) {
+      const list = at.get(k);
+      if (list) list.push(s); else at.set(k, [s]);
+    }
+  }
+  const used = new Uint8Array(n);
+  const out: number[][] = [];
+  const takeNext = (x: number, y: number): number => {
+    const list = at.get(key(x, y));
+    if (!list) return -1;
+    for (const s of list) if (!used[s]) return s;
+    return -1;
+  };
+  for (let s0 = 0; s0 < n; s0++) {
+    if (used[s0]) continue;
+    used[s0] = 1;
+    const poly = [segs[s0 * 4], segs[s0 * 4 + 1], segs[s0 * 4 + 2], segs[s0 * 4 + 3]];
+    // extend forward
+    for (;;) {
+      const x = poly[poly.length - 2], y = poly[poly.length - 1];
+      const s = takeNext(x, y);
+      if (s < 0) break;
+      used[s] = 1;
+      const ax = segs[s * 4], ay = segs[s * 4 + 1], bx = segs[s * 4 + 2], by = segs[s * 4 + 3];
+      if (key(ax, ay) === key(x, y)) poly.push(bx, by); else poly.push(ax, ay);
+    }
+    // extend backward
+    for (;;) {
+      const x = poly[0], y = poly[1];
+      const s = takeNext(x, y);
+      if (s < 0) break;
+      used[s] = 1;
+      const ax = segs[s * 4], ay = segs[s * 4 + 1], bx = segs[s * 4 + 2], by = segs[s * 4 + 3];
+      if (key(ax, ay) === key(x, y)) poly.unshift(bx, by); else poly.unshift(ax, ay);
+    }
+    if (poly.length >= 6) out.push(poly);
+  }
+  return out;
+}
+
+/** Chaikin corner cutting (`iterations` passes) on a flat polyline. */
+function chaikin(poly: number[], iterations: number): number[] {
+  let pts = poly;
+  const closed = Math.abs(pts[0] - pts[pts.length - 2]) < 0.01 && Math.abs(pts[1] - pts[pts.length - 1]) < 0.01;
+  for (let it = 0; it < iterations; it++) {
+    const n = pts.length / 2;
+    if (n < 3) break;
+    const next: number[] = [];
+    if (!closed) next.push(pts[0], pts[1]);
+    const last = closed ? n - 1 : n - 1;
+    for (let i = 0; i < last; i++) {
+      const j = i + 1;
+      const x0 = pts[i * 2], y0 = pts[i * 2 + 1], x1 = pts[j * 2], y1 = pts[j * 2 + 1];
+      next.push(x0 * 0.75 + x1 * 0.25, y0 * 0.75 + y1 * 0.25, x0 * 0.25 + x1 * 0.75, y0 * 0.25 + y1 * 0.75);
+    }
+    if (!closed) next.push(pts[pts.length - 2], pts[pts.length - 1]);
+    else next.push(next[0], next[1]);
+    pts = next;
+  }
+  return pts;
 }
 
 /** Two-pass chamfer distance transform: distance (in cells) to nearest source. */

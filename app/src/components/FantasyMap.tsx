@@ -15,7 +15,7 @@ import type { ThemeType } from '../App';
 import { api } from '../lib/api';
 import { toAssetUrl } from '../lib/assets';
 import { toItemUrl } from '../lib/mapAssets';
-import { useMediaQuery } from '../lib/useMediaQuery';
+import { isTauri, isMobileOS, useShell } from '../lib/platform';
 import type {
   FantasyMapDoc, GenParams, MapItem, MapRegion, MapRoute, MapLabel, MapKind, MapStyle, MapDecor, LayerId,
 } from './fantasymap/mapTypes';
@@ -33,7 +33,9 @@ import InspectorPanel, { type Selection, type SelType } from './fantasymap/Inspe
 interface FantasyMapProps {
   document: Document;
   projectId: string;
-  onUpdateContent: (content: string) => void;
+  /** Debounced content updates. `docId` lets the parent route a late flush
+   *  (e.g. on unmount while switching documents) to the right document. */
+  onUpdateContent: (content: string, docId: string) => void;
   onRequestSave: () => void;
   theme: ThemeType;
 }
@@ -41,46 +43,61 @@ interface FantasyMapProps {
 type Tool = 'select' | 'pan' | 'land' | 'sea' | 'stamp' | 'scatter' | 'region' | 'route' | 'label';
 const BRUSH_TOOLS: Tool[] = ['land', 'sea', 'scatter'];
 const TOOLS: { id: Tool; label: string; Icon: typeof MousePointer2 }[] = [
-  { id: 'select', label: 'Select / move', Icon: MousePointer2 },
-  { id: 'pan', label: 'Pan', Icon: Hand },
-  { id: 'land', label: 'Land brush — paint coastline & terrain', Icon: Mountain },
-  { id: 'sea', label: 'Sea brush — carve water', Icon: Droplets },
-  { id: 'stamp', label: 'Place one icon', Icon: MapPin },
-  { id: 'scatter', label: 'Scatter brush — paint many icons', Icon: SprayCan },
-  { id: 'region', label: 'Draw region — freehand, dotted outline', Icon: Hexagon },
-  { id: 'route', label: 'Draw road / river', Icon: Spline },
-  { id: 'label', label: 'Add label', Icon: TypeIcon },
+  { id: 'select', label: 'Select / move (V)', Icon: MousePointer2 },
+  { id: 'pan', label: 'Pan (H)', Icon: Hand },
+  { id: 'land', label: 'Land brush — paint coastline & terrain (L)', Icon: Mountain },
+  { id: 'sea', label: 'Sea brush — carve water (S)', Icon: Droplets },
+  { id: 'stamp', label: 'Place one icon (P)', Icon: MapPin },
+  { id: 'scatter', label: 'Scatter brush — paint many icons (B)', Icon: SprayCan },
+  { id: 'region', label: 'Draw region — freehand, dotted outline (R)', Icon: Hexagon },
+  { id: 'route', label: 'Draw road / river (D)', Icon: Spline },
+  { id: 'label', label: 'Add label (T)', Icon: TypeIcon },
 ];
+const TOOL_KEYS: Record<string, Tool> = { v: 'select', h: 'pan', l: 'land', s: 'sea', p: 'stamp', b: 'scatter', r: 'region', d: 'route', t: 'label' };
 
 type CtxMenu = { x: number; y: number; sel: Selection | null } | null;
+type StageEvt = KonvaEventObject<MouseEvent | TouchEvent>;
 
 /** Pre-rendered ink compass for the hand-drawn decorative chrome. */
 const COMPASS_URL = iconDataUrl('ink-compass', '#5b4632');
 const SERIF_FONT = "Georgia, 'Iowan Old Style', 'Times New Roman', serif";
+const INK = '#4d3a27';
 
 export default function FantasyMap({ document: docProp, projectId, onUpdateContent, onRequestSave }: FantasyMapProps) {
-  const isMobile = useMediaQuery('(max-width: 768px)');
+  const { isMobileShell: isMobile } = useShell();
 
   // Parse once on mount (component is keyed by document id in App, like MindMap).
   const [doc, setDoc] = useState<FantasyMapDoc>(() => parseMapDoc(docProp.content));
   const docRef = useRef(doc);
-  docRef.current = doc;
+  useEffect(() => {
+    docRef.current = doc;
+  }, [doc]);
 
   const history = useMapHistory();
+  const { snapshot } = history;
   const [tool, setTool] = useState<Tool>('select');
   const [picked, setPicked] = useState<PickedIcon | null>(null);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [draft, setDraft] = useState<{ kind: 'region' | 'route'; points: number[] } | null>(null);
   const draftRef = useRef(draft);
-  draftRef.current = draft;
+  useEffect(() => {
+    draftRef.current = draft;
+  }, [draft]);
   const [genOpen, setGenOpen] = useState(false);
   const [genParams, setGenParams] = useState<GenParams>({ ...DEFAULT_GEN_PARAMS, seed: randomSeed() });
   const [ctxMenu, setCtxMenu] = useState<CtxMenu>(null);
   const [naming, setNaming] = useState<string | null>(null); // item id being named inline
   const clipboard = useRef<MapItem | null>(null);
+  const [hasClipboard, setHasClipboard] = useState(false);
   // Region pen: drawing a boundary by hand (drag or click), closing at the start.
   const penRef = useRef<{ down: boolean; dragged: boolean }>({ down: false, dragged: false });
-  const extendRef = useRef<{ regionId: string } | null>(null); // stroke that grows a region
+  // Stroke that grows an existing region (state mirrors the ref for rendering).
+  const extendRef = useRef<string | null>(null);
+  const [extending, setExtendingState] = useState<string | null>(null);
+  const setExtending = (id: string | null) => {
+    extendRef.current = id;
+    setExtendingState(id);
+  };
   const [nearStart, setNearStart] = useState(false);           // cursor near the start dot
   const [penCursor, setPenCursor] = useState<{ x: number; y: number } | null>(null);
 
@@ -95,27 +112,33 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
   // moving it never forces a Konva redraw of the map.
   const [brushCursor, setBrushCursor] = useState<{ x: number; y: number } | null>(null);
 
+  // Side panels: docked on desktop, overlays (closed by default) on phones.
   const [leftOpen, setLeftOpen] = useState(!isMobile);
   const [rightOpen, setRightOpen] = useState(!isMobile);
-  useEffect(() => { setLeftOpen(!isMobile); setRightOpen(!isMobile); }, [isMobile]);
+  const [prevMobile, setPrevMobile] = useState(isMobile);
+  if (prevMobile !== isMobile) {
+    setPrevMobile(isMobile);
+    setLeftOpen(!isMobile);
+    setRightOpen(!isMobile);
+  }
 
   // ── Mutation + history ────────────────────────────────────────────────
   const mutate = useCallback((fn: (d: FantasyMapDoc) => FantasyMapDoc, snap = true) => {
-    if (snap) history.snapshot(docRef.current);
+    if (snap) snapshot(docRef.current);
     setDoc((prev) => fn(prev));
-  }, [history]);
+  }, [snapshot]);
 
   // ── Terrain heightmap (paintable; shared with the generator) ──────────
   const [terrainCanvas, setTerrainCanvas] = useState<HTMLCanvasElement | null>(null);
-  const [coastSegs, setCoastSegs] = useState<number[] | null>(null);
+  const [coastLines, setCoastLines] = useState<number[][] | null>(null);
   const heightRef = useRef<HeightMap | null>(null);
   const renderRaf = useRef(0);
   const renderTerrain = useCallback(() => {
     const hm = heightRef.current;
-    if (!hm) { setTerrainCanvas(null); setCoastSegs(null); return; }
+    if (!hm) { setTerrainCanvas(null); setCoastLines(null); return; }
     setTerrainCanvas(hm.render());
     const c = docRef.current.canvas;
-    setCoastSegs(hm.style === 'handdrawn' ? hm.coastSegments(c.width, c.height) : null);
+    setCoastLines(hm.style === 'handdrawn' ? hm.coastPolylines(c.width, c.height) : null);
   }, []);
   const scheduleRender = useCallback(() => {
     if (renderRaf.current) return;
@@ -135,24 +158,37 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
     } else {
       heightRef.current = null;
       setTerrainCanvas(null);
-      setCoastSegs(null);
+      setCoastLines(null);
     }
   }, [renderTerrain]);
 
   const doUndo = useCallback(() => { const p = history.undo(docRef.current); if (p) { setDoc(p); setSelection(null); syncHeightFromDoc(p); } }, [history, syncHeightFromDoc]);
   const doRedo = useCallback(() => { const n = history.redo(docRef.current); if (n) { setDoc(n); setSelection(null); syncHeightFromDoc(n); } }, [history, syncHeightFromDoc]);
 
-  // ── Persist (debounced) after the first render ────────────────────────
+  // ── Persist (debounced) after the first render; flushed on unmount/save ──
   const didMount = useRef(false);
+  const pendingRef = useRef(false);
+  const docId = docProp.id;
   useEffect(() => {
     if (!didMount.current) { didMount.current = true; return; }
-    const t = setTimeout(() => onUpdateContent(JSON.stringify(doc)), 400);
+    pendingRef.current = true;
+    const t = setTimeout(() => { pendingRef.current = false; onUpdateContent(JSON.stringify(doc), docId); }, 400);
     return () => clearTimeout(t);
-  }, [doc, onUpdateContent]);
+  }, [doc, docId, onUpdateContent]);
+  // A pending update must never be lost when the studio unmounts (document
+  // switch, project close): hand the latest state to the parent right away.
+  useEffect(() => () => {
+    if (pendingRef.current) { pendingRef.current = false; onUpdateContent(JSON.stringify(docRef.current), docId); }
+  }, [docId, onUpdateContent]);
+  const flushAndSave = () => {
+    if (pendingRef.current) { pendingRef.current = false; onUpdateContent(JSON.stringify(docRef.current), docId); }
+    onRequestSave();
+  };
 
   // ── Stage sizing ──────────────────────────────────────────────────────
   const wrapRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
+  const layerRef = useRef<Konva.Layer>(null);
   const trRef = useRef<Konva.Transformer>(null);
   const [size, setSize] = useState({ w: 800, h: 600 });
   useEffect(() => {
@@ -160,7 +196,6 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
     if (!el) return;
     const ro = new ResizeObserver(() => setSize({ w: el.clientWidth, h: el.clientHeight }));
     ro.observe(el);
-    setSize({ w: el.clientWidth, h: el.clientHeight });
     return () => ro.disconnect();
   }, []);
 
@@ -197,8 +232,11 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
     if (!stage) return;
     const pointer = stage.getPointerPosition();
     if (!pointer) return;
+    // Trackpad pinch arrives as ctrl+wheel with small deltas; scale the zoom
+    // step so both a mouse wheel notch and a pinch feel natural.
+    const notch = Math.min(1, Math.abs(e.evt.deltaY) / 100);
     setView((v) => {
-      const dir = e.evt.deltaY > 0 ? 0.9 : 1.1;
+      const dir = e.evt.deltaY > 0 ? 1 - 0.12 * notch : 1 + 0.12 * notch;
       const s = Math.max(0.05, Math.min(v.scale * dir, 6));
       return { x: pointer.x - ((pointer.x - v.x) / v.scale) * s, y: pointer.y - ((pointer.y - v.y) / v.scale) * s, scale: s };
     });
@@ -209,57 +247,6 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
     const p = stage?.getPointerPosition();
     if (!p) return null;
     return { x: (p.x - view.x) / view.scale, y: (p.y - view.y) / view.scale };
-  };
-
-  // ── Touch: two-finger pinch-to-zoom + pan ───────────────────────────────
-  // Single-finger touch falls through to the existing draw/drag handlers; two
-  // fingers zoom around their midpoint and pan as that midpoint moves.
-  const pinchRef = useRef<{ dist: number; center: { x: number; y: number } | null }>({ dist: 0, center: null });
-
-  const touchPoints = (touches: TouchList) => {
-    const rect = stageRef.current?.container().getBoundingClientRect();
-    if (!rect) return null;
-    return Array.from(touches).map((t) => ({ x: t.clientX - rect.left, y: t.clientY - rect.top }));
-  };
-
-  const onStageTouchStart = (e: KonvaEventObject<TouchEvent>) => {
-    if (e.evt.touches.length >= 2) {
-      e.evt.preventDefault();
-      pinchRef.current = { dist: 0, center: null };
-    }
-  };
-
-  const onStageTouchMove = (e: KonvaEventObject<TouchEvent>) => {
-    const touches = e.evt.touches;
-    if (touches.length >= 2) {
-      e.evt.preventDefault();
-      const pts = touchPoints(touches);
-      if (!pts) return;
-      const [p1, p2] = pts;
-      const dist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
-      const center = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
-      const prev = pinchRef.current;
-      if (!prev.center || prev.dist === 0) {
-        pinchRef.current = { dist, center };
-        return;
-      }
-      setView((v) => {
-        const s = Math.max(0.05, Math.min(v.scale * (dist / prev.dist), 6));
-        const pointTo = { x: (center.x - v.x) / v.scale, y: (center.y - v.y) / v.scale };
-        return { x: center.x - pointTo.x * s, y: center.y - pointTo.y * s, scale: s };
-      });
-      pinchRef.current = { dist, center };
-      return;
-    }
-    onStageMouseMove();
-  };
-
-  const onStageTouchEnd = (e: KonvaEventObject<TouchEvent>) => {
-    if (pinchRef.current.center) {
-      if (e.evt.touches.length < 2) pinchRef.current = { dist: 0, center: null };
-      return;
-    }
-    endStroke();
   };
 
   // Build the terrain raster once on mount (component is keyed by doc id).
@@ -286,32 +273,9 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
     tr.getLayer()?.batchDraw();
   }, [selection, doc]);
 
-  // ── Keyboard ──────────────────────────────────────────────────────────
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const el = window.document.activeElement as HTMLElement | null;
-      const tag = el?.tagName.toLowerCase();
-      if (tag === 'input' || tag === 'textarea' || el?.isContentEditable) return;
-      const regionDraft = draft?.kind === 'region' && !extendRef.current;
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) { e.preventDefault(); doUndo(); }
-      else if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey))) { e.preventDefault(); doRedo(); }
-      else if ((e.key === 'Delete' || e.key === 'Backspace') && regionDraft) {
-        // Remove the last placed vertex while drawing a boundary.
-        e.preventDefault();
-        setDraft((d) => (d && d.points.length > 2 ? { ...d, points: d.points.slice(0, -2) } : d));
-      }
-      else if ((e.key === 'Delete' || e.key === 'Backspace') && selection) { e.preventDefault(); deleteObject(selection.type, selection.id); }
-      else if (e.key === 'Escape') { setDraft(null); penRef.current = { down: false, dragged: false }; extendRef.current = null; setNearStart(false); setSelection(null); setPicked(null); setCtxMenu(null); }
-      else if (e.key === 'Enter' && regionDraft) { e.preventDefault(); closeNewRegion(); }
-      else if (e.key === 'Enter' && draft) { e.preventDefault(); commitDraft(); }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }); // eslint-disable-line react-hooks/exhaustive-deps
-
   // ── Object helpers ────────────────────────────────────────────────────
   const nextZ = (arr: { z: number }[]) => (arr.length ? Math.max(...arr.map((o) => o.z)) + 1 : 0);
-  const snap = (n: number) =>
+  const snapPt = (n: number) =>
     doc.grid.snap && doc.grid.type !== 'none' ? Math.round(n / doc.grid.size) * doc.grid.size : n;
 
   const patchObject = useCallback((type: SelType, id: string, patch: Record<string, unknown>, snapHist = true) => {
@@ -341,12 +305,18 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
     setCtxMenu(null);
   };
 
+  const copyItem = (id: string) => {
+    const it = docRef.current.items.find((i) => i.id === id);
+    if (it) { clipboard.current = it; setHasClipboard(true); }
+    setCtxMenu(null);
+  };
+
   // ── Stamp / draw / label placement ────────────────────────────────────
   const stampAt = (mx: number, my: number) => {
     if (!picked) return;
     const item: MapItem = {
       id: mapId('it'), libId: picked.libId, assetPath: picked.assetPath,
-      x: snap(mx), y: snap(my), width: picked.size, height: picked.size,
+      x: snapPt(mx), y: snapPt(my), width: picked.size, height: picked.size,
       scale: 1, rotation: 0, z: nextZ(doc.items), tint: picked.libId ? '#3a2f23' : undefined,
     };
     mutate((d) => ({ ...d, items: [...d.items, item] }));
@@ -355,7 +325,7 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
 
   // Inline naming: double-click an asset to type a name that shows beneath it.
   const startNaming = (id: string) => {
-    history.snapshot(docRef.current);
+    snapshot(docRef.current);
     setSelection({ type: 'item', id });
     setNaming(id);
   };
@@ -369,20 +339,23 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
   };
 
   const commitDraft = () => {
-    if (!draft) return;
-    if (draft.kind === 'region' && draft.points.length >= 6) {
+    const d = draftRef.current;
+    if (!d) return;
+    if (d.kind === 'region' && d.points.length >= 6) {
       const region: MapRegion = {
-        id: mapId('reg'), name: 'New region', points: draft.points,
+        id: mapId('reg'), name: 'New region', points: d.points,
         fill: '#5aa05a', stroke: '#3a2f23', opacity: 0.3, z: nextZ(doc.regions),
-        labelPos: { x: avg(draft.points, 0), y: avg(draft.points, 1) },
+        labelPos: { x: avg(d.points, 0), y: avg(d.points, 1) },
       };
-      mutate((d) => ({ ...d, regions: [...d.regions, region] }));
+      mutate((dd) => ({ ...dd, regions: [...dd.regions, region] }));
       setSelection({ type: 'region', id: region.id });
-    } else if (draft.kind === 'route' && draft.points.length >= 4) {
+    } else if (d.kind === 'route' && d.points.length >= 4) {
+      const ink = docRef.current.style === 'handdrawn';
       const route: MapRoute = {
-        id: mapId('rt'), kind: 'road', points: draft.points, color: '#6b4f2a', width: 4, z: nextZ(doc.routes),
+        id: mapId('rt'), kind: 'road', points: d.points, color: ink ? '#6b4f2a' : '#6b4f2a', width: 4, z: nextZ(doc.routes),
+        dashed: ink,
       };
-      mutate((d) => ({ ...d, routes: [...d.routes, route] }));
+      mutate((dd) => ({ ...dd, routes: [...dd.routes, route] }));
       setSelection({ type: 'route', id: route.id });
     }
     setDraft(null);
@@ -392,18 +365,24 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
   // ── Brush painting (land/sea heightmap + icon scatter) ────────────────
   // Sea-brush feature presets: how deep the carve is (and how thin the river).
   const SEA_DEPTH = { sea: 0.34, lake: 0.16, river: 0.12 };
+  const ensureHeight = () => {
+    if (!heightRef.current) {
+      heightRef.current = HeightMap.blank(W, H, genParams.biomePreset, 0.4, docRef.current.style, docRef.current.terrain.ruggedness ?? genParams.ruggedness);
+    }
+    return heightRef.current;
+  };
   const paintAt = (mx: number, my: number, raise: boolean) => {
-    if (!heightRef.current) heightRef.current = HeightMap.blank(W, H, genParams.biomePreset, 0.4, docRef.current.style, docRef.current.terrain.ruggedness ?? genParams.ruggedness);
+    const hm = ensureHeight();
     const depth = raise ? 0.4 : SEA_DEPTH[seaMode];
     const radius = !raise && seaMode === 'river' ? brushSize * 0.5 : brushSize;
-    heightRef.current.paint(mx, my, radius, brushStrength, raise, W, H, depth);
+    hm.paint(mx, my, radius, brushStrength, raise, W, H, depth);
     scheduleRender();
   };
   // Lake feature: one click drops a contained, shallow pond (several strong
   // passes so the whole footprint reliably crosses below sea level at once).
   const stampLake = (mx: number, my: number) => {
-    if (!heightRef.current) heightRef.current = HeightMap.blank(W, H, genParams.biomePreset, 0.4, docRef.current.style, docRef.current.terrain.ruggedness ?? genParams.ruggedness);
-    for (let k = 0; k < 4; k++) heightRef.current.paint(mx, my, brushSize, 1, false, W, H, SEA_DEPTH.lake);
+    const hm = ensureHeight();
+    for (let k = 0; k < 4; k++) hm.paint(mx, my, brushSize, 1, false, W, H, SEA_DEPTH.lake);
     scheduleRender();
   };
   const commitTerrainPaint = () => {
@@ -428,22 +407,122 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
     mutate((d) => ({ ...d, items: [...d.items, item] }), false);
   };
 
+  // Close the in-progress boundary into a region (border-only, auto-parented).
+  const closeNewRegion = () => {
+    const d = draftRef.current;
+    penRef.current = { down: false, dragged: false };
+    setNearStart(false);
+    if (!d || d.points.length < 6) { setDraft(null); return; }
+    const ink = docRef.current.style === 'handdrawn';
+    const cx = avg(d.points, 0), cy = avg(d.points, 1);
+    // Auto-parent: smallest existing region whose polygon contains the centroid.
+    const parent = smallestContainer(docRef.current.regions, cx, cy);
+    const region: MapRegion = {
+      id: mapId('reg'), name: 'New region', points: d.points,
+      fill: ink ? '#b98e52' : '#5aa05a', stroke: ink ? '#7c5c34' : '#3a2f23',
+      opacity: 0.16, showFill: false,
+      level: parent ? childLevel(parent.level) : 'realm', parentId: parent?.id,
+      z: nextZ(docRef.current.regions),
+      labelPos: { x: cx, y: cy },
+    };
+    // History was snapshotted when the stroke began.
+    mutate((dd) => ({ ...dd, regions: [...dd.regions, region] }), false);
+    setDraft(null);
+    setSelection({ type: 'region', id: region.id });
+    setTool('select');
+  };
+
+  // Grow the selected region by splicing the drawn arc into its boundary.
+  const commitExtend = () => {
+    const regionId = extendRef.current;
+    const arc = draftRef.current?.points ?? [];
+    setExtending(null);
+    penRef.current = { down: false, dragged: false };
+    setDraft(null);
+    setNearStart(false);
+    if (!regionId || arc.length < 6) return;
+    const reg = docRef.current.regions.find((r) => r.id === regionId);
+    if (!reg) return;
+    const grown = extendRegion(reg.points, arc);
+    if (grown && grown.length >= 6) patchObject('region', reg.id, { points: grown }, false);
+  };
+
+  const endStroke = () => {
+    if (penRef.current.down || extendRef.current) {
+      penRef.current.down = false;
+      if (extendRef.current) commitExtend(); // new boundaries stay open until closed at the start
+    }
+    if (paintingRef.current) { paintingRef.current = null; commitTerrainPaint(); }
+    scatterRef.current = null;
+  };
+
+  const cancelDraft = () => {
+    setDraft(null);
+    penRef.current = { down: false, dragged: false };
+    setExtending(null);
+    setNearStart(false);
+    setPenCursor(null);
+  };
+
+  const selectTool = (id: Tool) => {
+    setTool(id);
+    if (id !== 'stamp' && id !== 'scatter') setPicked(null);
+    if (id !== 'region' && id !== 'route') setDraft(null);
+    if (id !== 'region') { penRef.current = { down: false, dragged: false }; setExtending(null); setNearStart(false); setPenCursor(null); }
+  };
+
+  // ── Keyboard ──────────────────────────────────────────────────────────
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = window.document.activeElement as HTMLElement | null;
+      const tag = el?.tagName.toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select' || el?.isContentEditable) return;
+      const mod = e.ctrlKey || e.metaKey;
+      const regionDraft = draft?.kind === 'region' && !extendRef.current;
+      if (mod && e.key.toLowerCase() === 'z' && !e.shiftKey) { e.preventDefault(); doUndo(); }
+      else if (mod && (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey))) { e.preventDefault(); doRedo(); }
+      else if (mod && e.key.toLowerCase() === 'c' && selection?.type === 'item') { e.preventDefault(); copyItem(selection.id); }
+      else if (mod && e.key.toLowerCase() === 'v' && clipboard.current) {
+        e.preventDefault();
+        const src = clipboard.current;
+        const n: MapItem = { ...src, id: mapId('it'), x: src.x + 24, y: src.y + 24, z: nextZ(docRef.current.items) };
+        mutate((d) => ({ ...d, items: [...d.items, n] }));
+        setSelection({ type: 'item', id: n.id });
+      }
+      else if ((e.key === 'Delete' || e.key === 'Backspace') && regionDraft) {
+        // Remove the last placed vertex while drawing a boundary.
+        e.preventDefault();
+        setDraft((d) => (d && d.points.length > 2 ? { ...d, points: d.points.slice(0, -2) } : d));
+      }
+      else if ((e.key === 'Delete' || e.key === 'Backspace') && selection) { e.preventDefault(); deleteObject(selection.type, selection.id); }
+      else if (e.key === 'Escape') { cancelDraft(); setSelection(null); setPicked(null); setCtxMenu(null); setNaming(null); setGenOpen(false); }
+      else if (e.key === 'Enter' && regionDraft) { e.preventDefault(); closeNewRegion(); }
+      else if (e.key === 'Enter' && draft) { e.preventDefault(); commitDraft(); }
+      else if (!mod && !e.altKey && TOOL_KEYS[e.key.toLowerCase()]) { selectTool(TOOL_KEYS[e.key.toLowerCase()]); }
+      else if (e.key === '0' && mod) { e.preventDefault(); fitToScreen(); }
+      else if ((e.key === '=' || e.key === '+') && mod) { e.preventDefault(); zoomBy(1.2); }
+      else if (e.key === '-' && mod) { e.preventDefault(); zoomBy(0.8); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
   // ── Stage events ──────────────────────────────────────────────────────
-  const onStageMouseDown = (e: KonvaEventObject<MouseEvent>) => {
+  const onStageMouseDown = (e: StageEvt) => {
     setCtxMenu(null);
     const bg = e.target.name() === 'bg' || e.target === stageRef.current;
     const m = pointerToMap();
     if (!m) return;
 
     if (tool === 'land' || tool === 'sea') {
-      history.snapshot(docRef.current);
+      snapshot(docRef.current);
       paintingRef.current = { raise: tool === 'land', last: m };
       if (tool === 'sea' && seaMode === 'lake') stampLake(m.x, m.y);
       else paintAt(m.x, m.y, tool === 'land');
       return;
     }
     if (tool === 'scatter' && picked) {
-      history.snapshot(docRef.current);
+      snapshot(docRef.current);
       scatterRef.current = { last: m };
       scatterStamp(m.x, m.y);
       return;
@@ -451,14 +530,14 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
     if (tool === 'stamp' && picked) { stampAt(m.x, m.y); return; }
     if (tool === 'label') { addLabel(m.x, m.y); return; }
     if (tool === 'region') {
-      const snap = 12 / view.scale;
+      const snapR = 12 / view.scale;
       // Extend: if a region is selected and we press near its boundary, this
       // stroke grows that region instead of starting a new one.
       if (!draft && selection?.type === 'region') {
         const reg = docRef.current.regions.find((r) => r.id === selection.id);
         if (reg && !reg.locked && distToRing(reg.points, m.x, m.y) <= 18 / view.scale) {
-          history.snapshot(docRef.current);
-          extendRef.current = { regionId: reg.id };
+          snapshot(docRef.current);
+          setExtending(reg.id);
           penRef.current = { down: true, dragged: false };
           setDraft({ kind: 'region', points: [m.x, m.y] });
           return;
@@ -466,7 +545,7 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
       }
       if (!draft) {
         // Start a new boundary.
-        history.snapshot(docRef.current);
+        snapshot(docRef.current);
         penRef.current = { down: true, dragged: false };
         setNearStart(false);
         setDraft({ kind: 'region', points: [m.x, m.y] });
@@ -474,7 +553,7 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
       }
       // Active boundary: close if we clicked the start dot, else drop a vertex.
       const sx = draft.points[0], sy = draft.points[1];
-      if (draft.points.length >= 6 && Math.hypot(m.x - sx, m.y - sy) <= snap) { closeNewRegion(); return; }
+      if (draft.points.length >= 6 && Math.hypot(m.x - sx, m.y - sy) <= snapR) { closeNewRegion(); return; }
       penRef.current = { down: true, dragged: false };
       setDraft((d) => (d ? { ...d, points: [...d.points, m.x, m.y] } : d));
       return;
@@ -540,57 +619,68 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
     }
   };
 
-  // Close the in-progress boundary into a region (border-only, auto-parented).
-  const closeNewRegion = () => {
-    const d = draftRef.current;
-    penRef.current = { down: false, dragged: false };
-    setNearStart(false);
-    if (!d || d.points.length < 6) { setDraft(null); return; }
-    const ink = docRef.current.style === 'handdrawn';
-    const cx = avg(d.points, 0), cy = avg(d.points, 1);
-    // Auto-parent: smallest existing region whose polygon contains the centroid.
-    const parent = smallestContainer(docRef.current.regions, cx, cy);
-    const region: MapRegion = {
-      id: mapId('reg'), name: 'New region', points: d.points,
-      fill: ink ? '#b98e52' : '#5aa05a', stroke: ink ? '#7c5c34' : '#3a2f23',
-      opacity: 0.16, showFill: false,
-      level: parent ? childLevel(parent.level) : 'realm', parentId: parent?.id,
-      z: nextZ(docRef.current.regions),
-      labelPos: { x: cx, y: cy },
-    };
-    // History was snapshotted when the stroke began.
-    mutate((dd) => ({ ...dd, regions: [...dd.regions, region] }), false);
-    setDraft(null);
-    setSelection({ type: 'region', id: region.id });
-    setTool('select');
+  // ── Touch: one finger draws/paints/selects; two fingers pinch-zoom + pan ──
+  const pinchRef = useRef<{ dist: number; center: { x: number; y: number } | null }>({ dist: 0, center: null });
+
+  const touchPoints = (touches: TouchList) => {
+    const rect = stageRef.current?.container().getBoundingClientRect();
+    if (!rect) return null;
+    return Array.from(touches).map((t) => ({ x: t.clientX - rect.left, y: t.clientY - rect.top }));
   };
 
-  // Grow the selected region by splicing the drawn arc into its boundary.
-  const commitExtend = () => {
-    const info = extendRef.current;
-    const arc = draftRef.current?.points ?? [];
-    extendRef.current = null;
-    penRef.current = { down: false, dragged: false };
-    setDraft(null);
-    setNearStart(false);
-    if (!info || arc.length < 6) return;
-    const reg = docRef.current.regions.find((r) => r.id === info.regionId);
-    if (!reg) return;
-    const grown = extendRegion(reg.points, arc);
-    if (grown && grown.length >= 6) patchObject('region', reg.id, { points: grown }, false);
-  };
-
-  const endStroke = () => {
-    if (penRef.current.down || extendRef.current) {
-      penRef.current.down = false;
-      if (extendRef.current) commitExtend(); // new boundaries stay open until closed at the start
+  const onStageTouchStart = (e: KonvaEventObject<TouchEvent>) => {
+    if (e.evt.touches.length >= 2) {
+      e.evt.preventDefault();
+      // A second finger turns a stroke into a pinch: finish whatever was in
+      // progress so nothing is half-applied.
+      endStroke();
+      pinchRef.current = { dist: 0, center: null };
+      return;
     }
-    if (paintingRef.current) { paintingRef.current = null; commitTerrainPaint(); }
-    scatterRef.current = null;
+    // Single finger behaves exactly like a mouse press (Konva does not
+    // synthesise mouse events from touch, and `tap` only fires on release —
+    // which is why brush strokes never started on phones before).
+    if (tool !== 'pan') e.evt.preventDefault();
+    onStageMouseDown(e);
+  };
+
+  const onStageTouchMove = (e: KonvaEventObject<TouchEvent>) => {
+    const touches = e.evt.touches;
+    if (touches.length >= 2) {
+      e.evt.preventDefault();
+      const pts = touchPoints(touches);
+      if (!pts) return;
+      const [p1, p2] = pts;
+      const dist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+      const center = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+      const prev = pinchRef.current;
+      if (!prev.center || prev.dist === 0) {
+        pinchRef.current = { dist, center };
+        return;
+      }
+      setView((v) => {
+        const s = Math.max(0.05, Math.min(v.scale * (dist / prev.dist), 6));
+        const pointTo = { x: (center.x - v.x) / v.scale, y: (center.y - v.y) / v.scale };
+        return { x: center.x - pointTo.x * s, y: center.y - pointTo.y * s, scale: s };
+      });
+      pinchRef.current = { dist, center };
+      return;
+    }
+    if (tool !== 'pan' && tool !== 'select') e.evt.preventDefault();
+    onStageMouseMove();
+  };
+
+  const onStageTouchEnd = (e: KonvaEventObject<TouchEvent>) => {
+    if (pinchRef.current.center) {
+      if (e.evt.touches.length < 2) pinchRef.current = { dist: 0, center: null };
+      return;
+    }
+    endStroke();
   };
 
   // Brush cursor overlay: track the pointer over the canvas wrap (DOM, not Konva).
   const onWrapPointerMove = (e: ReactPointerEvent) => {
+    if (e.pointerType === 'touch') return;
     if (!BRUSH_TOOLS.includes(tool)) { if (brushCursor) setBrushCursor(null); return; }
     const r = wrapRef.current?.getBoundingClientRect();
     if (!r) return;
@@ -603,17 +693,16 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
     const up = () => endStroke();
     window.addEventListener('pointerup', up);
     return () => window.removeEventListener('pointerup', up);
-  }); // eslint-disable-line react-hooks/exhaustive-deps
+  });
 
   const onStageDblClick = () => {
     if (draft?.kind === 'region' && !extendRef.current) closeNewRegion();
     else if (draft) commitDraft();
   };
 
-  const onStageContextMenu = (e: KonvaEventObject<MouseEvent>) => {
+  const onStageContextMenu = (e: KonvaEventObject<PointerEvent>) => {
     e.evt.preventDefault();
-    const sel = selection;
-    setCtxMenu({ x: e.evt.clientX, y: e.evt.clientY, sel });
+    setCtxMenu({ x: e.evt.clientX, y: e.evt.clientY, sel: selection });
   };
 
   const layerDraggable = tool === 'pan' || tool === 'select';
@@ -623,7 +712,14 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
     const { hm, regions, items } = generateMap(params, W, H);
     heightRef.current = hm;
     renderTerrain();
-    mutate((d) => ({ ...d, style: params.style, terrain: { mode: 'generated', seed: params.seed, params, ruggedness: params.ruggedness }, regions, items }));
+    mutate((d) => ({
+      ...d,
+      style: params.style,
+      decor: params.style === 'handdrawn' ? { frame: true, compass: true, cartouche: true } : d.decor,
+      terrain: { mode: 'generated', seed: params.seed, params, ruggedness: params.ruggedness },
+      regions,
+      items,
+    }));
     setSelection(null);
     requestAnimationFrame(fitToScreen);
   };
@@ -653,43 +749,72 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
   const onClearGen = () => {
     heightRef.current = null;
     setTerrainCanvas(null);
+    setCoastLines(null);
     mutate((d) => ({ ...d, terrain: { mode: 'none' }, regions: [], items: [] }));
     setSelection(null);
   };
 
   // ── Import ────────────────────────────────────────────────────────────
   const importIcons = async () => {
-    const paths = await api.importAssets(projectId);
-    if (!paths.length) return;
-    mutate((d) => ({
-      ...d,
-      imports: [...d.imports, ...paths.map((p) => ({ id: mapId('imp'), name: fileName(p), path: p }))],
-    }));
+    try {
+      const paths = await api.importAssets(projectId);
+      if (!paths.length) return;
+      mutate((d) => ({
+        ...d,
+        imports: [...d.imports, ...paths.map((p) => ({ id: mapId('imp'), name: fileName(p), path: p }))],
+      }));
+    } catch (e) {
+      console.error('[map] icon import failed', e);
+    }
   };
   const importBackground = async () => {
-    const paths = await api.importAssets(projectId);
-    if (!paths.length) return;
-    mutate((d) => ({ ...d, terrain: { mode: 'image', imagePath: paths[0] } }));
+    try {
+      const paths = await api.importAssets(projectId);
+      if (!paths.length) return;
+      mutate((d) => ({ ...d, terrain: { mode: 'image', imagePath: paths[0] } }));
+    } catch (e) {
+      console.error('[map] background import failed', e);
+    }
   };
 
   // ── Export PNG ────────────────────────────────────────────────────────
+  const [exportNote, setExportNote] = useState<string | null>(null);
   const exportPng = () => {
     const stage = stageRef.current;
-    if (!stage) return;
-    const prev = view;
-    const pad = 0;
-    const s = Math.min((size.w - pad) / W, (size.h - pad) / H);
-    const ox = (size.w - W * s) / 2;
-    const oy = (size.h - H * s) / 2;
+    const layer = layerRef.current;
+    if (!stage || !layer) return;
     setSelection(null);
-    setView({ x: ox, y: oy, scale: s });
-    requestAnimationFrame(() => {
-      const url = stage.toDataURL({ x: ox, y: oy, width: W * s, height: H * s, pixelRatio: Math.max(1, 1.5 / s) });
-      const a = window.document.createElement('a');
-      a.href = url;
-      a.download = `${docProp.title || 'map'}.png`;
-      a.click();
-      setView(prev);
+    setCtxMenu(null);
+    // Wait a frame so the selection handles are gone, then render the page
+    // off-screen at the current zoom (screen-space strokes stay consistent)
+    // without touching the visible view — no flash.
+    requestAnimationFrame(async () => {
+      const s = view.scale;
+      const targetW = Math.min(2 * W, 4096);
+      const ratio = targetW / (W * s);
+      trRef.current?.hide();
+      layer.position({ x: 0, y: 0 });
+      layer.scale({ x: s, y: s });
+      let url = '';
+      try {
+        url = stage.toDataURL({ x: 0, y: 0, width: W * s, height: H * s, pixelRatio: ratio, mimeType: 'image/png' });
+      } finally {
+        layer.position({ x: view.x, y: view.y });
+        layer.scale({ x: s, y: s });
+        trRef.current?.show();
+        layer.batchDraw();
+      }
+      if (!url) return;
+      const name = `${(docProp.title || 'map').replace(/[\\/:*?"<>|]+/g, '_')}.png`;
+      try {
+        const saved = await savePng(url, name, projectId);
+        setExportNote(saved ? `Saved ${saved}` : null);
+        if (saved) window.setTimeout(() => setExportNote(null), 4000);
+      } catch (e) {
+        console.error('[map] export failed', e);
+        setExportNote('Export failed');
+        window.setTimeout(() => setExportNote(null), 4000);
+      }
     });
   };
 
@@ -741,7 +866,7 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
   };
 
   // ── Drag start (one history snapshot per gesture) ─────────────────────
-  const onObjDragStart = () => history.snapshot(docRef.current);
+  const onObjDragStart = () => snapshot(docRef.current);
 
   // ── Sorted draws (respect z) ──────────────────────────────────────────
   // Draw finer tiers on top: realm → province → county, then by z within a tier.
@@ -755,48 +880,59 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
 
   const selectable = tool === 'select';
   const kindDef = mapKindDef(doc.kind);
+  // The item currently being named inline (double-click), if any.
+  const namingItem = naming ? doc.items.find((i) => i.id === naming) : undefined;
+  // The region whose vertex handles are shown (selected + editable).
+  const editableRegion =
+    selection?.type === 'region' && selectable && !lm.regions.locked
+      ? doc.regions.find((r) => r.id === selection.id && !r.locked)
+      : undefined;
 
   // Hand-drawn styling for captions/labels + the decorative compass image.
   const isInk = doc.style === 'handdrawn';
   const labelFill = isInk ? '#9e2b25' : '#2b2317';
-  const labelFont = isInk ? SERIF_FONT : undefined;
+  const labelFont = isInk ? SERIF_FONT : 'Inter, system-ui, sans-serif';
   const compassImg = useImage(isInk && doc.decor.compass ? COMPASS_URL : undefined);
   // Paper colour fills each ink icon's occlusion silhouette so overlapping
-  // assets hide each other instead of showing through.
+  // assets hide each other instead of showing through; it also backs the
+  // text halos that keep labels legible over busy terrain.
   const paperColor = doc.canvas.background.value || '#e9dcc0';
+  const halo = doc.canvas.background.type === 'color' ? paperColor : isInk ? '#efe4c8' : '#f4efe4';
+
+  const panelOverlay = isMobile;
+  const panelCls = (side: 'left' | 'right') =>
+    panelOverlay
+      ? `absolute z-40 ${side}-0 top-0 bottom-0 w-[min(18rem,86vw)] shadow-2xl animate-in ${side === 'left' ? 'slide-in-from-left' : 'slide-in-from-right'} duration-200`
+      : `w-60 shrink-0 ${side === 'left' ? 'border-r' : 'border-l'} border-border/30`;
 
   return (
-    <div className="flex-1 flex flex-col bg-background overflow-hidden relative">
+    <div className="flex-1 flex flex-col bg-background overflow-hidden relative min-h-0">
       {/* Toolbar */}
-      <div className="min-h-10 bg-secondary/20 border-b border-border/30 flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-1 select-none">
-        <div className="flex items-center gap-0.5">
+      <div className={`min-h-10 bg-secondary/20 border-b border-border/30 flex items-center gap-x-3 gap-y-1 px-3 py-1 select-none ${
+        isMobile ? 'overflow-x-auto flex-nowrap' : 'flex-wrap'
+      }`}>
+        <div className="flex items-center gap-0.5 shrink-0">
           {TOOLS.map(({ id, label, Icon }) => (
-            <button key={id} title={label} onClick={() => {
-                setTool(id);
-                if (id !== 'stamp' && id !== 'scatter') setPicked(null);
-                if (id !== 'region' && id !== 'route') setDraft(null);
-                if (id !== 'region') { penRef.current = { down: false, dragged: false }; extendRef.current = null; setNearStart(false); setPenCursor(null); }
-              }}
-              className={`fm-tool ${tool === id ? 'is-active' : ''}`}>
+            <button key={id} title={label} onClick={() => selectTool(id)} className={`fm-tool ${tool === id ? 'is-active' : ''}`}>
               <Icon className="w-4 h-4" />
             </button>
           ))}
         </div>
 
-        <div className="flex items-center gap-0.5 pl-2 border-l border-border/30">
+        <div className="flex items-center gap-0.5 pl-2 border-l border-border/30 shrink-0">
           <button onClick={doUndo} disabled={!history.canUndo} className="fm-iconbtn" title="Undo (Ctrl+Z)"><Undo2 className="w-4 h-4" /></button>
           <button onClick={doRedo} disabled={!history.canRedo} className="fm-iconbtn" title="Redo (Ctrl+Y)"><Redo2 className="w-4 h-4" /></button>
         </div>
 
-        <div className="relative pl-2 border-l border-border/30">
-          <button onClick={() => setGenOpen((o) => !o)} className="fm-btn fm-btn-primary" title="Auto-generate">
+        <div className="relative pl-2 border-l border-border/30 shrink-0">
+          <button onClick={() => setGenOpen((o) => !o)} className={`fm-btn fm-btn-primary ${genOpen ? 'is-active' : ''}`} title="Auto-generate a world">
             <Wand2 className="w-3.5 h-3.5" /> Generate
           </button>
           {genOpen && (
-            <div className="absolute left-0 top-full mt-1.5 z-[60]">
+            <div className={isMobile ? 'fixed inset-x-2 top-14 z-[60]' : 'absolute left-0 top-full mt-1.5 z-[60]'}>
               <GeneratePanel
                 params={genParams} onChange={setGenParams}
-                onGenerate={() => { onGenerate(); }}
+                onGenerate={() => { onGenerate(); if (isMobile) setGenOpen(false); }}
                 onRegenerate={onRegenerate} onRandomize={onRandomize} onClear={onClearGen}
                 onClose={() => setGenOpen(false)}
               />
@@ -804,32 +940,38 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
           )}
         </div>
 
-        <div className="flex items-center gap-0.5 pl-2 border-l border-border/30">
-          <button onClick={() => zoomBy(1.2)} className="fm-iconbtn" title="Zoom in"><ZoomIn className="w-4 h-4" /></button>
-          <button onClick={() => zoomBy(0.8)} className="fm-iconbtn" title="Zoom out"><ZoomOut className="w-4 h-4" /></button>
-          <button onClick={fitToScreen} className="fm-iconbtn" title="Fit to screen"><Maximize className="w-4 h-4" /></button>
+        <div className="flex items-center gap-0.5 pl-2 border-l border-border/30 shrink-0">
+          <button onClick={() => zoomBy(1.2)} className="fm-iconbtn" title="Zoom in (Ctrl +)"><ZoomIn className="w-4 h-4" /></button>
+          <button onClick={() => zoomBy(0.8)} className="fm-iconbtn" title="Zoom out (Ctrl −)"><ZoomOut className="w-4 h-4" /></button>
+          <button onClick={fitToScreen} className="fm-iconbtn" title="Fit to screen (Ctrl 0)"><Maximize className="w-4 h-4" /></button>
           <span className="text-[11px] text-muted-foreground/70 tabular-nums w-10 text-center">{Math.round(view.scale * 100)}%</span>
         </div>
 
-        <div className="ml-auto flex items-center gap-1">
-          <button onClick={() => setLeftOpen((o) => !o)} className={`fm-iconbtn ${leftOpen ? 'text-primary' : ''}`} title="Toggle library"><PanelLeft className="w-4 h-4" /></button>
-          <button onClick={() => setRightOpen((o) => !o)} className={`fm-iconbtn ${rightOpen ? 'text-primary' : ''}`} title="Toggle inspector"><PanelRight className="w-4 h-4" /></button>
-          <button onClick={onRequestSave} className="fm-btn fm-btn-primary" title="Save map"><Save className="w-3.5 h-3.5" /> Save</button>
+        <div className="ml-auto flex items-center gap-1 shrink-0">
+          <button onClick={() => { setLeftOpen((o) => !o); if (isMobile) setRightOpen(false); }} className={`fm-iconbtn ${leftOpen ? 'text-primary' : ''}`} title="Toggle library"><PanelLeft className="w-4 h-4" /></button>
+          <button onClick={() => { setRightOpen((o) => !o); if (isMobile) setLeftOpen(false); }} className={`fm-iconbtn ${rightOpen ? 'text-primary' : ''}`} title="Toggle inspector"><PanelRight className="w-4 h-4" /></button>
+          <button onClick={flushAndSave} className="fm-btn fm-btn-primary" title="Save map (Ctrl+S)"><Save className="w-3.5 h-3.5" /> Save</button>
         </div>
       </div>
 
       {draft && (
-        <div className="absolute top-12 left-1/2 -translate-x-1/2 z-30 bg-popover border border-border/50 rounded-full px-3 py-1 text-xs shadow-lg flex items-center gap-2">
+        <div className="absolute top-12 left-1/2 -translate-x-1/2 z-30 bg-popover border border-border/50 rounded-full px-3 py-1 text-xs shadow-lg flex items-center gap-2 max-w-[94vw]">
           {draft.kind === 'route' ? (
             <>
-              <span>Click to add points · double-click or Enter to finish · Esc to cancel</span>
+              <span className="truncate">Click to add points · double-click or Enter to finish · Esc to cancel</span>
               <button className="fm-btn fm-btn-sm" onClick={commitDraft}>Finish</button>
             </>
-          ) : extendRef.current ? (
-            <span>Extending — release back on the region’s edge to grow it · Esc to cancel</span>
+          ) : extending ? (
+            <span className="truncate">Extending — release back on the region’s edge to grow it · Esc to cancel</span>
           ) : (
-            <span>Drawing region — click or drag the border, return to the <b>start dot</b> (or Enter) to close · Backspace undoes · Esc cancels</span>
+            <span className="truncate">Drawing region — click or drag the border, return to the <b>start dot</b> (or Enter) to close · Backspace undoes · Esc cancels</span>
           )}
+        </div>
+      )}
+
+      {exportNote && (
+        <div className="absolute top-12 left-1/2 -translate-x-1/2 z-30 bg-popover border border-border/50 rounded-full px-3 py-1 text-xs shadow-lg max-w-[94vw] truncate">
+          {exportNote}
         </div>
       )}
 
@@ -872,7 +1014,7 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
                   value={scatterSpacing} onChange={(e) => setScatterSpacing(Number(e.target.value))} />
               </label>
               <span className="text-[10px] text-muted-foreground">
-                {picked ? <>Painting <b className="text-foreground">{picked.label}</b></> : 'Pick an icon from the library →'}
+                {picked ? <>Painting <b className="text-foreground">{picked.label}</b></> : 'Pick an icon from the library'}
               </span>
             </>
           )}
@@ -889,19 +1031,28 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
 
       {/* Body */}
       <div className="flex-1 min-h-0 flex relative">
+        {/* Phone: a tap outside a floating panel closes it */}
+        {panelOverlay && (leftOpen || rightOpen) && (
+          <div className="absolute inset-0 z-30 bg-background/40" onClick={() => { setLeftOpen(false); setRightOpen(false); }} />
+        )}
+
         {/* Left library */}
         {leftOpen && (
-          <div className={isMobile ? 'absolute z-40 left-0 top-0 bottom-0 w-64 shadow-2xl' : 'w-60 shrink-0 border-r border-border/30'}>
+          <div className={panelCls('left')}>
             <LibraryPanel
               active={picked} imports={doc.imports}
-              onPick={(p) => { setPicked(p); if (p) { if (tool !== 'scatter') setTool('stamp'); } else if (tool === 'stamp' || tool === 'scatter') setTool('select'); }}
+              onPick={(p) => {
+                setPicked(p);
+                if (p) { if (tool !== 'scatter') setTool('stamp'); if (panelOverlay) setLeftOpen(false); }
+                else if (tool === 'stamp' || tool === 'scatter') setTool('select');
+              }}
               onImport={importIcons} onImportBackground={importBackground}
             />
           </div>
         )}
 
         {/* Canvas */}
-        <div ref={wrapRef} className="flex-1 min-h-0 relative fm-canvas-wrap" onContextMenu={(e) => e.preventDefault()}
+        <div ref={wrapRef} className="flex-1 min-h-0 relative fm-canvas-wrap touch-none" onContextMenu={(e) => e.preventDefault()}
           onPointerMove={onWrapPointerMove} onPointerLeave={onWrapPointerLeave}>
           <Stage
             ref={stageRef}
@@ -909,7 +1060,6 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
             height={size.h}
             onWheel={onWheel}
             onMouseDown={onStageMouseDown}
-            onTap={onStageMouseDown as unknown as (e: KonvaEventObject<Event>) => void}
             onTouchStart={onStageTouchStart}
             onMouseMove={onStageMouseMove}
             onTouchMove={onStageTouchMove}
@@ -922,6 +1072,7 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
             style={{ cursor: tool === 'pan' ? 'grab' : (tool === 'land' || tool === 'sea') ? 'crosshair' : (tool === 'stamp' || tool === 'scatter') ? 'copy' : 'default' }}
           >
             <Layer
+              ref={layerRef}
               x={view.x} y={view.y} scaleX={view.scale} scaleY={view.scale}
               draggable={layerDraggable}
               onDragEnd={(e) => { if (e.target.getClassName() === 'Layer') setView((v) => ({ ...v, x: e.target.x(), y: e.target.y() })); }}
@@ -941,23 +1092,13 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
                 <KonvaImage image={terrainImg} x={0} y={0} width={W} height={H} listening={false} />
               )}
 
-              {/* Inked coastline (hand-drawn style): crisp vector contour over the soft raster */}
-              {lm.terrain.visible && isInk && coastSegs && coastSegs.length > 0 && (
-                <Shape
-                  listening={false}
-                  stroke="#5b4632"
-                  strokeWidth={1.7 / view.scale}
-                  lineCap="round"
-                  lineJoin="round"
-                  sceneFunc={(ctx, shape) => {
-                    ctx.beginPath();
-                    for (let i = 0; i < coastSegs.length; i += 4) {
-                      ctx.moveTo(coastSegs[i], coastSegs[i + 1]);
-                      ctx.lineTo(coastSegs[i + 2], coastSegs[i + 3]);
-                    }
-                    ctx.strokeShape(shape);
-                  }}
-                />
+              {/* Inked coastline (hand-drawn style): a smooth vector contour over
+                  the soft raster — a faint wide wash seats it, a crisp line inks it. */}
+              {lm.terrain.visible && isInk && coastLines && coastLines.length > 0 && (
+                <>
+                  <CoastShape lines={coastLines} stroke="#5f8aa1" width={4.2 / view.scale} opacity={0.22} />
+                  <CoastShape lines={coastLines} stroke={INK} width={1.5 / view.scale} opacity={0.95} />
+                </>
               )}
 
               {/* Grid */}
@@ -976,21 +1117,27 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
 
               {/* Routes */}
               {lm.routes.visible && sortedRoutes.map((r) => (
-                <RouteShape key={r.id} route={r} selected={selection?.id === r.id}
+                <RouteShape key={r.id} route={r} selected={selection?.id === r.id} ink={isInk} paper={halo}
                   selectable={selectable && !lm.routes.locked && !r.locked}
                   onSelect={() => setSelection({ type: 'route', id: r.id })}
                   onDragStart={onObjDragStart}
                   onMoved={(pts) => patchObject('route', r.id, { points: pts }, false)} />
               ))}
 
-              {/* Region labels (sized by tier) */}
+              {/* Region labels (sized by tier, centred by measured width, haloed) */}
               {lm.regions.visible && sortedRegions.map((r) => {
-                if (!r.labelPos) return null;
-                const fs = regionLevelDef(r.level).labelSize;
+                if (!r.labelPos || !r.name) return null;
+                const def = regionLevelDef(r.level);
+                const fs = def.labelSize;
+                const realm = (r.level ?? 'realm') === 'realm';
+                const text = realm ? r.name.toUpperCase() : r.name;
+                const spacing = realm ? fs * 0.16 : fs * 0.04;
+                const width = measureText(text, fs, labelFont, true) + spacing * Math.max(0, text.length - 1);
                 return (
-                  <Text key={r.id + '_t'} text={r.name} x={r.labelPos.x} y={r.labelPos.y} fontSize={fs} fontStyle="bold"
-                    fill={isInk ? '#4a3a22' : '#2b2317'} fontFamily={labelFont}
-                    align="center" offsetX={r.name.length * fs * 0.27} listening={false} opacity={0.85} />
+                  <Text key={r.id + '_t'} text={text} x={r.labelPos.x} y={r.labelPos.y} fontSize={fs} fontStyle="bold"
+                    fill={isInk ? '#4a3a22' : '#2b2317'} fontFamily={labelFont} letterSpacing={spacing}
+                    stroke={halo} strokeWidth={fs * 0.22} fillAfterStrokeEnabled lineJoin="round"
+                    offsetX={width / 2} offsetY={fs / 2} listening={false} opacity={0.92} />
                 );
               })}
 
@@ -1002,21 +1149,23 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
                   onName={() => startNaming(it.id)}
                   onDragStart={onObjDragStart}
                   onChange={(patch) => patchObject('item', it.id, patch, false)}
-                  snap={snap} />
+                  snap={snapPt} />
               ))}
 
               {/* Item captions (red serif place-names in the hand-drawn style) */}
               {lm.items.visible && sortedItems.map((it) => it.label && (
                 <Text key={it.id + '_c'} text={it.label} x={it.x} y={it.y + (it.height * it.scale) / 2 + 2}
                   fontSize={13} fontStyle="bold" fill={labelFill} fontFamily={labelFont}
-                  align="center" offsetX={it.label.length * 3.2} listening={false}
-                  shadowColor={isInk ? '#f3ead2' : undefined} shadowBlur={isInk ? 3 : 0} shadowOpacity={isInk ? 0.9 : 0} />
+                  stroke={halo} strokeWidth={2.6} fillAfterStrokeEnabled lineJoin="round"
+                  offsetX={measureText(it.label, 13, labelFont, true) / 2} listening={false} />
               ))}
 
               {/* Labels */}
               {lm.labels.visible && doc.labels.map((l) => (
                 <Text key={l.id} id={l.id} text={l.text} x={l.x} y={l.y} fontSize={l.size} rotation={l.rotation}
-                  fill={l.color} fontStyle={l.bold ? 'bold' : 'normal'} draggable={selectable && !lm.labels.locked && !l.locked}
+                  fill={l.color} fontStyle={l.bold ? 'bold' : 'normal'} fontFamily={labelFont}
+                  stroke={halo} strokeWidth={l.size * 0.18} fillAfterStrokeEnabled lineJoin="round"
+                  draggable={selectable && !lm.labels.locked && !l.locked}
                   onClick={() => selectable && setSelection({ type: 'label', id: l.id })}
                   onTap={() => selectable && setSelection({ type: 'label', id: l.id })}
                   onDragStart={onObjDragStart}
@@ -1030,15 +1179,11 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
               ))}
 
               {/* Region edit handles (selected region, select tool) */}
-              {selection?.type === 'region' && tool === 'select' && !lm.regions.locked && (() => {
-                const reg = doc.regions.find((r) => r.id === selection.id);
-                if (!reg || reg.locked) return null;
-                return (
-                  <RegionEditHandles region={reg} scale={view.scale}
-                    onSnapshot={() => history.snapshot(docRef.current)}
-                    onChange={(pts) => patchObject('region', reg.id, { points: pts }, false)} />
-                );
-              })()}
+              {editableRegion && (
+                <RegionEditHandles region={editableRegion} scale={view.scale}
+                  onSnapshot={onObjDragStart}
+                  onChange={(pts) => patchObject('region', editableRegion.id, { points: pts }, false)} />
+              )}
 
               {/* In-progress route draft */}
               {draft && draft.kind === 'route' && (
@@ -1051,7 +1196,7 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
                   <Line points={penCursor ? [...draft.points, penCursor.x, penCursor.y] : draft.points}
                     stroke="#2563eb" strokeWidth={1.8 / view.scale} dash={[6 / view.scale, 5 / view.scale]}
                     lineCap="round" lineJoin="round" listening={false} />
-                  {!extendRef.current && (
+                  {!extending && (
                     <Circle x={draft.points[0]} y={draft.points[1]} radius={(nearStart ? 8 : 5) / view.scale}
                       stroke="#2563eb" strokeWidth={2 / view.scale} fill={nearStart ? '#2563eb' : '#ffffff'} listening={false} />
                   )}
@@ -1064,7 +1209,7 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
               )}
 
               <Transformer ref={trRef} rotateEnabled keepRatio
-                anchorSize={9} borderStroke="#2563eb" anchorStroke="#2563eb"
+                anchorSize={isMobile ? 14 : 9} borderStroke="#2563eb" anchorStroke="#2563eb"
                 boundBoxFunc={(oldB, newB) => (newB.width < 8 || newB.height < 8 ? oldB : newB)} />
             </Layer>
           </Stage>
@@ -1087,24 +1232,21 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
           })()}
 
           {/* Inline asset naming (double-click an asset) */}
-          {naming && (() => {
-            const it = doc.items.find((i) => i.id === naming);
-            if (!it) return null;
-            const sx = view.x + it.x * view.scale;
-            const sy = view.y + (it.y + (it.height * it.scale) / 2 + 8) * view.scale;
-            return (
-              <input
-                autoFocus
-                className="fm-name-input"
-                style={{ left: sx, top: sy }}
-                value={it.label ?? ''}
-                placeholder="Name…"
-                onChange={(e) => patchObject('item', it.id, { label: e.target.value }, false)}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); setNaming(null); } }}
-                onBlur={() => setNaming(null)}
-              />
-            );
-          })()}
+          {namingItem && (
+            <input
+              autoFocus
+              className="fm-name-input"
+              style={{
+                left: view.x + namingItem.x * view.scale,
+                top: view.y + (namingItem.y + (namingItem.height * namingItem.scale) / 2 + 8) * view.scale,
+              }}
+              value={namingItem.label ?? ''}
+              placeholder="Name…"
+              onChange={(e) => patchObject('item', namingItem.id, { label: e.target.value }, false)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); setNaming(null); } }}
+              onBlur={() => setNaming(null)}
+            />
+          )}
 
           {/* Empty hint */}
           {doc.terrain.mode === 'none' && doc.items.length === 0 && doc.regions.length === 0 && (
@@ -1120,7 +1262,7 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
 
         {/* Right inspector */}
         {rightOpen && (
-          <div className={isMobile ? 'absolute z-40 right-0 top-0 bottom-0 w-64 shadow-2xl' : 'w-60 shrink-0 border-l border-border/30'}>
+          <div className={panelCls('right')}>
             <InspectorPanel
               doc={doc} selection={selection}
               onPatchObject={(t, id, p) => patchObject(t, id, p)}
@@ -1144,7 +1286,7 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
               <>
                 {ctxMenu.sel.type === 'item' && (
                   <>
-                    <CtxItem icon={Copy} label="Copy" onSelect={() => { const it = doc.items.find((i) => i.id === ctxMenu.sel!.id); if (it) clipboard.current = it; setCtxMenu(null); }} />
+                    <CtxItem icon={Copy} label="Copy" onSelect={() => copyItem(ctxMenu.sel!.id)} />
                     <CtxItem icon={Copy} label="Duplicate" onSelect={() => { const it = doc.items.find((i) => i.id === ctxMenu.sel!.id); if (it) { const n = { ...it, id: mapId('it'), x: it.x + 24, y: it.y + 24, z: nextZ(doc.items) }; mutate((d) => ({ ...d, items: [...d.items, n] })); setSelection({ type: 'item', id: n.id }); } setCtxMenu(null); }} />
                   </>
                 )}
@@ -1154,8 +1296,8 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
                 <div className="h-px bg-border/40 my-1" />
                 <CtxItem icon={Trash2} label="Delete" danger onSelect={() => deleteObject(ctxMenu.sel!.type, ctxMenu.sel!.id)} />
               </>
-            ) : clipboard.current ? (
-              <CtxItem icon={ClipboardPaste} label="Paste here" onSelect={() => { const m = { x: (ctxMenu.x - (wrapRef.current?.getBoundingClientRect().left ?? 0) - view.x) / view.scale, y: (ctxMenu.y - (wrapRef.current?.getBoundingClientRect().top ?? 0) - view.y) / view.scale }; const src = clipboard.current!; const n: MapItem = { ...src, id: mapId('it'), x: m.x, y: m.y, z: nextZ(doc.items) }; mutate((d) => ({ ...d, items: [...d.items, n] })); setSelection({ type: 'item', id: n.id }); setCtxMenu(null); }} />
+            ) : hasClipboard ? (
+              <CtxItem icon={ClipboardPaste} label="Paste here" onSelect={() => { const rect = wrapRef.current?.getBoundingClientRect(); const m = { x: (ctxMenu.x - (rect?.left ?? 0) - view.x) / view.scale, y: (ctxMenu.y - (rect?.top ?? 0) - view.y) / view.scale }; const src = clipboard.current!; const n: MapItem = { ...src, id: mapId('it'), x: m.x, y: m.y, z: nextZ(doc.items) }; mutate((d) => ({ ...d, items: [...d.items, n] })); setSelection({ type: 'item', id: n.id }); setCtxMenu(null); }} />
             ) : (
               <div className="px-2.5 py-2 text-xs text-muted-foreground/70 italic flex items-center gap-2"><ImageIcon className="w-4 h-4" />Right-click an object for actions</div>
             )}
@@ -1165,6 +1307,57 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
       )}
     </div>
   );
+}
+
+/* ── export helpers ──────────────────────────────────────────────────────── */
+
+function dataUrlToBytes(url: string): Uint8Array {
+  const b64 = url.slice(url.indexOf(',') + 1);
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+/**
+ * Save a rendered PNG:
+ *   desktop app → native "Save as…" dialog;
+ *   Android     → the project's exports/ folder (no save dialog on mobile);
+ *   browser     → a regular download.
+ * Returns a human-readable location, or null if the user cancelled.
+ */
+async function savePng(url: string, name: string, projectId: string): Promise<string | null> {
+  if (isTauri && !isMobileOS) {
+    const [{ save }, { writeFile }] = await Promise.all([import('@tauri-apps/plugin-dialog'), import('@tauri-apps/plugin-fs')]);
+    const path = await save({ defaultPath: name, filters: [{ name: 'PNG image', extensions: ['png'] }] });
+    if (!path) return null;
+    await writeFile(path, dataUrlToBytes(url));
+    return path;
+  }
+  if (isTauri) {
+    return api.exportFile(projectId, name, dataUrlToBytes(url));
+  }
+  const a = window.document.createElement('a');
+  a.href = url;
+  a.download = name;
+  a.click();
+  return name;
+}
+
+/* ── text measurement (label centring) ───────────────────────────────────── */
+let measureCtx: CanvasRenderingContext2D | null = null;
+const measureCache = new Map<string, number>();
+function measureText(text: string, size: number, family: string, bold: boolean): number {
+  const key = `${size}|${family}|${bold ? 'b' : 'n'}|${text}`;
+  const hit = measureCache.get(key);
+  if (hit != null) return hit;
+  if (!measureCtx) measureCtx = window.document.createElement('canvas').getContext('2d');
+  if (!measureCtx) return text.length * size * 0.55;
+  measureCtx.font = `${bold ? 'bold ' : ''}${size}px ${family}`;
+  const w = measureCtx.measureText(text).width;
+  if (measureCache.size > 4000) measureCache.clear();
+  measureCache.set(key, w);
+  return w;
 }
 
 /* ── Konva sub-nodes (each needs its own image hook) ─────────────────────── */
@@ -1194,6 +1387,7 @@ function ItemNode({ item, selectable, paper, onSelect, onName, onDragStart, onCh
       onMouseDown={(e) => { if (selectable) { e.cancelBubble = true; onSelect(); } }}
       onClick={(e) => { if (selectable) { e.cancelBubble = true; onSelect(); } }}
       onTap={(e) => { if (selectable) { e.cancelBubble = true; onSelect(); } }}
+      onTouchStart={(e) => { if (selectable) { e.cancelBubble = true; onSelect(); } }}
       onDblClick={(e) => { if (selectable) { e.cancelBubble = true; onName(); } }}
       onDblTap={(e) => { if (selectable) { e.cancelBubble = true; onName(); } }}
       onDragStart={onDragStart}
@@ -1202,6 +1396,28 @@ function ItemNode({ item, selectable, paper, onSelect, onName, onDragStart, onCh
         const node = e.target as Konva.Image;
         const s = Math.abs(node.scaleY());
         onChange({ scale: Math.max(0.1, s), rotation: Math.round(node.rotation()) });
+      }}
+    />
+  );
+}
+
+/** Smooth coastline polylines drawn in one canvas pass. */
+function CoastShape({ lines, stroke, width, opacity }: { lines: number[][]; stroke: string; width: number; opacity: number }) {
+  return (
+    <Shape
+      listening={false}
+      stroke={stroke}
+      strokeWidth={width}
+      opacity={opacity}
+      lineCap="round"
+      lineJoin="round"
+      sceneFunc={(ctx, shape) => {
+        ctx.beginPath();
+        for (const poly of lines) {
+          ctx.moveTo(poly[0], poly[1]);
+          for (let i = 2; i < poly.length; i += 2) ctx.lineTo(poly[i], poly[i + 1]);
+        }
+        ctx.strokeShape(shape);
       }}
     />
   );
@@ -1231,6 +1447,7 @@ function RegionShape({ region, selected, selectable, scale, onSelect, onDragStar
       onMouseDown={(e) => { if (selectable) { e.cancelBubble = true; onSelect(); } }}
       onClick={(e) => { if (selectable) { e.cancelBubble = true; onSelect(); } }}
       onTap={(e) => { if (selectable) { e.cancelBubble = true; onSelect(); } }}
+      onTouchStart={(e) => { if (selectable) { e.cancelBubble = true; onSelect(); } }}
       onDragStart={onDragStart}
       onDragEnd={(e) => { const dx = e.target.x(); const dy = e.target.y(); e.target.position({ x: 0, y: 0 }); onMoved(shiftPoints(region.points, dx, dy)); }}
     />
@@ -1347,6 +1564,7 @@ function RegionEditHandles({ region, scale, onSnapshot, onChange }: {
       {verts.map((v, i) => (
         <Circle key={'v' + i} x={v[0]} y={v[1]} radius={r} draggable stroke="#2563eb" strokeWidth={1.5 / scale} fill="#ffffff"
           onMouseDown={(e) => { e.cancelBubble = true; }}
+          onTouchStart={(e) => { e.cancelBubble = true; }}
           onDragStart={(e) => { e.cancelBubble = true; onSnapshot(); }}
           onDragMove={(e) => { const np = pts.slice(); np[i * 2] = e.target.x(); np[i * 2 + 1] = e.target.y(); onChange(np); }}
           onDblClick={(e) => { e.cancelBubble = true; deleteAt(i); }}
@@ -1356,45 +1574,44 @@ function RegionEditHandles({ region, scale, onSnapshot, onChange }: {
   );
 }
 
-function RouteShape({ route, selected, selectable, onSelect, onDragStart, onMoved }: {
-  route: MapRoute; selected: boolean; selectable: boolean; onSelect: () => void; onDragStart: () => void; onMoved: (pts: number[]) => void;
+function RouteShape({ route, selected, selectable, ink, paper, onSelect, onDragStart, onMoved }: {
+  route: MapRoute; selected: boolean; selectable: boolean; ink: boolean; paper: string;
+  onSelect: () => void; onDragStart: () => void; onMoved: (pts: number[]) => void;
 }) {
+  const river = route.kind === 'river';
+  const handlers = {
+    onMouseDown: (e: KonvaEventObject<MouseEvent>) => { if (selectable) { e.cancelBubble = true; onSelect(); } },
+    onClick: (e: KonvaEventObject<MouseEvent>) => { if (selectable) { e.cancelBubble = true; onSelect(); } },
+    onTap: (e: KonvaEventObject<Event>) => { if (selectable) { e.cancelBubble = true; onSelect(); } },
+    onTouchStart: (e: KonvaEventObject<TouchEvent>) => { if (selectable) { e.cancelBubble = true; onSelect(); } },
+    onDragStart,
+    onDragEnd: (e: KonvaEventObject<DragEvent>) => { const dx = e.target.x(); const dy = e.target.y(); e.target.position({ x: 0, y: 0 }); onMoved(shiftPoints(route.points, dx, dy)); },
+  };
   return (
-    <Line
-      points={route.points}
-      stroke={selected ? '#2563eb' : route.color}
-      strokeWidth={route.width}
-      dash={route.dashed ? [route.width * 2, route.width * 1.5] : undefined}
-      lineCap="round"
-      lineJoin="round"
-      tension={route.kind === 'river' ? 0.4 : 0}
-      hitStrokeWidth={Math.max(12, route.width + 8)}
-      draggable={selectable}
-      onMouseDown={(e) => { if (selectable) { e.cancelBubble = true; onSelect(); } }}
-      onClick={(e) => { if (selectable) { e.cancelBubble = true; onSelect(); } }}
-      onTap={(e) => { if (selectable) { e.cancelBubble = true; onSelect(); } }}
-      onDragStart={onDragStart}
-      onDragEnd={(e) => { const dx = e.target.x(); const dy = e.target.y(); e.target.position({ x: 0, y: 0 }); onMoved(shiftPoints(route.points, dx, dy)); }}
-    />
+    <>
+      {/* Hand-drawn roads get a paper-coloured casing so they read over terrain. */}
+      {ink && !river && (
+        <Line points={route.points} stroke={paper} strokeWidth={route.width + 3} lineCap="round" lineJoin="round" tension={0.25} listening={false} opacity={0.85} />
+      )}
+      <Line
+        points={route.points}
+        stroke={selected ? '#2563eb' : route.color}
+        strokeWidth={route.width}
+        dash={route.dashed ? [route.width * 2, route.width * 1.5] : undefined}
+        lineCap="round"
+        lineJoin="round"
+        tension={river ? 0.4 : 0.25}
+        hitStrokeWidth={Math.max(12, route.width + 8)}
+        draggable={selectable}
+        {...handlers}
+      />
+    </>
   );
 }
 
 function GridLayer({ type, W, H, size, color, opacity, scale }: {
   type: 'square' | 'hex'; W: number; H: number; size: number; color: string; opacity: number; scale: number;
 }) {
-  if (type === 'square') {
-    const lines: number[][] = [];
-    for (let x = 0; x <= W; x += size) lines.push([x, 0, x, H]);
-    for (let y = 0; y <= H; y += size) lines.push([0, y, W, y]);
-    return (
-      <>
-        {lines.map((pts, i) => (
-          <Line key={i} points={pts} stroke={color} strokeWidth={1 / scale} opacity={opacity} listening={false} />
-        ))}
-      </>
-    );
-  }
-  // hex (pointy-top)
   return (
     <Shape
       listening={false}
@@ -1402,20 +1619,26 @@ function GridLayer({ type, W, H, size, color, opacity, scale }: {
       stroke={color}
       strokeWidth={1 / scale}
       sceneFunc={(ctx, shape) => {
-        const r = size / 2;
-        const hw = Math.sqrt(3) * r;
         ctx.beginPath();
-        for (let row = 0, y = 0; y < H + 2 * r; row++, y += r * 1.5) {
-          const offset = row % 2 ? hw / 2 : 0;
-          for (let x = -hw; x < W + hw; x += hw) {
-            const cx = x + offset;
-            for (let k = 0; k < 6; k++) {
-              const ang = (Math.PI / 180) * (60 * k - 90);
-              const px = cx + r * Math.cos(ang);
-              const py = y + r * Math.sin(ang);
-              if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        if (type === 'square') {
+          for (let x = 0; x <= W; x += size) { ctx.moveTo(x, 0); ctx.lineTo(x, H); }
+          for (let y = 0; y <= H; y += size) { ctx.moveTo(0, y); ctx.lineTo(W, y); }
+        } else {
+          // hex (pointy-top)
+          const r = size / 2;
+          const hw = Math.sqrt(3) * r;
+          for (let row = 0, y = 0; y < H + 2 * r; row++, y += r * 1.5) {
+            const offset = row % 2 ? hw / 2 : 0;
+            for (let x = -hw; x < W + hw; x += hw) {
+              const cx = x + offset;
+              for (let k = 0; k < 6; k++) {
+                const ang = (Math.PI / 180) * (60 * k - 90);
+                const px = cx + r * Math.cos(ang);
+                const py = y + r * Math.sin(ang);
+                if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+              }
+              ctx.closePath();
             }
-            ctx.closePath();
           }
         }
         ctx.strokeShape(shape);
@@ -1443,7 +1666,7 @@ function MapChrome({ W, H, scale, decor, title, compassImg }: {
   const cs = Math.min(W, H) * 0.13;                  // compass size
   const cpad = m + gap + cs * 0.12;
   const fontSize = Math.min(W, H) * 0.034;
-  const tw = Math.min(W * 0.72, Math.max(title.length * fontSize * 0.6 + fontSize * 2.4, fontSize * 6));
+  const tw = Math.min(W * 0.72, Math.max(measureText(title, fontSize, SERIF_FONT, true) + fontSize * 2.4, fontSize * 6));
   const th = fontSize * 1.85;
   const bx = (W - tw) / 2;
   const by = m + gap * 1.6;
@@ -1484,8 +1707,10 @@ function MapChrome({ W, H, scale, decor, title, compassImg }: {
           <Rect x={bx} y={by} width={tw} height={th} cornerRadius={th * 0.22}
             fill="#efe2c2" stroke={ink} strokeWidth={1.4 / scale} opacity={0.96} listening={false}
             shadowColor="#000" shadowBlur={10} shadowOpacity={0.18} />
+          <Rect x={bx + gap} y={by + gap} width={tw - 2 * gap} height={th - 2 * gap} cornerRadius={th * 0.16}
+            stroke={ink} strokeWidth={0.7 / scale} opacity={0.7} listening={false} />
           <Text x={bx} y={by} width={tw} height={th} text={title} align="center" verticalAlign="middle"
-            fontSize={fontSize} fontStyle="bold" fontFamily={SERIF_FONT} fill="#3a2a1c" listening={false} />
+            fontSize={fontSize} fontStyle="bold" fontFamily={SERIF_FONT} fill="#3a2a1c" letterSpacing={fontSize * 0.08} listening={false} />
         </>
       )}
     </>

@@ -21,6 +21,7 @@ interface Props {
   folders: Folder[];
   projects: Project[];
   activeEditor: TiptapEditor | null;
+  isSaved: boolean;
   // Project / document actions
   onOpenProject: (p: Project) => void;
   onCloseProject: () => void;
@@ -33,7 +34,7 @@ interface Props {
   onDuplicateDocuments: (ids: string[], folderId?: string | null) => void;
   onMoveDocuments: (ids: string[], folderId: string | null) => void;
   onUpdateDocumentContent: (content: string) => void;
-  onEditorReady: (editor: TiptapEditor) => void;
+  onEditorReady: (editor: TiptapEditor | null) => void;
   persistCurrent: () => void;
   // Editor / settings state
   editorFont: string;
@@ -43,13 +44,12 @@ interface Props {
   lineHeight: number;
   setLineHeight: (n: number) => void;
   editorPadding: number;
-  setEditorPadding: (n: number) => void;
   spellcheckActive: boolean;
   setSpellcheckActive: (b: boolean) => void;
+  smoothCaret: boolean;
+  setSmoothCaret: (b: boolean) => void;
   autoSaveInterval: number;
   setAutoSaveInterval: (n: number) => void;
-  defaultSavePath: string;
-  setDefaultSavePath: (s: string) => void;
   theme: ThemeType;
   setTheme: (t: ThemeType) => void;
 }
@@ -67,6 +67,7 @@ function MobileShell(props: Props) {
     folders,
     projects,
     activeEditor,
+    isSaved,
     onOpenProject,
     onCloseProject,
     onNewProject,
@@ -92,7 +93,6 @@ function MobileShell(props: Props) {
   const isFantasyMap = selectedDocument?.docType === 'fantasymap';
 
   // Switch screens; leaving the writing surface also closes the tools sheet.
-  // (When a document is deleted while on Write, renderWrite shows an empty state.)
   const goTab = (t: MobileTab) => {
     setTab(t);
     if (t !== 'write') setToolsOpen(false);
@@ -147,28 +147,17 @@ function MobileShell(props: Props) {
     }
     return (
       <Editor
+        key={selectedDocument.id}
         projectId={selectedProject?.id ?? ''}
         document={selectedDocument}
         onUpdateDocumentContent={onUpdateDocumentContent}
         onEditorReady={onEditorReady}
-        isEditingSettings={false}
-        onCloseSettings={() => {}}
         editorFont={props.editorFont}
-        setEditorFont={props.setEditorFont}
         editorSize={props.editorSize}
-        setEditorSize={props.setEditorSize}
         lineHeight={props.lineHeight}
-        setLineHeight={props.setLineHeight}
         editorPadding={props.editorPadding}
-        setEditorPadding={props.setEditorPadding}
         spellcheckActive={props.spellcheckActive}
-        setSpellcheckActive={props.setSpellcheckActive}
-        autoSaveInterval={props.autoSaveInterval}
-        setAutoSaveInterval={props.setAutoSaveInterval}
-        defaultSavePath={props.defaultSavePath}
-        setDefaultSavePath={props.setDefaultSavePath}
-        theme={theme}
-        setTheme={setTheme}
+        smoothCaret={props.smoothCaret}
         chrome="mobile"
       />
     );
@@ -186,8 +175,13 @@ function MobileShell(props: Props) {
             </button>
           }
           right={
-            <button className="w-9 h-9 flex items-center justify-center rounded-xl text-foreground/80 active:scale-90" onClick={persistCurrent} title="Save">
+            <button
+              className={`relative w-9 h-9 flex items-center justify-center rounded-xl active:scale-90 ${isSaved ? 'text-foreground/60' : 'text-primary'}`}
+              onClick={persistCurrent}
+              title={isSaved ? 'Saved' : 'Save'}
+            >
               <Save className="w-5 h-5" />
+              {!isSaved && <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-amber-500" />}
             </button>
           }
         />
@@ -230,6 +224,8 @@ function MobileShell(props: Props) {
             setLineHeight={props.setLineHeight}
             spellcheckActive={props.spellcheckActive}
             setSpellcheckActive={props.setSpellcheckActive}
+            smoothCaret={props.smoothCaret}
+            setSmoothCaret={props.setSmoothCaret}
             autoSaveInterval={props.autoSaveInterval}
             setAutoSaveInterval={props.setAutoSaveInterval}
           />

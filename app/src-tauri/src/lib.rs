@@ -1,8 +1,9 @@
 mod project;
 
-use project::{Document, Project};
+use project::{Document, Project, Registry};
 use serde::Serialize;
 use std::fs;
+use tauri::ipc::{InvokeBody, Request};
 use tauri::Manager;
 use uuid::Uuid;
 
@@ -62,13 +63,15 @@ fn create_project(
     description: Option<String>,
     path: Option<String>,
 ) -> ApiResponse<Project> {
-    let final_path = if let Some(ref p) = path {
-        let mut pb = std::path::PathBuf::from(p);
-        pb.push(&name);
-        Some(pb.to_string_lossy().to_string())
-    } else {
-        None
-    };
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return ApiResponse::error("Project name cannot be empty".to_string());
+    }
+    let final_path = path.filter(|p| !p.trim().is_empty()).map(|p| {
+        let mut pb = std::path::PathBuf::from(p.trim());
+        pb.push(project::safe_dir_name(&name));
+        pb.to_string_lossy().to_string()
+    });
 
     let project = Project::new(name, description, final_path);
     match project.save() {
@@ -80,6 +83,42 @@ fn create_project(
 #[tauri::command]
 fn save_project(project: Project) -> ApiResponse<()> {
     match project.save() {
+        Ok(()) => ApiResponse::success(()),
+        Err(e) => ApiResponse::error(e),
+    }
+}
+
+/// Rename a project (metadata only — the folder on disk keeps its name so
+/// nothing that references the path breaks).
+#[tauri::command]
+fn rename_project(project_id: String, name: String) -> ApiResponse<Project> {
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return ApiResponse::error("Project name cannot be empty".to_string());
+    }
+    match Project::load(&project_id) {
+        Ok(mut project) => {
+            project.name = name;
+            match project.save() {
+                Ok(()) => ApiResponse::success(project),
+                Err(e) => ApiResponse::error(e),
+            }
+        }
+        Err(e) => ApiResponse::error(e),
+    }
+}
+
+/// Forget a project. With `delete_files` the whole project folder is removed
+/// (guarded: only a folder that actually contains a project.json is deleted).
+#[tauri::command]
+fn delete_project(project_id: String, delete_files: Option<bool>) -> ApiResponse<()> {
+    let dir = Project::resolve_dir(&project_id);
+    if delete_files.unwrap_or(false) && dir.join("project.json").exists() {
+        if let Err(e) = fs::remove_dir_all(&dir) {
+            return ApiResponse::error(format!("Could not delete project folder: {e}"));
+        }
+    }
+    match Registry::remove(&project_id) {
         Ok(()) => ApiResponse::success(()),
         Err(e) => ApiResponse::error(e),
     }
@@ -121,13 +160,52 @@ fn create_document(
     }
 }
 
-/// Write already-read image bytes into the project's `assets/` folder under a
-/// fresh uuid name and return the absolute path. The picking + reading happens
-/// in the frontend via the dialog/fs plugins (so it works on desktop *and*
-/// Android, where files arrive as content URIs); this command just persists the
-/// bytes. The frontend renders the path through Tauri's asset protocol.
+/// Read a header from a raw IPC request as a plain string.
+fn header<'a>(request: &'a Request<'_>, name: &str) -> Option<&'a str> {
+    request.headers().get(name).and_then(|v| v.to_str().ok())
+}
+
+/// The bytes of a raw IPC request. Accepts the legacy JSON shape
+/// (`{ bytes: number[] }`) too, so older callers keep working.
+fn body_bytes(request: &Request<'_>) -> Result<Vec<u8>, String> {
+    match request.body() {
+        InvokeBody::Raw(b) => Ok(b.clone()),
+        InvokeBody::Json(v) => v
+            .get("bytes")
+            .and_then(|b| b.as_array())
+            .map(|arr| arr.iter().filter_map(|n| n.as_u64()).map(|n| n as u8).collect())
+            .ok_or_else(|| "Expected a binary body".to_string()),
+    }
+}
+
+/// Keep only safe filename characters (no path separators / traversal).
+fn safe_file_name(name: &str, fallback: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .map(|c| if c.is_alphanumeric() || matches!(c, '.' | '-' | '_' | ' ') { c } else { '_' })
+        .collect::<String>()
+        .trim()
+        .trim_matches('.')
+        .to_string();
+    if cleaned.is_empty() {
+        fallback.to_string()
+    } else {
+        cleaned
+    }
+}
+
+/// Write image bytes into the project's `assets/` folder under a fresh uuid
+/// name and return the absolute path. The bytes arrive as a *raw* IPC body
+/// (headers `x-project-id` / `x-ext`), which is far cheaper than a JSON array.
+/// Picking + reading happens in the frontend via the dialog/fs plugins so it
+/// works on desktop *and* Android; this command only persists the bytes.
 #[tauri::command]
-fn save_asset(project_id: String, ext: String, bytes: Vec<u8>) -> ApiResponse<String> {
+fn save_asset(request: Request<'_>) -> ApiResponse<String> {
+    let project_id = match header(&request, "x-project-id") {
+        Some(id) if !id.is_empty() => id.to_string(),
+        _ => return ApiResponse::error("Missing project id".to_string()),
+    };
+    let ext = header(&request, "x-ext").unwrap_or("png");
     let safe_ext: String = ext
         .chars()
         .filter(|c| c.is_ascii_alphanumeric())
@@ -136,12 +214,41 @@ fn save_asset(project_id: String, ext: String, bytes: Vec<u8>) -> ApiResponse<St
         .to_lowercase();
     let safe_ext = if safe_ext.is_empty() { "png".to_string() } else { safe_ext };
 
+    let bytes = match body_bytes(&request) {
+        Ok(b) => b,
+        Err(e) => return ApiResponse::error(e),
+    };
+
     let assets_dir = Project::resolve_dir(&project_id).join("assets");
     if let Err(e) = fs::create_dir_all(&assets_dir) {
         return ApiResponse::error(e.to_string());
     }
 
     let dest = assets_dir.join(format!("{}.{}", Uuid::new_v4(), safe_ext));
+    match fs::write(&dest, &bytes) {
+        Ok(_) => ApiResponse::success(dest.to_string_lossy().to_string()),
+        Err(e) => ApiResponse::error(e.to_string()),
+    }
+}
+
+/// Write an exported file (e.g. a rendered map PNG) into `<project>/exports/`
+/// and return its path. Raw body; headers `x-project-id` / `x-name`.
+#[tauri::command]
+fn export_file(request: Request<'_>) -> ApiResponse<String> {
+    let project_id = match header(&request, "x-project-id") {
+        Some(id) if !id.is_empty() => id.to_string(),
+        _ => return ApiResponse::error("Missing project id".to_string()),
+    };
+    let name = safe_file_name(header(&request, "x-name").unwrap_or("export.png"), "export.png");
+    let bytes = match body_bytes(&request) {
+        Ok(b) => b,
+        Err(e) => return ApiResponse::error(e),
+    };
+    let dir = Project::resolve_dir(&project_id).join("exports");
+    if let Err(e) = fs::create_dir_all(&dir) {
+        return ApiResponse::error(e.to_string());
+    }
+    let dest = dir.join(name);
     match fs::write(&dest, &bytes) {
         Ok(_) => ApiResponse::success(dest.to_string_lossy().to_string()),
         Err(e) => ApiResponse::error(e.to_string()),
@@ -206,6 +313,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             create_project,
             save_project,
+            rename_project,
+            delete_project,
             load_project,
             list_projects,
             create_document,
@@ -213,6 +322,7 @@ pub fn run() {
             load_document,
             delete_document,
             save_asset,
+            export_file,
             select_directory,
             open_project_by_path,
         ])

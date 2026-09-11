@@ -16,6 +16,42 @@ pub fn init_data_dir(dir: PathBuf) {
     let _ = DATA_DIR.set(dir);
 }
 
+/// Write a file atomically: the content goes to a sibling `*.tmp` first and is
+/// then renamed over the target, so a crash or power loss mid-write can never
+/// leave a half-written (corrupt) project or document file behind.
+pub fn write_atomic(path: &Path, contents: &str) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let file_name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "file".to_string());
+    let tmp = path.with_file_name(format!("{file_name}.tmp"));
+    fs::write(&tmp, contents).map_err(|e| e.to_string())?;
+    if let Err(e) = fs::rename(&tmp, path) {
+        let _ = fs::remove_file(&tmp);
+        return Err(e.to_string());
+    }
+    Ok(())
+}
+
+/// A filesystem-safe folder name derived from a project name.
+pub fn safe_dir_name(name: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .map(|c| if c.is_alphanumeric() || matches!(c, '-' | '_' | ' ' | '.') { c } else { '_' })
+        .collect::<String>()
+        .trim()
+        .trim_matches('.')
+        .to_string();
+    if cleaned.is_empty() {
+        "project".to_string()
+    } else {
+        cleaned
+    }
+}
+
 /// The storage base dir. Falls back to `~/.mnemoscript` only if init was somehow
 /// skipped (e.g. unit tests), so paths are always well-defined.
 fn data_dir() -> PathBuf {
@@ -121,13 +157,19 @@ impl Registry {
             path: path_str,
         });
 
-        let json = serde_json::to_string_pretty(&entries).map_err(|e| e.to_string())?;
-        let reg_path = Self::registry_path();
-        if let Some(parent) = reg_path.parent() {
-            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-        }
-        fs::write(reg_path, json).map_err(|e| e.to_string())?;
-        Ok(())
+        Self::write(&entries)
+    }
+
+    /// Drop a project from the registry (its files are left untouched).
+    pub fn remove(project_id: &str) -> Result<(), String> {
+        let mut entries = Self::list();
+        entries.retain(|e| e.id != project_id);
+        Self::write(&entries)
+    }
+
+    fn write(entries: &[RegistryEntry]) -> Result<(), String> {
+        let json = serde_json::to_string_pretty(entries).map_err(|e| e.to_string())?;
+        write_atomic(&Self::registry_path(), &json)
     }
 
     pub fn get_path(project_id: &str) -> Option<String> {
@@ -164,13 +206,28 @@ impl Project {
         let project_dir = self.get_dir();
         fs::create_dir_all(&project_dir).map_err(|e| e.to_string())?;
 
+        // project.json holds metadata + folders + a *content-free* document
+        // index. Each document's body lives only in documents/<id>.json (the
+        // source of truth), so the metadata file stays tiny no matter how big
+        // the book gets and `list_projects` never has to parse whole chapters.
+        let snapshot = Project {
+            documents: self
+                .documents
+                .iter()
+                .map(|d| Document {
+                    content: String::new(),
+                    ..d.clone()
+                })
+                .collect(),
+            ..self.clone()
+        };
         let metadata_path = project_dir.join("project.json");
-        let metadata_json = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
-        fs::write(metadata_path, metadata_json).map_err(|e| e.to_string())?;
-        
+        let metadata_json = serde_json::to_string_pretty(&snapshot).map_err(|e| e.to_string())?;
+        write_atomic(&metadata_path, &metadata_json)?;
+
         // Add to global project registry
         Registry::add(self)?;
-        
+
         Ok(())
     }
 
@@ -209,9 +266,18 @@ impl Project {
             let entry = entry.map_err(|e| e.to_string())?;
             let path = entry.path();
             if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("json") {
-                let doc_json = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-                let doc: Document = serde_json::from_str(&doc_json).map_err(|e| e.to_string())?;
-                documents.push(doc);
+                // One corrupt file must not make the whole project unopenable.
+                let doc_json = match fs::read_to_string(&path) {
+                    Ok(j) => j,
+                    Err(e) => {
+                        log::warn!("skipping unreadable document {}: {e}", path.display());
+                        continue;
+                    }
+                };
+                match serde_json::from_str::<Document>(&doc_json) {
+                    Ok(doc) => documents.push(doc),
+                    Err(e) => log::warn!("skipping corrupt document {}: {e}", path.display()),
+                }
             }
         }
         // Order by explicit index first, then fall back to updated time.
@@ -276,8 +342,7 @@ impl Document {
         fs::create_dir_all(&doc_dir).map_err(|e| e.to_string())?;
         let doc_path = doc_dir.join(format!("{}.json", self.id));
         let doc_json = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
-        fs::write(doc_path, doc_json).map_err(|e| e.to_string())?;
-        Ok(())
+        write_atomic(&doc_path, &doc_json)
     }
 
     pub fn load(project_id: &str, document_id: &str) -> Result<Self, String> {

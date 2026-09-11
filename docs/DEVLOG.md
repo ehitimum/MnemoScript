@@ -5,6 +5,36 @@ Newest entries first. Dates are absolute.
 
 ---
 
+## 2026-09-11 — Smooth caret back on every platform, data-safety pass, map studio refinement
+
+Full codebase audit; findings + roadmap in [IMPROVEMENT_PLAN.md](./IMPROVEMENT_PLAN.md).
+
+- **Word-style typing (restored, all platforms).** New `components/SmoothCaret.tsx`: a ref-driven caret
+  overlay (no React state, one rAF per change, GPU `transform`, content-space coords, blink only after
+  the caret rests, IME-aware, background-tab fallback). The old implementation re-rendered the editor on
+  every keystroke and had been disabled on mobile. Toggle in Settings + ⌘K.
+- **Editor.tsx rewrite** — keyed per document (own undo/decorations), static CSS moved to `index.css`,
+  echo-aware content sync (no double `getHTML()` per keystroke), readable `.mn-page` column, settings
+  extracted to `SettingsPanel.tsx`, empty state when no document is open.
+- **Data safety** — flush-save on document/project switch, app background, desktop window close; canvases
+  flush pending debounced edits on unmount/Save and tag updates with their `docId`; Rust atomic writes,
+  content-free `project.json`, tolerant document loading; save errors shown in the status bar.
+- **Shell by platform** (`lib/platform.ts`): phone shell only on phones; narrow desktop windows keep the
+  desktop shell with drawers. `?shell=mobile` forces the phone shell on the web build.
+- **Backend** — `rename_project`, `delete_project`, `export_file`; `save_asset` takes a raw binary body.
+  Capabilities: window close/destroy, dialog save, fs write.
+- **Fantasy map** — touch strokes fixed (touchstart, not tap), safe PNG export (Save-as / exports folder),
+  hillshade + slope relief, smoothed inked coastline, measured + haloed labels, single-shape grid, image
+  cache, hotkeys, phone panel overlays, lint-clean refs.
+- **Lint**: 50 → 0 errors (`public/` ignored; React-Compiler ref/effect rules fixed in MindMap,
+  FantasyMap, useImage, useMapHistory, App).
+- **Verified**: `tsc -b` ✓ · `eslint` ✓ (0) · `vite build` ✓ · `cargo check` ✓ · browser check of the
+  web build: project creation, chapter creation, typing, caret position == `coordsAtPos`, hidden on
+  selection/blur, blink after pause, flush-on-switch persisted, phone shell via `?shell=mobile`.
+  **Needs device testing**: Android touch painting, Save-as dialog on Windows, window-close flush.
+
+---
+
 ## 2026-06-25 — UI redesign: separate mobile app shell + bolder desktop reshape
 
 The single VS Code-style shell felt cramped/misaligned on phones and IDE-like for non-technical

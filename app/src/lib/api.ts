@@ -19,9 +19,7 @@ interface ApiResponse<T> {
   error?: string | null;
 }
 
-/** True when running inside the Tauri WebView (native backend available). */
-const isTauri =
-  typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+import { isTauri } from './platform';
 
 async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   if (!isTauri) {
@@ -32,6 +30,29 @@ async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> 
     throw new Error(res.error || `Command "${cmd}" failed`);
   }
   return res.data as T;
+}
+
+/**
+ * Invoke a command with a *raw binary body* (Tauri's `ipc::Request`). Used for
+ * image bytes: sending a Uint8Array this way is a zero-copy transfer, whereas a
+ * JSON `number[]` of a 5 MB photo becomes ~20 MB of text to parse.
+ */
+async function callRaw<T>(cmd: string, bytes: Uint8Array, headers: Record<string, string>): Promise<T> {
+  if (!isTauri) throw new Error(`Browser fallback: unsupported command "${cmd}"`);
+  const res = await invoke<ApiResponse<T>>(cmd, bytes, { headers });
+  if (!res.success) {
+    throw new Error(res.error || `Command "${cmd}" failed`);
+  }
+  return res.data as T;
+}
+
+/** Copy image bytes into the project's assets/ folder; returns the absolute path. */
+export function saveAsset(projectId: string, ext: string, bytes: Uint8Array): Promise<string> {
+  return callRaw<string>('save_asset', bytes, { 'x-project-id': projectId, 'x-ext': ext });
+}
+
+function extOf(file: string): string {
+  return /\.([a-zA-Z0-9]+)$/.exec(file)?.[1] ?? 'png';
 }
 
 export const api = {
@@ -67,6 +88,20 @@ export const api = {
   deleteDocument: (projectId: string, documentId: string) =>
     call<void>('delete_document', { projectId, documentId }),
 
+  /** Forget a project (registry only) or delete its folder too. */
+  deleteProject: (projectId: string, deleteFiles = false) =>
+    call<void>('delete_project', { projectId, deleteFiles }),
+
+  renameProject: (projectId: string, name: string) => call<Project>('rename_project', { projectId, name }),
+
+  /**
+   * Write an exported file (e.g. a rendered map PNG) into the project's
+   * `exports/` folder and return its absolute path. Used where a native
+   * "Save as…" dialog isn't available (Android).
+   */
+  exportFile: (projectId: string, name: string, bytes: Uint8Array) =>
+    callRaw<string>('export_file', bytes, { 'x-project-id': projectId, 'x-name': name }),
+
   /**
    * Pick an image and copy it into the project's assets/, returning the absolute
    * path (or null if cancelled / in the browser). Picking + reading is done with
@@ -86,8 +121,7 @@ export const api = {
     });
     if (!selected || typeof selected !== 'string') return null; // cancelled
     const bytes = await readFile(selected);
-    const ext = /\.([a-zA-Z0-9]+)$/.exec(selected)?.[1] ?? 'png';
-    return call<string>('save_asset', { projectId, ext, bytes: Array.from(bytes) });
+    return saveAsset(projectId, extOf(selected), bytes);
   },
 
   selectDirectory: () => call<string | null>('select_directory'),
@@ -115,8 +149,7 @@ export const api = {
     for (const file of files) {
       if (typeof file !== 'string') continue;
       const bytes = await readFile(file);
-      const ext = /\.([a-zA-Z0-9]+)$/.exec(file)?.[1] ?? 'png';
-      out.push(await call<string>('save_asset', { projectId, ext, bytes: Array.from(bytes) }));
+      out.push(await saveAsset(projectId, extOf(file), bytes));
     }
     return out;
   },
@@ -237,6 +270,19 @@ async function browserBackend<T>(cmd: string, args: Record<string, unknown>): Pr
       project.documents = project.documents.filter((d) => d.id !== args.documentId);
       saveStore(projects);
       return undefined as T;
+    }
+
+    case 'delete_project': {
+      const next = projects.filter((p) => p.id !== args.projectId);
+      saveStore(next);
+      return undefined as T;
+    }
+
+    case 'rename_project': {
+      const project = findProject(projects, String(args.projectId));
+      project.name = String(args.name ?? project.name);
+      saveStore(projects);
+      return project as T;
     }
 
     // Native-only: no equivalent in a plain browser.

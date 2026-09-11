@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { api } from '../lib/api';
-import { useMediaQuery } from '../lib/useMediaQuery';
+import { isTauri, isMobileOS } from '../lib/platform';
 import type { Project } from '../types';
 import { FolderPlus } from 'lucide-react';
 
@@ -17,7 +17,9 @@ function ProjectCreationModal({ isOpen, onClose, onProjectCreated, defaultSavePa
   const [location, setLocation] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const isMobile = useMediaQuery('(max-width: 768px)');
+  // Mobile storage is app-private and the browser build has no disk, so the
+  // folder picker only makes sense in the desktop app.
+  const canPickFolder = isTauri && !isMobileOS;
 
   if (!isOpen) return null;
 
@@ -40,7 +42,9 @@ function ProjectCreationModal({ isOpen, onClose, onProjectCreated, defaultSavePa
       const project = await api.createProject(
         name.trim(),
         description.trim() || undefined,
-        location.trim() || undefined,
+        // An explicit folder wins; otherwise the Settings default (if any);
+        // otherwise the backend's ~/.mnemoscript/projects.
+        location.trim() || defaultSavePath?.trim() || undefined,
       );
       onProjectCreated(project);
       setName('');
@@ -63,7 +67,7 @@ function ProjectCreationModal({ isOpen, onClose, onProjectCreated, defaultSavePa
           <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
             <FolderPlus className="w-4 h-4" />
           </div>
-          <h3 className="text-base font-semibold text-foreground">Initialize Workspace Project</h3>
+          <h3 className="text-base font-semibold text-foreground">New Project</h3>
         </div>
         
         {/* Form Body */}
@@ -75,7 +79,7 @@ function ProjectCreationModal({ isOpen, onClose, onProjectCreated, defaultSavePa
             <input
               type="text"
               className="w-full bg-secondary/35 border border-border/30 text-foreground text-sm rounded-lg px-3 py-2.5 focus:border-primary/50 focus:ring-1 focus:ring-primary/20 outline-none transition-all placeholder:text-muted-foreground/50"
-              placeholder="e.g., my-novel-outline"
+              placeholder="e.g. The Ashen Crown"
               value={name}
               autoFocus
               required
@@ -85,11 +89,11 @@ function ProjectCreationModal({ isOpen, onClose, onProjectCreated, defaultSavePa
 
           <div className="flex flex-col gap-1.5">
             <label className="text-2xs font-semibold text-muted-foreground uppercase tracking-wider">
-              Description / Notes
+              Description
             </label>
             <textarea
               className="w-full bg-secondary/35 border border-border/30 text-foreground text-sm rounded-lg px-3 py-2.5 focus:border-primary/50 focus:ring-1 focus:ring-primary/20 outline-none transition-all placeholder:text-muted-foreground/50 resize-none"
-              placeholder="Provide a structural overview or scope details..."
+              placeholder="What is this project about? (optional)"
               value={description}
               rows={3}
               onChange={(e) => setDescription(e.target.value)}
@@ -98,10 +102,10 @@ function ProjectCreationModal({ isOpen, onClose, onProjectCreated, defaultSavePa
 
           {/* On mobile, storage is app-private and not user-selectable, so the
               disk-path picker is hidden — projects save to app storage. */}
-          {!isMobile && (
+          {canPickFolder && (
             <div className="flex flex-col gap-1.5">
               <label className="text-2xs font-semibold text-muted-foreground uppercase tracking-wider">
-                Target Disk Path Location
+                Save location
               </label>
               <div className="flex gap-2">
                 <input
@@ -116,7 +120,7 @@ function ProjectCreationModal({ isOpen, onClose, onProjectCreated, defaultSavePa
                   className="bg-secondary text-foreground hover:bg-secondary/80 px-4 py-2.5 text-xs font-semibold rounded-lg cursor-pointer transition-all border border-border/30 flex-shrink-0"
                   onClick={handleBrowseLocation}
                 >
-                  Browse...
+                  Choose folder…
                 </button>
               </div>
             </div>
@@ -143,7 +147,7 @@ function ProjectCreationModal({ isOpen, onClose, onProjectCreated, defaultSavePa
               className="bg-primary text-primary-foreground hover:opacity-95 disabled:opacity-40 disabled:scale-100 disabled:cursor-not-allowed px-5 py-2.5 text-xs font-semibold rounded-lg cursor-pointer shadow-xs active:scale-98 transition-all" 
               disabled={isSubmitting || !name.trim()}
             >
-              {isSubmitting ? 'Provisioning...' : 'Initialize'}
+              {isSubmitting ? 'Creating…' : 'Create Project'}
             </button>
           </div>
         </form>

@@ -1,5 +1,6 @@
 import type { ThemeType } from '../../App';
 import { Check } from 'lucide-react';
+import { THEMES, FONTS } from '../../lib/prefs';
 
 interface Props {
   theme: ThemeType;
@@ -12,25 +13,11 @@ interface Props {
   setLineHeight: (n: number) => void;
   spellcheckActive: boolean;
   setSpellcheckActive: (b: boolean) => void;
+  smoothCaret: boolean;
+  setSmoothCaret: (b: boolean) => void;
   autoSaveInterval: number;
   setAutoSaveInterval: (n: number) => void;
 }
-
-const THEMES: { id: ThemeType; label: string; bg: string; accent: string }[] = [
-  { id: 'dark', label: 'Midnight', bg: '#0e1116', accent: '#8aa0ff' },
-  { id: 'light', label: 'Parchment', bg: '#faf8f3', accent: '#4f46e5' },
-  { id: 'glass', label: 'Nebula', bg: '#141020', accent: '#b292ff' },
-  { id: 'ocean', label: 'Ocean', bg: '#0a1626', accent: '#38bdf8' },
-  { id: 'forest', label: 'Forest', bg: '#0b1c14', accent: '#34d399' },
-  { id: 'sunset', label: 'Sunset', bg: '#1e1210', accent: '#fb7a5c' },
-];
-
-const FONTS = [
-  { value: 'Inter', label: 'Inter — clean sans' },
-  { value: 'Georgia', label: 'Georgia — serif' },
-  { value: "'Times New Roman', serif", label: 'Times — manuscript' },
-  { value: "'Courier New', monospace", label: 'Courier — typewriter' },
-];
 
 const label = 'text-3xs font-semibold tracking-[0.12em] text-muted-foreground/70 uppercase';
 
@@ -46,6 +33,8 @@ function MobileSettings({
   setLineHeight,
   spellcheckActive,
   setSpellcheckActive,
+  smoothCaret,
+  setSmoothCaret,
   autoSaveInterval,
   setAutoSaveInterval,
 }: Props) {
@@ -103,6 +92,18 @@ function MobileSettings({
       {/* Writing */}
       <section className="flex flex-col gap-3">
         <h2 className={label}>Writing</h2>
+        <label className="mn-row justify-between">
+          <span className="flex flex-col">
+            <span className="text-sm">Smooth caret</span>
+            <span className="text-3xs text-muted-foreground/70">Cursor glides as you type</span>
+          </span>
+          <input
+            type="checkbox"
+            className="w-5 h-5 rounded accent-primary"
+            checked={smoothCaret}
+            onChange={(e) => setSmoothCaret(e.target.checked)}
+          />
+        </label>
         <label className="mn-row justify-between">
           <span className="text-sm">Spellcheck highlighting</span>
           <input

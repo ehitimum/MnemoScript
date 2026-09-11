@@ -39,9 +39,14 @@ A global registry at `~/.mnemoscript/registry.json` maps project id → folder p
 
 ## Backend commands (`src-tauri/src/lib.rs`)
 All return an `ApiResponse<T>` = `{ success, data, error }` envelope.
-`create_project` · `save_project` · `load_project` · `list_projects` · `open_project_by_path` ·
-`create_document` (takes `docType`/`order`) · `save_document` · `load_document` ·
-**`import_image`** (picker → copy to `assets/` → returns absolute path) · `select_directory`.
+`create_project` · `save_project` · `rename_project` · `delete_project` (registry only, or with files) ·
+`load_project` · `list_projects` · `open_project_by_path` · `create_document` (takes `docType`/`order`) ·
+`save_document` · `load_document` · `delete_document` · **`save_asset`** (raw binary body + `x-project-id`
+/ `x-ext` headers → copies into `assets/`, returns the absolute path) · **`export_file`** (raw body →
+`<project>/exports/<name>`) · `select_directory`.
+All file writes go through `write_atomic` (tmp + rename). `project.json` stores folders + a
+**content-free** document index; document bodies live only in `documents/<id>.json`. Unreadable or
+corrupt document files are skipped with a warning so one bad file never blocks a project.
 
 ## Frontend layering
 - **`src/lib/api.ts`** — the *only* place that calls `invoke`; typed, unwraps `ApiResponse`, throws
@@ -50,10 +55,16 @@ All return an `ApiResponse<T>` = `{ success, data, error }` envelope.
   stored as a raw disk path and resolved to a Tauri asset URL (`convertFileSrc`) only at render
   time. Asset protocol is enabled in `tauri.conf.json` (`app.security.assetProtocol`) +
   `Cargo.toml` (`protocol-asset` feature).
-- **`App.tsx`** — owns all app state, persistence (auto-save loop + manual save via refs), and the
-  data handlers. It is a thin router that **branches on `isMobile`** (`useMediaQuery('(max-width:
-  768px)')`): `<MobileShell>` on phones, else the desktop layout. Both shells get the same handlers.
-  localStorage holds only UI prefs.
+- **`src/lib/platform.ts`** — `isTauri`, `isMobileOS`, and `useShell()` → `{ isMobileShell, isNarrow,
+  isTouch }`. The shell is chosen by *platform* (phone OS, or a narrow touch viewport on the web), never
+  by window width alone; `isNarrow` only collapses the desktop panels into drawers. `?shell=mobile` /
+  `?shell=desktop` forces a shell on the web build for testing.
+- **`App.tsx`** — owns all app state, persistence and the data handlers; branches on `isMobileShell`:
+  `<MobileShell>` on phones, else the desktop layout. Both shells get the same handlers. localStorage
+  holds only UI prefs (`usePref`). **Data safety:** `flushIfDirty()` saves the open document before a
+  document/project switch, on `visibilitychange` (app backgrounded) and on the desktop window's
+  `onCloseRequested`. `handleUpdateDocumentContent(content, docId?)` — canvases pass their `docId`, so a
+  late flush that arrives after a switch is written straight to the right file.
 
 ## Responsive shells (desktop vs. mobile are different UIs)
 The desktop and Android UIs are intentionally **separate** (a phone is not a shrunken desktop):
@@ -73,7 +84,21 @@ The desktop and Android UIs are intentionally **separate** (a phone is not a shr
   `FantasyMap` has two-finger pinch-zoom/pan (Konva `onTouch*`); React Flow (`MindMap`) pinches by
   default once the page-zoom hijack is removed.
 
-## Editor extensions (`src/components/Editor.tsx`)
+## Editor (`src/components/Editor.tsx`)
+Mounted **keyed by document id** (own undo history / decorations per document). Nothing re-renders on a
+keystroke: the parent gets HTML via `onUpdate`, and the sync effect ignores the echo of our own edits
+(`lastEmittedRef`). Static styling lives in `index.css` (`.mn-editor-scroll`, `.mn-page` — a centred
+78ch measure — and the `.ProseMirror…` rules); only the user's typography choices are inline. The
+desktop settings screen is `SettingsPanel.tsx` (App renders it; the editor no longer has a settings branch).
+
+**Smooth caret (`SmoothCaret.tsx`)** — the Word-style gliding caret, on desktop, web and mobile. A
+ref-driven overlay inside the scroll container (content-space coords via `view.coordsAtPos` + scroll
+offset), moved with a GPU `transform` in one rAF per change (timer fallback while the tab is hidden),
+solid while moving and blinking only after ~450 ms at rest, hidden for non-empty selections/blur and
+during IME composition (`.is-composing` restores the native caret). The native caret is hidden with
+`.mn-smooth-caret .ProseMirror { caret-color: transparent }`. User toggle: `smoothCaret` pref.
+
+## Editor extensions
 `StarterKit` (+ heading/list keymaps) · `Placeholder` · `TextAlign` · **`TaskList`/`TaskItem`**
 (`/todo` checkbox lists, nestable) · `LinguisticCheck` (grammar) · **`ReadAloudHighlight`**
 (karaoke highlight for TTS) · **`ImageWithAsset`** (asset-rendering image node) · **`SlashCommand`**
@@ -121,7 +146,13 @@ controls live in `RightSidebar.tsx`.
   — verify on-device.
 
 ## Feature components
-- **`MindMap.tsx`** — React Flow canvas; serializes `{nodes,edges}` to `content` (debounced).
+- **`MindMap.tsx`** — React Flow canvas; serializes `{nodes,edges}` to `content` (debounced 400 ms,
+  flushed on unmount and before Save; updates carry the `docId`).
+- **`FantasyMap.tsx`** (+ `fantasymap/`) — Konva map studio; see [FANTASYMAP.md](./FANTASYMAP.md). Touch:
+  one finger = mouse (handled on `touchstart`, not `tap`), two fingers = pinch/pan. Export renders the
+  page off-screen at the current zoom and saves via Save-as (desktop) / `export_file` (Android) /
+  download (browser). `heightmap.ts` adds hillshade relief (classic), slope-aware relief (ink) and
+  `coastPolylines()` (chained + Chaikin-smoothed marching-squares contour).
 - **`BookCompiler.tsx`** — File → "Compile to PDF Book": builds a print-CSS book HTML in a hidden
   iframe and calls `print()` → "Save as PDF". Text chapters only (mind maps excluded for now).
 
@@ -131,4 +162,6 @@ Theme tokens (6 themes) live in `src/index.css` (`body.theme-*` CSS variables + 
 Note: `src/App.css` is **legacy and not imported** — don't edit it; use `index.css`.
 
 ## Validate before committing
-`cd app && npm run lint && npm run build` · `cd app/src-tauri && cargo check`.
+`cd app && npm run lint && npx tsc -b && npm run build` · `cd app/src-tauri && cargo check`.
+Lint must be at **0 errors** (React Compiler rules: never read `ref.current` during render — mirror
+into state; never call setState synchronously in an effect body).

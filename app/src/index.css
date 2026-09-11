@@ -744,10 +744,8 @@
 
 /* ============================================================
    Touch & mobile foundation
-   Kills the 300ms tap delay + double-tap page zoom on controls,
-   restores a real caret on touch devices (the desktop UI uses a
-   custom fixed caret with caret-color:transparent), and provides
-   the elegant primitives the mobile shell + reshaped desktop use.
+   Kills the 300ms tap delay + double-tap page zoom on controls and
+   provides the elegant primitives the mobile shell + reshaped desktop use.
    ============================================================ */
 button,
 a,
@@ -759,13 +757,6 @@ textarea,
   touch-action: manipulation;
 }
 
-/* Touch devices: use the native caret (the custom .smooth-caret is desktop-only
-   and the JS gates it off on mobile). */
-@media (pointer: coarse) {
-  .ProseMirror {
-    caret-color: var(--accent-color) !important;
-  }
-}
 
 /* ── Shared motion ─────────────────────────────────────────── */
 @keyframes mn-fade-in { from { opacity: 0; } to { opacity: 1; } }
@@ -931,4 +922,205 @@ textarea,
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.45);
   overflow: hidden;
   animation: mn-scale-in 0.16s ease;
+}
+
+/* ============================================================
+   Editor surface (Notes / Chapters / Scenes)
+   Static styling for the TipTap editor. The user's typography choices
+   (font, size, line-height, page margin) are applied inline by Editor.tsx.
+   ============================================================ */
+.mn-editor-scroll {
+  position: relative;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+/* A readable measure, centred like a page in a word processor. */
+.mn-page {
+  max-width: 78ch;
+  margin: 0 auto;
+  padding: 2.25rem var(--mn-page-pad, 30px) 8rem;
+}
+.mn-editor-scroll.is-mobile .mn-page {
+  padding-top: 1rem;
+  padding-bottom: 45vh; /* room to keep the caret above the soft keyboard */
+}
+
+.ProseMirror {
+  color: var(--foreground);
+  outline: none;
+  min-height: 40vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-variant-ligatures: common-ligatures;
+  font-feature-settings: "kern" 1;
+  letter-spacing: -0.005em;
+  word-spacing: 0.02em;
+  transition: color 0.3s ease;
+}
+.ProseMirror ::selection {
+  background-color: color-mix(in srgb, var(--primary) 30%, transparent);
+}
+.ProseMirror p {
+  margin: 0 0 1.1em;
+  tab-size: 4;
+}
+.ProseMirror blockquote {
+  border-left: 3px solid color-mix(in srgb, var(--primary) 45%, transparent);
+  padding-left: 1rem;
+  margin: 1em 0;
+  color: color-mix(in srgb, var(--foreground) 78%, transparent);
+  font-style: italic;
+}
+.ProseMirror ul,
+.ProseMirror ol {
+  margin: 0 0 1em;
+  padding-left: 1.6em;
+}
+.ProseMirror ul { list-style: disc; }
+.ProseMirror ul ul { list-style: circle; }
+.ProseMirror ul ul ul { list-style: square; }
+.ProseMirror ol { list-style: decimal; }
+.ProseMirror ol ol { list-style: lower-alpha; }
+.ProseMirror ol ol ol { list-style: lower-roman; }
+.ProseMirror li > p { margin-bottom: 0.25em; }
+.ProseMirror strong { font-weight: 650; }
+
+/* Placeholders (title + first paragraph) */
+.ProseMirror .is-empty::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+  color: var(--foreground);
+  opacity: 0.28;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+.ProseMirror .is-empty:focus::before {
+  opacity: 0.16;
+  transform: translateX(3px);
+}
+
+/* ── /todo task lists ─────────────────────────────────────────── */
+.ProseMirror ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 2px;
+}
+.ProseMirror ul[data-type="taskList"] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65em;
+  margin: 0.15em 0;
+}
+.ProseMirror ul[data-type="taskList"] li > label {
+  flex: 0 0 auto;
+  margin-top: 0.18em;
+  user-select: none;
+}
+.ProseMirror ul[data-type="taskList"] li > div {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.ProseMirror ul[data-type="taskList"] li > div > p {
+  margin-bottom: 0.3em;
+  transition: opacity 0.18s ease;
+}
+.ProseMirror ul[data-type="taskList"] ul[data-type="taskList"] { margin-top: 0.2em; }
+.ProseMirror ul[data-type="taskList"] input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 1.05em;
+  height: 1.05em;
+  margin: 0;
+  border: 2px solid color-mix(in srgb, var(--primary) 60%, transparent);
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  position: relative;
+  flex: 0 0 auto;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+}
+.ProseMirror ul[data-type="taskList"] input[type="checkbox"]:hover { border-color: var(--primary); }
+.ProseMirror ul[data-type="taskList"] input[type="checkbox"]:active { transform: scale(0.9); }
+.ProseMirror ul[data-type="taskList"] input[type="checkbox"]:checked {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+.ProseMirror ul[data-type="taskList"] input[type="checkbox"]:checked::after {
+  content: '';
+  position: absolute;
+  left: 0.32em;
+  top: 0.12em;
+  width: 0.28em;
+  height: 0.55em;
+  border: solid var(--primary-foreground);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+.ProseMirror ul[data-type="taskList"] li[data-checked="true"] > div {
+  text-decoration: line-through;
+  opacity: 0.5;
+}
+
+/* ── Read-Aloud karaoke highlight ─────────────────────────────── */
+.ProseMirror .tts-sentence {
+  background-color: color-mix(in srgb, var(--primary) 16%, transparent);
+  border-radius: 3px;
+  transition: background-color 0.2s ease;
+}
+.ProseMirror .tts-word {
+  background-color: color-mix(in srgb, var(--primary) 42%, transparent);
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 55%, transparent);
+}
+
+/* ── Spelling / grammar underlines (LinguisticCheck decorations) ── */
+.lt-match {
+  border-bottom: 2px solid;
+  cursor: pointer;
+  border-radius: 2px;
+}
+.lt-match.typo-match {
+  border-bottom-color: var(--color-typo);
+  background-color: var(--color-typo-bg);
+}
+.lt-match.grammar-match {
+  border-bottom-color: var(--color-grammar);
+  background-color: var(--color-grammar-bg);
+}
+.spellcheck-off .lt-match {
+  border-bottom: 0;
+  background-color: transparent;
+  cursor: text;
+}
+
+/* ── Smooth (Word-style) caret ────────────────────────────────────
+   The overlay rendered by SmoothCaret.tsx. The native caret is hidden
+   while it is active, except during IME composition. */
+.mn-smooth-caret .ProseMirror { caret-color: transparent; }
+.mn-smooth-caret.is-composing .ProseMirror { caret-color: var(--accent-color); }
+.mn-caret {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 2px;
+  height: 1.2em;
+  border-radius: 1px;
+  background: var(--accent-color);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--accent-color) 55%, transparent);
+  pointer-events: none;
+  z-index: 5;
+  visibility: hidden;
+  will-change: transform;
+  transition: transform 95ms cubic-bezier(0.22, 0.9, 0.3, 1), height 80ms ease;
+}
+.mn-caret.is-blinking {
+  animation: mn-caret-blink 1.05s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+@keyframes mn-caret-blink {
+  0%, 48% { opacity: 1; }
+  52%, 100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mn-caret { transition: none; }
 }
