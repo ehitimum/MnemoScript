@@ -27,7 +27,9 @@ pub fn write_atomic(path: &Path, contents: &str) -> Result<(), String> {
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| "file".to_string());
-    let tmp = path.with_file_name(format!("{file_name}.tmp"));
+    // Unique temp name: Tauri runs commands concurrently, so two writers of the
+    // same file must never share a temp file (one would rename the other's away).
+    let tmp = path.with_file_name(format!("{file_name}.{}.tmp", Uuid::new_v4()));
     fs::write(&tmp, contents).map_err(|e| e.to_string())?;
     if let Err(e) = fs::rename(&tmp, path) {
         let _ = fs::remove_file(&tmp);
@@ -125,9 +127,17 @@ pub struct RegistryEntry {
 
 pub struct Registry;
 
+/// The registry is a read-modify-write file shared by every project; serialise
+/// mutations so two concurrent saves can't drop each other's entry.
+static REGISTRY_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 impl Registry {
     fn registry_path() -> PathBuf {
         data_dir().join("registry.json")
+    }
+
+    fn lock() -> std::sync::MutexGuard<'static, ()> {
+        REGISTRY_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     pub fn list() -> Vec<RegistryEntry> {
@@ -143,6 +153,7 @@ impl Registry {
     }
 
     pub fn add(project: &Project) -> Result<(), String> {
+        let _guard = Self::lock();
         let mut entries = Self::list();
         let path_str = project.get_dir().to_string_lossy().to_string();
         
@@ -162,6 +173,7 @@ impl Registry {
 
     /// Drop a project from the registry (its files are left untouched).
     pub fn remove(project_id: &str) -> Result<(), String> {
+        let _guard = Self::lock();
         let mut entries = Self::list();
         entries.retain(|e| e.id != project_id);
         Self::write(&entries)
@@ -367,5 +379,148 @@ impl Document {
             fs::remove_file(doc_path).map_err(|e| e.to_string())?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Once;
+
+    static INIT: Once = Once::new();
+
+    /// A throw-away data dir shared by every test in this binary (the OnceLock
+    /// only accepts the first value, so all tests use one base and unique names).
+    fn base_dir() -> PathBuf {
+        let base = std::env::temp_dir().join(format!("mnemoscript-tests-{}", std::process::id()));
+        INIT.call_once(|| {
+            let _ = fs::remove_dir_all(&base);
+            fs::create_dir_all(&base).unwrap();
+            init_data_dir(base.clone());
+        });
+        base
+    }
+
+    fn project_in(name: &str) -> (Project, PathBuf) {
+        let dir = base_dir().join(format!("{name}-{}", Uuid::new_v4()));
+        let project = Project::new(name.to_string(), None, Some(dir.to_string_lossy().to_string()));
+        project.save().unwrap();
+        (project, dir)
+    }
+
+    #[test]
+    fn write_atomic_replaces_content_and_leaves_no_temp_file() {
+        let dir = base_dir().join(format!("atomic-{}", Uuid::new_v4()));
+        let path = dir.join("file.json");
+        write_atomic(&path, "one").unwrap();
+        write_atomic(&path, "two").unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "two");
+        assert!(!dir.join("file.json.tmp").exists());
+    }
+
+    #[test]
+    fn safe_dir_name_strips_path_characters() {
+        assert_eq!(safe_dir_name("The Ashen: Crown/2"), "The Ashen_ Crown_2");
+        assert_eq!(safe_dir_name("  ..  "), "project");
+        assert_eq!(safe_dir_name(""), "project");
+    }
+
+    #[test]
+    fn project_round_trip_keeps_document_bodies_out_of_project_json() {
+        let (mut project, dir) = project_in("round-trip");
+        let doc = Document::new("Chapter 1".into(), "<p>Hello</p>".into(), "text".into(), 0);
+        doc.save(&project.id).unwrap();
+        project.documents = vec![doc.clone()];
+        project.folders = vec![Folder { id: "f1".into(), name: "Part".into(), order: 0, parent_id: None }];
+        project.save().unwrap();
+
+        let meta: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(dir.join("project.json")).unwrap()).unwrap();
+        assert_eq!(meta["documents"][0]["content"], "");
+        assert_eq!(meta["documents"][0]["title"], "Chapter 1");
+
+        let loaded = Project::load(&project.id).unwrap();
+        assert_eq!(loaded.documents.len(), 1);
+        assert_eq!(loaded.documents[0].content, "<p>Hello</p>");
+        assert_eq!(loaded.documents[0].doc_type, "text");
+        assert_eq!(loaded.folders[0].name, "Part");
+        assert_eq!(loaded.path.as_deref(), Some(dir.to_string_lossy().as_ref()));
+    }
+
+    #[test]
+    fn registry_lists_and_forgets_projects_without_touching_files() {
+        let (project, dir) = project_in("registry");
+        assert!(Project::list().unwrap().iter().any(|p| p.id == project.id));
+        assert_eq!(Registry::get_path(&project.id).as_deref(), Some(dir.to_string_lossy().as_ref()));
+        Registry::remove(&project.id).unwrap();
+        assert!(!Project::list().unwrap().iter().any(|p| p.id == project.id));
+        assert!(dir.join("project.json").exists(), "forgetting must not delete files");
+    }
+
+    #[test]
+    fn a_corrupt_document_file_does_not_block_the_project() {
+        let (project, dir) = project_in("corrupt");
+        Document::new("Good".into(), "ok".into(), "text".into(), 0).save(&project.id).unwrap();
+        fs::write(dir.join("documents").join("bad.json"), "{ not json").unwrap();
+        fs::write(dir.join("documents").join("stray.json.tmp"), "").unwrap();
+        let loaded = Project::load(&project.id).unwrap();
+        assert_eq!(loaded.documents.len(), 1);
+        assert_eq!(loaded.documents[0].title, "Good");
+    }
+
+    #[test]
+    fn documents_sort_by_order_and_delete_is_idempotent() {
+        let (project, _dir) = project_in("order");
+        let second = Document::new("Second".into(), String::new(), "text".into(), 2);
+        let first = Document::new("First".into(), String::new(), "text".into(), 1);
+        second.save(&project.id).unwrap();
+        first.save(&project.id).unwrap();
+        let titles: Vec<String> = Project::load(&project.id).unwrap().documents.into_iter().map(|d| d.title).collect();
+        assert_eq!(titles, vec!["First".to_string(), "Second".to_string()]);
+        Document::delete(&project.id, &first.id).unwrap();
+        Document::delete(&project.id, &first.id).unwrap(); // already gone: still Ok
+        assert_eq!(Project::load(&project.id).unwrap().documents.len(), 1);
+    }
+
+    #[test]
+    fn legacy_project_json_without_new_fields_still_loads() {
+        let dir = base_dir().join(format!("legacy-{}", Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("project.json"),
+            r#"{"id":"legacy-1","name":"Old","description":null,"created_at":"2026-01-01T00:00:00Z"}"#,
+        )
+        .unwrap();
+        let loaded = Project::load_from_path(&dir).unwrap();
+        assert_eq!(loaded.name, "Old");
+        assert!(loaded.folders.is_empty());
+        assert!(loaded.documents.is_empty());
+        assert_eq!(loaded.author, None);
+    }
+
+    #[test]
+    fn document_load_reports_missing_files() {
+        let (project, _dir) = project_in("missing");
+        assert!(Document::load(&project.id, "nope").is_err());
+    }
+
+    #[test]
+    fn concurrent_saves_keep_every_registry_entry() {
+        let base = base_dir();
+        let handles: Vec<_> = (0..8)
+            .map(|i| {
+                let dir = base.join(format!("concurrent-{i}-{}", Uuid::new_v4()));
+                std::thread::spawn(move || {
+                    let p = Project::new(format!("Concurrent {i}"), None, Some(dir.to_string_lossy().to_string()));
+                    p.save().unwrap();
+                    p.id
+                })
+            })
+            .collect();
+        let ids: Vec<String> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+        let listed = Registry::list();
+        for id in &ids {
+            assert!(listed.iter().any(|e| &e.id == id), "entry {id} was lost by a concurrent write");
+        }
     }
 }

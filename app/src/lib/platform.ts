@@ -40,7 +40,8 @@ const forcedShell: 'mobile' | 'desktop' | null = (() => {
   return v === 'mobile' || v === 'desktop' ? v : null;
 })();
 
-function computeShell(): ShellInfo {
+/** The shell decision for the current environment (exported for tests). */
+export function computeShell(): ShellInfo {
   const isNarrow = matches('(max-width: 768px)');
   const isTouch = matches('(pointer: coarse)');
   // Phone OS → always the mobile shell. Otherwise only a narrow *touch* viewport

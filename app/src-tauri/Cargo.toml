@@ -1,10 +1,10 @@
 [package]
 name = "app"
-version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
+version = "2.0.0"
+description = "MnemoScript - a calm, local-first writing studio (rich text, mind maps, fantasy maps)"
+authors = ["ehitimum"]
 license = ""
-repository = ""
+repository = "https://github.com/ehitimum/MnemoScript"
 edition = "2021"
 rust-version = "1.77.2"
 

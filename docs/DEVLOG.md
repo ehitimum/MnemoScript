@@ -5,6 +5,22 @@ Newest entries first. Dates are absolute.
 
 ---
 
+## 2026-09-11 — v2.0.0: test suites, CI, concurrency fix, release metadata
+
+- **Tests** (new; see [TESTING.md](./TESTING.md)): Vitest + jsdom + Testing Library — 47 unit tests
+  (`platform`, `proseFlatText`, `heightmap`, `mapTypes`, `generator`, browser `api`) and 18 regression
+  tests that mount the real Sidebar / Editor / MindMap / App (shell selection, flush-on-switch, late
+  canvas flush routing, smooth-caret overlay, edit-echo). `cargo test`: 11 cases for `project.rs` /
+  `lib.rs`. `npm run check` runs lint → types → tests → build.
+- **Concurrency bug found by the tests**: `write_atomic` used one shared `*.tmp` name, so two
+  concurrent writers of the same file (e.g. `registry.json` from parallel saves) renamed each other's
+  temp file away. Temp names are now unique and registry mutations are serialised with a mutex.
+- **CI**: `.github/workflows/ci.yml` (lint, typecheck, tests, build, cargo test, clippy) on every push.
+- **Release metadata**: version 2.0.0 in `package.json`, `tauri.conf.json`, `Cargo.toml`; window/tab
+  title "MnemoScript"; README rewritten; `AGENTS.md` lists the gates.
+
+---
+
 ## 2026-09-11 — Smooth caret back on every platform, data-safety pass, map studio refinement
 
 Full codebase audit; findings + roadmap in [IMPROVEMENT_PLAN.md](./IMPROVEMENT_PLAN.md).

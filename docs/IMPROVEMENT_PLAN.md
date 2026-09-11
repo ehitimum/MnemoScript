@@ -1,6 +1,6 @@
 # MnemoScript — Codebase Status & Improvement Plan
 
-_Assessed 2026-09-11 on branch `v1_stable_UI` (HEAD `1a4535f`). Companion to
+_Assessed 2026-09-11 on branch `v1_stable_UI` (HEAD `1a4535f`); shipped as v2.0.0 on `v2_stable_UI`. Companion to
 [ARCHITECTURE.md](./ARCHITECTURE.md) (how it's built) and [DEVLOG.md](./DEVLOG.md) (what changed)._
 
 ## 1. Where the codebase stands
@@ -117,8 +117,8 @@ phone shell.
 - Cloud/optional sync (the on-disk layout is already one-folder-per-project; a file-sync provider works
   without changes, but conflict handling needs `updated_at` reconciliation).
 - iOS build (Tauri mobile supports it; needs the same `gen/` manifest care as Android for microphone).
-- Tests: none exist. Add `cargo test` for `project.rs` (atomic write, registry, tolerant load) and
-  Vitest for `heightmap.ts` (chain/smooth), `proseFlatText.ts`, `platform.ts`.
+- Tests: **done** (see [TESTING.md](./TESTING.md)) — 65 Vitest unit + regression tests and 11 `cargo test`
+  cases run in CI. Next: Playwright end-to-end runs against the web build, and on-device smoke automation.
 
 ## 4. How to verify a build
 ```bash

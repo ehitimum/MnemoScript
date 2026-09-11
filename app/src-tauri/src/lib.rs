@@ -329,3 +329,21 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
+
+#[cfg(test)]
+mod tests {
+    use super::safe_file_name;
+
+    #[test]
+    fn safe_file_name_keeps_ordinary_names() {
+        assert_eq!(safe_file_name("My Map.png", "x.png"), "My Map.png");
+        assert_eq!(safe_file_name("world-2_v3.png", "x.png"), "world-2_v3.png");
+    }
+
+    #[test]
+    fn safe_file_name_neutralises_path_traversal_and_falls_back_when_empty() {
+        assert_eq!(safe_file_name("../evil/../x.png", "x.png"), "_evil_.._x.png");
+        assert_eq!(safe_file_name("...", "export.png"), "export.png");
+        assert_eq!(safe_file_name("", "export.png"), "export.png");
+    }
+}
