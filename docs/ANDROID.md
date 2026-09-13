@@ -58,5 +58,6 @@ npm run android:build    # produce a signed-able APK / AAB
   needs testing; it may need the Android print API or a JS PDF lib on mobile.
 - **Image asset rendering** — saved asset paths render via `convertFileSrc`
   against the `assetProtocol` scope; confirm images display from app storage.
-- **Release signing** — generate a keystore and configure
-  `src-tauri/gen/android` signing before publishing.
+- ~~Release signing~~ — **done**: `gen/android/keystore.jks` + `keystore.properties` (both
+  git-ignored) are wired into `app/build.gradle.kts` via `signingConfigs`. Back the keystore up;
+  Android needs the same key to update an installed app. See [INSTALL.md](./INSTALL.md#signing).

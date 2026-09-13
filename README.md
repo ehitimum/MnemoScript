@@ -14,7 +14,7 @@ localStorage backend).
   classic art styles, PNG export.
 - **Publish** — compile chapters into a PDF book (cover, table of contents, ordering).
 
-Architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · Change history: [docs/DEVLOG.md](docs/DEVLOG.md) ·
+**Install:** [docs/INSTALL.md](docs/INSTALL.md) · Architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · Change history: [docs/DEVLOG.md](docs/DEVLOG.md) ·
 Roadmap: [docs/IMPROVEMENT_PLAN.md](docs/IMPROVEMENT_PLAN.md) · Tests: [docs/TESTING.md](docs/TESTING.md) ·
 Map studio: [docs/FANTASYMAP.md](docs/FANTASYMAP.md) · Android: [docs/ANDROID.md](docs/ANDROID.md)
 
@@ -46,12 +46,41 @@ cd src-tauri && cargo test       # backend tests (needs app/dist from the build 
 CI runs the same steps on every push (`.github/workflows/ci.yml`); tagged desktop releases are built by
 `.github/workflows/build.yml`.
 
+## Installing on Windows
+
+Run `npm run build:tauri` (or download a release) and you get, under
+`app/src-tauri/target/release/bundle/`:
+
+| File | What it is |
+|---|---|
+| `nsis/MnemoScript_2.0.0_x64-setup.exe` | **Recommended.** Setup wizard: installs per-user (no admin prompt) into `%LOCALAPPDATA%\MnemoScript`, creates Start-menu **and** desktop shortcuts, and registers an uninstaller in *Settings → Apps → MnemoScript*. |
+| `msi/MnemoScript_2.0.0_x64_en-US.msi` | Same app as a Windows Installer package (for IT deployment / `msiexec /i`). |
+| `MnemoScript.exe` (in `target/release/`) | Portable build — runs without installing. |
+
+Double-click the setup `.exe`, click through the wizard, then launch **MnemoScript** from the Start menu
+or the desktop shortcut. Windows 11 already ships the WebView2 runtime the app uses; on a machine
+without it the installer downloads it silently.
+
+To uninstall: *Settings → Apps → Installed apps → MnemoScript → Uninstall*. Your writing is stored
+outside the app in `%USERPROFILE%\.mnemoscript\projects` (or any folder you picked), so it survives
+uninstalling, reinstalling and upgrading.
+
+Silent install (scripted rollout): `MnemoScript_2.0.0_x64-setup.exe /S`.
+
+## Installing on Android
+
+`npm run android:build -- --apk --debug` produces a self-signed test APK at
+`app/src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk`.
+Copy it to the phone, allow "install unknown apps" for your file manager, tap the APK, and confirm
+Play Protect's "install anyway". (A Play-Store release needs a signing keystore; see docs/ANDROID.md.)
+
 ## Building
 
 ```bash
 npm run build:tauri              # desktop installers → src-tauri/target/release/bundle
 npm run android:build            # APK / AAB (see docs/ANDROID.md for the one-time SDK setup)
 ```
+Build outputs are also copied to `release/` at the repository root (git-ignored).
 
 ## Where your data lives
 

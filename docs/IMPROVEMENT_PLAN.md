@@ -102,6 +102,14 @@ phone shell.
 - **Project rename in the UI** (backend command exists now), plus delete-with-files behind a confirm.
 - **Bundle size.** Main chunk ≈ 975 kB (React Flow + TipTap + speech glue). Lazy-load `MindMap` like the
   map studio, and split the dictation worker chain further.
+- **APK size — the biggest single win.** The signed universal release APK is ~237 MB, and almost all of
+  it is offline-speech assets copied into `app/public/` by `npm run setup:speech`:
+  `public/ort/` ships **every** onnxruntime-web variant (asyncify 23 MB + jsep 26 MB + jspi 15 MB +
+  plain 13 MB) although the app only runs ORT single-threaded for `vad-web`, plus the ~42 MB Whisper
+  model. Copying just the one wasm variant that is actually loaded should cut the APK (and the Windows
+  installer) by well over 100 MB. Needs care: the wasm file is picked at runtime by the browser's
+  feature detection, so verify dictation still starts on Android and WebView2 after trimming.
+  A per-ABI APK (`--target aarch64`) is the interim answer for sideloading.
 
 ### P2 — quality of life
 - Focus/typewriter mode (dim everything but the current paragraph; keep the caret vertically centred).

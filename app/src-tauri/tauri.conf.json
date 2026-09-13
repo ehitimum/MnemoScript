@@ -2,6 +2,7 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "MnemoScript",
   "version": "2.0.0",
+  "mainBinaryName": "MnemoScript",
   "identifier": "com.mnemoscript.app",
   "build": {
     "frontendDist": "../dist",
@@ -12,10 +13,13 @@
     "windows": [
       {
         "title": "MnemoScript",
-        "width": 800,
-        "height": 600,
+        "width": 1280,
+        "height": 820,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "minWidth": 760,
+        "minHeight": 520,
+        "center": true
       }
     ],
     "security": {
@@ -39,6 +43,27 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "publisher": "ehitimum",
+    "category": "Productivity",
+    "shortDescription": "A calm, local-first writing studio",
+    "longDescription": "MnemoScript is a local-first writing studio for novelists and worldbuilders: a rich-text editor with a smooth caret, slash blocks, read-aloud and offline dictation; mind maps; a fantasy map studio; and a PDF book compiler. Projects are plain folders on your disk.",
+    "copyright": "Copyright (c) 2026 ehitimum",
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      },
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": [
+          "English"
+        ],
+        "displayLanguageSelector": false
+      },
+      "wix": {
+        "language": "en-US"
+      }
+    }
   }
 }

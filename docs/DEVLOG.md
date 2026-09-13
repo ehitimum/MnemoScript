@@ -5,6 +5,37 @@ Newest entries first. Dates are absolute.
 
 ---
 
+## 2026-09-13 — v2.0.0 packaging: Windows setup installer + signed Android APK
+
+Shippable builds for both platforms, verified by installing and launching them.
+
+- **Windows installer.** `tauri.conf.json` gained installer metadata (publisher, short/long
+  description, copyright, category) and a `bundle.windows` block: **NSIS per-user install mode** (no
+  UAC prompt), English-only, and a silent WebView2 `downloadBootstrapper`. Default window is now
+  1280×820 (min 760×520), centred. Output:
+  - `bundle/nsis/MnemoScript_2.0.0_x64-setup.exe` — wizard; installs to `%LOCALAPPDATA%\MnemoScript`,
+    creates Start-menu **and** desktop shortcuts, registers an uninstaller under *Settings → Apps*.
+  - `bundle/msi/MnemoScript_2.0.0_x64_en-US.msi` — for `msiexec` / managed deployment.
+  - `target/release/MnemoScript.exe` — portable.
+- **Fixed: the installed executable was `app.exe`.** The Cargo package is named `app`, and Tauri names
+  the binary after it, so the install folder and Task Manager showed a generic name. Added an explicit
+  `[[bin]] name = "MnemoScript"` plus `mainBinaryName` in `tauri.conf.json`. `[lib] name = "app_lib"`
+  is deliberately unchanged — `gen/android` links `libapp_lib.so` by that exact name.
+- **Android release signing.** Generated `gen/android/keystore.jks` and wired `signingConfigs` into
+  `gen/android/app/build.gradle.kts`, reading `keystore.properties`; both files are git-ignored, and
+  the gradle block degrades to an unsigned build if they are absent. A debug APK bundles all four ABIs
+  with debug symbols (~700 MB); the signed release APK is a fraction of that.
+- **Docs**: new [INSTALL.md](./INSTALL.md) (Windows wizard/MSI/portable/silent, SmartScreen, updating,
+  uninstalling; Android sideloading and the "back up your keystore" warning), README install sections,
+  `ANDROID.md` signing note. Artifacts are collected into the git-ignored `release/` folder.
+- **Verified on this machine**: ran the setup silently, confirmed the install folder, Start-menu and
+  desktop shortcuts and the *Add/Remove Programs* entry (publisher "ehitimum", version 2.0.0), launched
+  the app (window title "MnemoScript", WebView2 renderers up), and confirmed the backend created
+  `~/.mnemoscript/registry.json`.
+
+---
+
+
 ## 2026-09-11 — v2.0.0: test suites, CI, concurrency fix, release metadata
 
 - **Tests** (new; see [TESTING.md](./TESTING.md)): Vitest + jsdom + Testing Library — 47 unit tests
