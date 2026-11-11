@@ -35,9 +35,18 @@ tauri-plugin-fs = "2"
 uuid = { version = "1", features = ["v4", "serde"] }
 chrono = "0.4"
 dirs = "5"
+# AI assistant: async runtime pieces (process spawn, channels), HTTPS streaming to the
+# provider APIs (rustls/ring — no OpenSSL or CMake needed on Windows/Android).
+tokio = { version = "1", features = ["process", "io-util", "sync", "time", "macros", "rt"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json"] }
+futures-util = "0.3"
 
 # Native folder picker — desktop only (rfd has no Android/iOS backend). Mobile
 # uses the dialog/fs plugins instead.
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 rfd = "0.15"
+# OS secret store for API keys (Windows Credential Manager / macOS Keychain).
+keyring = { version = "3", features = ["windows-native", "apple-native"] }
+# Tiny local HTTP server for the in-app MCP endpoint the Claude Code CLI connects to.
+tiny_http = "0.12"
 

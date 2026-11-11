@@ -92,6 +92,17 @@ phone shell.
 
 ## 3. Roadmap (not done in this pass)
 
+### AI assistant (in progress on `feature/ai-assistant`)
+| Phase | Scope | Status |
+|---|---|---|
+| 0 | Feasibility spike: CLI lockdown, modes, cross-model handoff, usage data ([AI_PHASE0.md](./AI_PHASE0.md)) | ✅ done |
+| 1 | Backend engine (Claude Code bridge + Anthropic/OpenAI/Gemini API keys), per-project sessions, key storage, `lib/ai/` | ✅ done (no UI) |
+| 2 | Chat UI: desktop side panel + mobile AI tab, session list with model icons, model picker | next |
+| 3 | Write tools (text / mind map / map edits), Ask approval cards, Auto with snapshots + undo | |
+| 4 | Inline commands (`/polish`, `/proofread`, `/grammar`, `/shorten`, `/expand`, `/tone`) | |
+| 5 | Settings → AI: account, plan, usage bars, API keys, default mode | |
+| 6 | Gemini CLI + Codex bridges, OpenAI partner sign-in, phone ↔ desktop pairing | later |
+
 ### P1 — next sprint
 - **Grammar without the network.** `grammar-service.ts` posts every document to api.languagetool.org
   (privacy + offline). Options: bundle LanguageTool locally (desktop only, JVM), or switch to a WASM

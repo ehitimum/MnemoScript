@@ -5,6 +5,32 @@ Newest entries first. Dates are absolute.
 
 ---
 
+## 2026-11-12 — AI assistant, Phase 1: backend engine + `lib/ai`
+
+The engine behind the coming chat UI. Design: ARCHITECTURE.md → "AI assistant".
+
+- **Rust `src/ai/`**: provider-neutral turn engine with tool round-trips and cancellation
+  (`engine.rs`); Anthropic Messages (SSE, tool loop, thinking blocks passed back, server-side
+  refusal fallbacks), OpenAI Chat Completions and Gemini streaming adapters; Claude Code bridge
+  (`claude_code.rs`) with an in-app loopback MCP endpoint (`mcp_http.rs`, tiny_http); per-project
+  session files (`sessions.rs`); API keys in the OS secret store / app-private file (`secrets.rs`);
+  11 new commands (`ai_*`, `*_ai_session*`). New deps: tokio (process/sync), reqwest 0.12 (rustls/ring),
+  futures-util, keyring + tiny_http (desktop only).
+- **Frontend `src/lib/ai/`**: types, provider/model catalogue with per-message model switching,
+  document → plain-text conversion (chapters, mind maps, fantasy maps), read tools with mode
+  enforcement, context builder (transcript replay + model-switch note), session reducer, `runTurn`.
+  `api.ts` gained the AI calls (+ browser fallback: sessions in localStorage, providers unavailable).
+- **Data safety:** debug builds now use `~/.mnemoscript-dev` (Android `<app data>/dev`) and the
+  `MnemoScript-dev` keychain service, so development never touches the installed app's projects
+  or keys. `Project.ai` is omitted from project.json when unset.
+- **Verified:** 38 cargo tests + 13 new Vitest tests; Android arm64 `cargo check`; a live
+  end-to-end run (`cargo test live_claude_code -- --ignored`) — Claude Code called MnemoScript's
+  `list_documents` through the in-app MCP endpoint, and `haiku` → Claude Haiku 4.5 / `sonnet` →
+  Claude Sonnet 5 switched models on one subscription. API-key adapters are covered by stream
+  fixtures only (no keys on the dev machine yet).
+
+---
+
 ## 2026-11-12 — AI assistant, Phase 0 spike (branch `feature/ai-assistant`)
 
 Feasibility spike for the multi-provider AI chat. Findings in [AI_PHASE0.md](./AI_PHASE0.md).

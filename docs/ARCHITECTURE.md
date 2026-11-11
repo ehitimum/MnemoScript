@@ -32,8 +32,11 @@ A project is a folder (custom path, or `~/.mnemoscript/projects/<id>` by default
   project.json            # metadata (+ a documents snapshot)
   documents/<id>.json     # one file per document (source of truth on open)
   assets/<uuid>.<ext>     # imported images
+  ai/sessions/<id>.json   # AI chat sessions (per project — see "AI assistant")
 ```
 A global registry at `~/.mnemoscript/registry.json` maps project id → folder path.
+**Debug builds use `~/.mnemoscript-dev`** (Android: `<app data>/dev`), so `tauri dev` never reads or
+rewrites the installed app's projects.
 `list_projects` reads metadata only; **opening a project uses `load_project`**, which reads the
 `documents/` folder (so newly added docs show up).
 
@@ -155,6 +158,32 @@ controls live in `RightSidebar.tsx`.
   `coastPolylines()` (chained + Chaikin-smoothed marching-squares contour).
 - **`BookCompiler.tsx`** — File → "Compile to PDF Book": builds a print-CSS book HTML in a hidden
   iframe and calls `print()` → "Save as PDF". Text chapters only (mind maps excluded for now).
+
+## AI assistant (`src-tauri/src/ai/`, `src/lib/ai/`) — Phase 1: engine, no UI yet
+Feasibility and the reasoning behind the design: [AI_PHASE0.md](./AI_PHASE0.md).
+- **Providers.** `claude-code` = the writer's own installed Claude Code CLI and its own sign-in
+  (the only legitimate subscription route; MnemoScript never handles a Claude login). `anthropic`,
+  `openai`, `gemini` = API keys, usable on desktop and Android. One provider per project
+  (`Project.ai` → `ProjectAiConfig`); the **model is switchable per message** inside a provider
+  (Claude Code aliases `opus`/`sonnet`/`haiku`/`fable` resolve against the writer's plan). Catalogue:
+  `lib/ai/providers.ts`.
+- **Turn flow.** `lib/ai/client.ts#runTurn` builds a provider-neutral request from the session
+  (`context.ts`: system prompt + mode rules + replayed transcript, tool use as text summaries,
+  a note when earlier replies came from other models) → `ai_start_turn` with a Tauri `Channel` →
+  `engine.rs` runs the provider and streams `AiEvent`s (`started`, `textDelta`, `toolCall`, `usage`,
+  `rateLimit`, `done`, `error`).
+- **Tools run in the frontend for every provider.** A `toolCall` event is executed by
+  `lib/ai/tools.ts#executeTool` (where the documents live) and answered with `ai_tool_result`.
+  API providers run their own tool loop in Rust; Claude Code is started with **no built-in tools**
+  (`--tools ""`, empty cwd, clean env, `--setting-sources ""`) and pointed at an in-app MCP endpoint
+  (`mcp_http.rs`, `127.0.0.1:<port>/mcp/<per-turn token>`) that forwards `tools/call` to the same path.
+- **Modes** (`plan`/`ask`/`auto`) are enforced in code: plan mode never offers a write tool, and
+  `executeTool` refuses any tool the mode doesn't offer. Phase 1 has read tools only.
+- **Storage.** Sessions: `ai/sessions/<id>.json` in the project folder (`sessions.rs`; the schema
+  is `AiSession` in `lib/ai/types.ts`). API keys: OS secret store on desktop (`keyring`), app-private
+  file on Android (`secrets.rs`); the frontend can set/clear/check a key but never read it back.
+- **Usage data.** Claude Code emits `rateLimit` (window + reset time; `utilization` only near a
+  limit) and per-turn cost; API providers emit token counts.
 
 ## Styling
 Theme tokens (6 themes) live in `src/index.css` (`body.theme-*` CSS variables + Tailwind v4

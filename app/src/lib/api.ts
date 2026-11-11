@@ -1,5 +1,14 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke, Channel } from '@tauri-apps/api/core';
 import type { Project, Document, DocType } from '../types';
+import type {
+  AiEvent,
+  AiSession,
+  AiSessionSummary,
+  AiTurnRequest,
+  ApiKeyProvider,
+  CliStatus,
+  KeyStatus,
+} from './ai/types';
 
 /**
  * Typed wrapper around the Tauri backend commands defined in
@@ -126,6 +135,38 @@ export const api = {
 
   selectDirectory: () => call<string | null>('select_directory'),
 
+  /* ---------------------------- AI assistant ---------------------------- */
+  // Sessions are stored per project (`<project>/ai/sessions/`), so one project never sees another's.
+
+  listAiSessions: (projectId: string) => call<AiSessionSummary[]>('list_ai_sessions', { projectId }),
+  loadAiSession: (projectId: string, sessionId: string) => call<AiSession>('load_ai_session', { projectId, sessionId }),
+  saveAiSession: (projectId: string, session: AiSession) => call<void>('save_ai_session', { projectId, session }),
+  deleteAiSession: (projectId: string, sessionId: string) => call<void>('delete_ai_session', { projectId, sessionId }),
+
+  /** Which providers have an API key saved (keys are never returned to the frontend). */
+  aiKeyStatus: () => call<KeyStatus>('ai_key_status'),
+  aiSetApiKey: (provider: ApiKeyProvider, key: string) => call<void>('ai_set_api_key', { provider, key }),
+  aiClearApiKey: (provider: ApiKeyProvider) => call<void>('ai_clear_api_key', { provider }),
+  /** Claude Code CLI: installed / signed in / plan. */
+  aiCliStatus: () => call<CliStatus>('ai_cli_status'),
+
+  /**
+   * Start a turn. Events stream to `onEvent` until a terminal `done` / `error`. Tool calls must
+   * be answered with `aiToolResult` (see `lib/ai/client.ts`, which does this).
+   */
+  aiStartTurn: async (request: AiTurnRequest, onEvent: (e: AiEvent) => void): Promise<void> => {
+    if (!isTauri) {
+      await call<void>('ai_start_turn', { request });
+      return;
+    }
+    const channel = new Channel<AiEvent>();
+    channel.onmessage = onEvent;
+    await call<void>('ai_start_turn', { request, onEvent: channel });
+  },
+  aiToolResult: (turnId: string, callId: string, content: string, isError: boolean) =>
+    call<void>('ai_tool_result', { turnId, callId, content, isError }),
+  aiCancelTurn: (turnId: string) => call<boolean>('ai_cancel_turn', { turnId }),
+
   /**
    * Pick one or many images and copy them into the project's assets/, returning
    * their persisted paths. Used by the Fantasy Map builder to import custom icon
@@ -183,6 +224,21 @@ function loadStore(): Project[] {
 
 function saveStore(projects: Project[]): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
+}
+
+const aiStoreKey = (projectId: string) => `mnemoscript:ai-sessions:${projectId}`;
+
+function loadAiStore(projectId: string): AiSession[] {
+  try {
+    const raw = localStorage.getItem(aiStoreKey(projectId));
+    return raw ? (JSON.parse(raw) as AiSession[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveAiStore(projectId: string, sessions: AiSession[]): void {
+  localStorage.setItem(aiStoreKey(projectId), JSON.stringify(sessions));
 }
 
 function findProject(projects: Project[], id: string): Project {
@@ -284,6 +340,48 @@ async function browserBackend<T>(cmd: string, args: Record<string, unknown>): Pr
       saveStore(projects);
       return project as T;
     }
+
+    // AI sessions: same per-project scoping as on disk, one localStorage key per project.
+    case 'list_ai_sessions':
+      return loadAiStore(String(args.projectId))
+        .map((s) => ({
+          id: s.id, title: s.title, provider: s.provider, models: s.models, createdAt: s.createdAt,
+          updatedAt: s.updatedAt, messageCount: s.messages.length,
+        }))
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)) as T;
+
+    case 'load_ai_session': {
+      const s = loadAiStore(String(args.projectId)).find((x) => x.id === args.sessionId);
+      if (!s) throw new Error('This AI session no longer exists');
+      return s as T;
+    }
+
+    case 'save_ai_session': {
+      const pid = String(args.projectId);
+      const incoming = args.session as AiSession;
+      saveAiStore(pid, [...loadAiStore(pid).filter((s) => s.id !== incoming.id), incoming]);
+      return undefined as T;
+    }
+
+    case 'delete_ai_session': {
+      const pid = String(args.projectId);
+      saveAiStore(pid, loadAiStore(pid).filter((s) => s.id !== args.sessionId));
+      return undefined as T;
+    }
+
+    // AI providers run in the native backend only (API keys + CLIs never touch the web view).
+    case 'ai_key_status':
+      return { anthropic: false, openai: false, gemini: false } as T;
+    case 'ai_cli_status':
+      return { installed: false, loggedIn: false } as T;
+    case 'ai_set_api_key':
+    case 'ai_clear_api_key':
+    case 'ai_start_turn':
+      throw new Error('The AI assistant needs the MnemoScript desktop or Android app.');
+    case 'ai_tool_result':
+      return undefined as T;
+    case 'ai_cancel_turn':
+      return false as T;
 
     // Native-only: no equivalent in a plain browser.
     case 'import_image':

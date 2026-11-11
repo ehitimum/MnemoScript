@@ -1,3 +1,4 @@
+mod ai;
 mod project;
 
 use project::{Document, Project, Registry};
@@ -289,14 +290,19 @@ pub fn run() {
             // lived; on mobile use the app-private data dir (the only writable
             // location). Resolved here so the rest of the backend stays platform
             // agnostic.
+            //
+            // Debug builds (`tauri dev`, `npx tauri android dev`) get their own folder so
+            // development never reads, migrates or rewrites the projects of the installed app.
             let base: std::path::PathBuf = if cfg!(any(target_os = "android", target_os = "ios")) {
-                app.path()
+                let dir = app
+                    .path()
                     .app_data_dir()
-                    .map_err(|e| format!("no app data dir: {e}"))?
+                    .map_err(|e| format!("no app data dir: {e}"))?;
+                if cfg!(debug_assertions) { dir.join("dev") } else { dir }
             } else {
                 dirs::home_dir()
                     .ok_or("Could not find home directory")?
-                    .join(".mnemoscript")
+                    .join(if cfg!(debug_assertions) { ".mnemoscript-dev" } else { ".mnemoscript" })
             };
             fs::create_dir_all(&base).ok();
             project::init_data_dir(base);
@@ -325,6 +331,17 @@ pub fn run() {
             export_file,
             select_directory,
             open_project_by_path,
+            ai::commands::list_ai_sessions,
+            ai::commands::load_ai_session,
+            ai::commands::save_ai_session,
+            ai::commands::delete_ai_session,
+            ai::commands::ai_key_status,
+            ai::commands::ai_set_api_key,
+            ai::commands::ai_clear_api_key,
+            ai::commands::ai_cli_status,
+            ai::commands::ai_start_turn,
+            ai::commands::ai_tool_result,
+            ai::commands::ai_cancel_turn,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

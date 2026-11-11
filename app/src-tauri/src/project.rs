@@ -56,7 +56,7 @@ pub fn safe_dir_name(name: &str) -> String {
 
 /// The storage base dir. Falls back to `~/.mnemoscript` only if init was somehow
 /// skipped (e.g. unit tests), so paths are always well-defined.
-fn data_dir() -> PathBuf {
+pub(crate) fn data_dir() -> PathBuf {
     DATA_DIR.get().cloned().unwrap_or_else(|| {
         dirs::home_dir()
             .map(|h| h.join(".mnemoscript"))
@@ -80,6 +80,11 @@ pub struct Project {
     /// Persisted in project.json (documents are reloaded from disk; folders are not).
     #[serde(default)]
     pub folders: Vec<Folder>,
+    /// AI assistant settings for this project (connected provider + model, default mode).
+    /// Owned by the frontend (`lib/ai/types.ts` → `ProjectAiConfig`) and stored opaquely.
+    /// Left out of project.json when unset, so older app versions see no change.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ai: Option<serde_json::Value>,
 }
 
 fn default_doc_type() -> String {
@@ -203,6 +208,7 @@ impl Project {
             path,
             documents: Vec::new(),
             folders: Vec::new(),
+            ai: None,
         }
     }
 
