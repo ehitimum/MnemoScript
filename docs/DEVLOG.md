@@ -5,6 +5,18 @@ Newest entries first. Dates are absolute.
 
 ---
 
+## 2026-11-12 — AI assistant, Phase 0 spike (branch `feature/ai-assistant`)
+
+Feasibility spike for the multi-provider AI chat. Findings in [AI_PHASE0.md](./AI_PHASE0.md).
+
+- `app/scripts/ai-spike/mnemo-mcp.mjs` — dependency-free MCP server exposing project tools
+  (`list_documents`, `read_document`, `edit_text`, `add_mindmap_node`); plan/ask/auto enforced server-side.
+- `app/scripts/ai-spike/run-spike.mjs` — drives the user's own Claude Code CLI headlessly with all
+  built-in tools disabled; tests lockdown, ask, plan, cross-model handoff and usage data. All pass.
+- Outcome: one session can span models (plan A). Exact limit percentages are only reported near a limit.
+
+---
+
 ## 2026-09-13 — v2.0.0 packaging: Windows setup installer + signed Android APK
 
 Shippable builds for both platforms, verified by installing and launching them.
