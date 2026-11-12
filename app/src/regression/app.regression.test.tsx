@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { beforeAll, describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 import type { Editor as TiptapEditor } from '@tiptap/react';
 import type { Project } from '../types';
@@ -10,6 +10,12 @@ async function loadApp(search = '') {
   const mod = await import('../App');
   return mod.default;
 }
+
+// The first import of the whole App (TipTap, React Flow, …) is slow when every suite starts at
+// once; warm Vite's transform cache here so a cold start can't time out the first test.
+beforeAll(async () => {
+  await import('../App');
+}, 60000);
 
 function storedProjects(): Project[] {
   return JSON.parse(localStorage.getItem('mnemoscript:projects') || '[]') as Project[];
@@ -42,7 +48,7 @@ describe('App shell selection (regression)', () => {
     render(<App />);
     expect(await screen.findByText('Your Projects')).toBeInTheDocument();
     const tabs = within(document.querySelector('.mn-tabbar') as HTMLElement).getAllByRole('button');
-    expect(tabs.map((t) => t.textContent?.trim())).toEqual(['Library', 'Write', 'Tools', 'Settings']);
+    expect(tabs.map((t) => t.textContent?.trim())).toEqual(['Library', 'Write', 'AI', 'Tools', 'Settings']);
   });
 });
 

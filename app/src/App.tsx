@@ -14,6 +14,9 @@ import RightSidebar from './components/RightSidebar';
 import MobileShell from './components/mobile/MobileShell';
 import ProjectCreationModal from './components/ProjectCreationModal';
 import BookCompiler from './components/BookCompiler';
+import AiScope from './components/ai/AiScope';
+import AiPanel from './components/ai/AiPanel';
+import type { ProjectAiConfig } from './lib/ai/types';
 import { api } from './lib/api';
 import { useShell, isTauri, isMobileOS } from './lib/platform';
 import { THEMES } from './lib/prefs';
@@ -37,6 +40,7 @@ import {
   PenLine,
   MousePointer2,
   AlertTriangle,
+  Sparkles,
 } from 'lucide-react';
 
 export type ThemeType = 'dark' | 'light' | 'glass' | 'ocean' | 'forest' | 'sunset';
@@ -123,7 +127,17 @@ function App() {
   // narrow-viewport flag only collapses the desktop panels into drawers.
   const { isMobileShell, isNarrow } = useShell();
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(!isNarrow);
-  const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
+  const [isRightSidebarOpen, setFormatOpen] = useState(false);
+  const [isAiOpen, setAiOpen] = useState(false);
+  // The Format and AI panels share the right edge: opening one closes the other.
+  const setIsRightSidebarOpen = useCallback((open: boolean) => {
+    setFormatOpen(open);
+    if (open) setAiOpen(false);
+  }, []);
+  const setIsAiOpen = useCallback((open: boolean) => {
+    setAiOpen(open);
+    if (open) setFormatOpen(false);
+  }, []);
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
 
   // When crossing the breakpoint, show the explorer on wide windows and collapse
@@ -132,7 +146,8 @@ function App() {
   if (prevNarrow !== isNarrow) {
     setPrevNarrow(isNarrow);
     setIsLeftSidebarOpen(!isNarrow);
-    setIsRightSidebarOpen(false);
+    setFormatOpen(false);
+    setAiOpen(false);
   }
 
   const [activeEditor, setActiveEditor] = useState<TiptapEditor | null>(null);
@@ -344,6 +359,19 @@ function App() {
     }
   };
 
+  /** Persist the project's AI connection (provider + model + mode) in project.json. */
+  const handleUpdateProjectAi = useCallback(
+    (ai: ProjectAiConfig) => {
+      const proj = selectedProjectRef.current;
+      if (!proj) return;
+      const updated = { ...proj, ai, folders, documents };
+      setSelectedProject(updated);
+      setProjects((prev) => prev.map((p) => (p.id === updated.id ? { ...p, ai } : p)));
+      api.saveProject(updated).catch((e) => console.error('Failed to save AI settings:', e));
+    },
+    [folders, documents],
+  );
+
   /** Persist the folder tree (folders live in project.json, saved via save_project). */
   const persistFolders = useCallback(
     async (nextFolders: Folder[]) => {
@@ -550,6 +578,10 @@ function App() {
       } else if (mod && e.key.toLowerCase() === 's') {
         e.preventDefault();
         if (selectedDocumentRef.current) persistCurrent();
+      } else if (mod && !e.shiftKey && e.key.toLowerCase() === 'l' && selectedProjectRef.current) {
+        e.preventDefault();
+        setAiOpen((o) => !o);
+        setFormatOpen(false); // the panels are exclusive, so Format is closed either way
       }
     };
     window.addEventListener('keydown', onKey);
@@ -586,6 +618,7 @@ function App() {
     },
     { id: 'toggle-explorer', label: 'Toggle Explorer', group: 'View', icon: PanelLeft, run: () => setIsLeftSidebarOpen(!isLeftSidebarOpen) },
     { id: 'toggle-format', label: 'Toggle Format Panel', group: 'View', icon: PanelRight, run: () => setIsRightSidebarOpen(!isRightSidebarOpen) },
+    { id: 'toggle-ai', label: isAiOpen ? 'Close AI Assistant' : 'Open AI Assistant', group: 'View', icon: Sparkles, disabled: !selectedProject, run: () => setIsAiOpen(!isAiOpen) },
     { id: 'settings', label: 'Settings', group: 'Tools', icon: Settings, run: () => setIsEditingSettings(true) },
     {
       id: 'smooth-caret',
@@ -673,6 +706,7 @@ function App() {
           setAutoSaveInterval={setAutoSaveInterval}
           theme={theme}
           setTheme={setTheme}
+          onUpdateProjectAi={handleUpdateProjectAi}
         />
       ) : (
         <>
@@ -690,6 +724,9 @@ function App() {
             setIsLeftSidebarOpen={setIsLeftSidebarOpen}
             isRightSidebarOpen={isRightSidebarOpen}
             setIsRightSidebarOpen={setIsRightSidebarOpen}
+            canFormat={isTextDoc}
+            isAiOpen={isAiOpen}
+            setIsAiOpen={setIsAiOpen}
           />
 
           {isEditingSettings && !selectedProject ? (
@@ -786,6 +823,15 @@ function App() {
               </div>
             </div>
           ) : (
+            <AiScope
+              key={selectedProject.id}
+              project={selectedProject}
+              documents={documents}
+              activeDocument={selectedDocument}
+              isMobile={false}
+              onConfigChange={handleUpdateProjectAi}
+            >
+            {(chat) => (
             <div className="flex-1 flex overflow-hidden relative">
               {isLeftSidebarOpen &&
                 (() => {
@@ -883,7 +929,23 @@ function App() {
                     panel
                   );
                 })()}
+
+              {isAiOpen &&
+                (() => {
+                  const panel = (
+                    <AiPanel chat={chat} documents={documents} projectName={selectedProject.name} onClose={() => setIsAiOpen(false)} />
+                  );
+                  return isNarrow ? (
+                    <Drawer side="right" onClose={() => setIsAiOpen(false)}>
+                      {panel}
+                    </Drawer>
+                  ) : (
+                    panel
+                  );
+                })()}
             </div>
+            )}
+            </AiScope>
           )}
 
           {/* Status bar */}

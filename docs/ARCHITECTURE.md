@@ -159,7 +159,7 @@ controls live in `RightSidebar.tsx`.
 - **`BookCompiler.tsx`** — File → "Compile to PDF Book": builds a print-CSS book HTML in a hidden
   iframe and calls `print()` → "Save as PDF". Text chapters only (mind maps excluded for now).
 
-## AI assistant (`src-tauri/src/ai/`, `src/lib/ai/`) — Phase 1: engine, no UI yet
+## AI assistant (`src-tauri/src/ai/`, `src/lib/ai/`, `src/components/ai/`)
 Feasibility and the reasoning behind the design: [AI_PHASE0.md](./AI_PHASE0.md).
 - **Providers.** `claude-code` = the writer's own installed Claude Code CLI and its own sign-in
   (the only legitimate subscription route; MnemoScript never handles a Claude login). `anthropic`,
@@ -184,6 +184,21 @@ Feasibility and the reasoning behind the design: [AI_PHASE0.md](./AI_PHASE0.md).
   file on Android (`secrets.rs`); the frontend can set/clear/check a key but never read it back.
 - **Usage data.** Claude Code emits `rateLimit` (window + reset time; `utilization` only near a
   limit) and per-turn cost; API providers emit token counts.
+- **UI (Phase 2).** `lib/ai/useAiChat.ts` holds all chat state for one project (sessions, active
+  session, view `chat`/`sessions`/`connect`, readiness, streaming batched to one render per frame,
+  save-on-send + save-on-finish). `components/ai/AiScope.tsx` mounts it **above** the panel/screen
+  (keyed by project id), so closing the panel or switching tabs never kills a running reply and a
+  different project always starts clean. Shared pieces (`size: 'sm' | 'lg'`, like `controls/`):
+  `AiChatBody` → `AiConnect` / `AiSessions` / `AiMessages` (safe React-element `Markdown`, tool chips,
+  error cards with the fix) + `AiComposer` (Plan/Ask/Auto switch, per-message model picker: popover on
+  desktop, `BottomSheet` on phones). `ModelBadge`/`ModelStack` = the per-vendor letter marks.
+  - **Desktop:** `AiPanel` on the right edge (Format-panel chrome), toggled from the top bar's ✦ AI
+    button, ⌘K "Open AI Assistant" or **Ctrl/⌘+L**; Format and AI panels are mutually exclusive; narrow
+    windows show it in the right `Drawer`.
+  - **Phone:** 5th tab **AI** (Library / Write / AI / Tools / Settings, needs an open project) →
+    `MobileAiScreen`: top bar → transcript → composer, all in normal flow (nothing floats over the
+    text). While the composer has focus the shell hides the tab bar; `useKeyboardInset` lifts the screen
+    when an edge-to-edge WebView doesn't resize for the keyboard. Only API-key providers are offered.
 
 ## Styling
 Theme tokens (6 themes) live in `src/index.css` (`body.theme-*` CSS variables + Tailwind v4

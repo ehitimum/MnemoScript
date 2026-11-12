@@ -38,6 +38,22 @@ Three layers, all run by CI (`.github/workflows/ci.yml`) on every push:
 with content-free `project.json`, registry add/forget, corrupt document tolerance, ordering + idempotent
 delete, legacy `project.json` without new fields, missing-document errors.
 
+**AI assistant** (added 2026-11-12)
+- Unit `lib/ai/ai.test.ts` — model labels/vendors, phone provider list, document → text, tool mode
+  enforcement, context replay across models, session reducer, `runTurn` tool round trip, per-project
+  session storage.
+- Regression `regression/ai.regression.test.tsx` — desktop panel (Ctrl+L, connect screen, a full mocked
+  turn saved to the right project with its model), phone AI tab (needs a project, API-key providers only,
+  tab bar hides while the composer has focus).
+- Backend `cargo test ai::` — SSE parsing, the three API stream accumulators, Claude Code stream-json,
+  MCP JSON-RPC, turn registry/cancel, session files, key storage. Live (costs a little usage, so
+  `#[ignore]`d): `cargo test live_claude_code -- --ignored --nocapture`.
+- UI work in a browser: `npm run dev`, open `http://127.0.0.1:1420/?aimock` (add `&shell=mobile` for the
+  phone). `?aimock` (or `localStorage['mnemoscript:aimock']='1'`) turns on `lib/ai/devMock.ts`, a fake
+  provider for the browser fallback only — never in the Tauri app.
+- The App-mounting suites warm `import('../App')` in `beforeAll`: a cold parallel import could exceed
+  the 15 s test timeout and cascade into duplicate-render failures.
+
 ## jsdom notes
 `src/test/setup.ts` stubs `ResizeObserver`, `matchMedia`, `fetch` (LanguageTool is never contacted),
 `scrollIntoView` and `elementFromPoint` (ProseMirror's viewport plugin). Konva needs a real canvas, so

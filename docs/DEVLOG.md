@@ -5,6 +5,29 @@ Newest entries first. Dates are absolute.
 
 ---
 
+## 2026-11-12 — AI assistant, Phase 2: chat UI (desktop panel + phone AI tab)
+
+- **Desktop:** right-edge `AiPanel` (same chrome as Format; the two are mutually exclusive), opened
+  from the top bar's ✦ AI button, ⌘K or **Ctrl/⌘+L**. Header: sessions, new session, connection, close.
+- **Phone:** new **AI** tab (5 tabs) → `MobileAiScreen`; composer sits in the flow above the tab bar,
+  the tab bar hides while typing, `useKeyboardInset` covers non-resizing WebViews. Model picker is a
+  bottom sheet. API-key providers only (no CLI on Android).
+- **Shared:** `useAiChat` + `AiScope` (state survives closing the panel), connect screen (Claude Code
+  status + `claude auth login` hint; API-key entry), per-project session list with model marks,
+  transcript with Markdown, tool chips and actionable error cards, Plan/Ask/Auto switch, model picker
+  with custom ids. Write tools arrive in Phase 3, so Ask/Auto currently read only.
+- **Fixed:** `MobileTopBar` used `flex-0` (Tailwind v4: `flex: 0`, i.e. shrinkable) and was squashed
+  to 37 px when the screen below it overflowed → `shrink-0`. Format toggle is disabled for non-text docs.
+- **Dev tooling:** `?aimock` mock provider for the browser preview (`lib/ai/devMock.ts`); Vite now
+  scans only `index.html` and ignores `src-tauri/**` (a big `target/` made first-run dependency
+  scanning hang); `.claude/launch.json` binds `--host 0.0.0.0` and opens 127.0.0.1.
+- **Tests:** 3 new App-level regression tests; the App-mounting suites warm the App import in
+  `beforeAll` (fixes the cold-start timeout flake). 81/81 Vitest, lint 0, build OK. Verified in the
+  browser preview at 1280×720 and 375×812: no horizontal overflow, header 56 px, transcript /
+  composer / tab bar don't overlap, sessions isolated per project, model switch recorded per reply.
+
+---
+
 ## 2026-11-12 — AI assistant, Phase 1: backend engine + `lib/ai`
 
 The engine behind the coming chat UI. Design: ARCHITECTURE.md → "AI assistant".

@@ -29,6 +29,7 @@ interface ApiResponse<T> {
 }
 
 import { isTauri } from './platform';
+import { aiMockEnabled, mockToolResult, mockTurn } from './ai/devMock';
 
 async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   if (!isTauri) {
@@ -156,6 +157,7 @@ export const api = {
    */
   aiStartTurn: async (request: AiTurnRequest, onEvent: (e: AiEvent) => void): Promise<void> => {
     if (!isTauri) {
+      if (aiMockEnabled()) return mockTurn(request, onEvent); // browser preview only
       await call<void>('ai_start_turn', { request });
       return;
     }
@@ -371,14 +373,17 @@ async function browserBackend<T>(cmd: string, args: Record<string, unknown>): Pr
 
     // AI providers run in the native backend only (API keys + CLIs never touch the web view).
     case 'ai_key_status':
-      return { anthropic: false, openai: false, gemini: false } as T;
+      return { anthropic: aiMockEnabled(), openai: false, gemini: false } as T;
     case 'ai_cli_status':
-      return { installed: false, loggedIn: false } as T;
+      return (aiMockEnabled()
+        ? { installed: true, loggedIn: true, version: '2.1.215 (mock)', email: 'writer@example.com', plan: 'pro' }
+        : { installed: false, loggedIn: false }) as T;
     case 'ai_set_api_key':
     case 'ai_clear_api_key':
     case 'ai_start_turn':
       throw new Error('The AI assistant needs the MnemoScript desktop or Android app.');
     case 'ai_tool_result':
+      mockToolResult(String(args.callId));
       return undefined as T;
     case 'ai_cancel_turn':
       return false as T;

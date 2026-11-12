@@ -10,6 +10,10 @@ import MobileTabBar, { type MobileTab } from './MobileTabBar';
 import MobileLibrary from './MobileLibrary';
 import MobileSettings from './MobileSettings';
 import ToolsSheet from './ToolsSheet';
+import AiScope from '../ai/AiScope';
+import MobileAiScreen from '../ai/MobileAiScreen';
+import type { ProjectAiConfig } from '../../lib/ai/types';
+import type { AiChat } from '../../lib/ai/useAiChat';
 
 const FantasyMap = lazy(() => import('../FantasyMap'));
 
@@ -52,11 +56,12 @@ interface Props {
   setAutoSaveInterval: (n: number) => void;
   theme: ThemeType;
   setTheme: (t: ThemeType) => void;
+  onUpdateProjectAi: (config: ProjectAiConfig) => void;
 }
 
 /**
  * Phone-native shell: a slim top bar (Write only), a full-screen active screen,
- * and a bottom tab bar (Library / Write / Tools / Settings). Tools opens a bottom
+ * and a bottom tab bar (Library / Write / AI / Tools / Settings). Tools opens a bottom
  * sheet over the editor. Completely separate from the desktop layout.
  */
 function MobileShell(props: Props) {
@@ -83,10 +88,13 @@ function MobileShell(props: Props) {
     persistCurrent,
     theme,
     setTheme,
+    onUpdateProjectAi,
   } = props;
 
   const [tab, setTab] = useState<MobileTab>('library');
   const [toolsOpen, setToolsOpen] = useState(false);
+  // While the AI composer has focus the keyboard is up: give the tab bar's 56px back to the chat.
+  const [aiTyping, setAiTyping] = useState(false);
 
   const isText = selectedDocument?.docType === 'text';
   const isMindMap = selectedDocument?.docType === 'mindmap';
@@ -163,9 +171,12 @@ function MobileShell(props: Props) {
     );
   };
 
-  return (
+  // The AI tab needs a project; if it's closed while on the AI tab, fall back to the Library.
+  const activeTab: MobileTab = tab === 'ai' && !selectedProject ? 'library' : tab;
+
+  const shell = (chat: AiChat | null) => (
     <div className="flex-1 flex flex-col min-h-0">
-      {tab === 'write' && selectedDocument && (
+      {activeTab === 'write' && selectedDocument && (
         <MobileTopBar
           title={selectedDocument.title}
           subtitle={selectedProject?.name}
@@ -188,7 +199,7 @@ function MobileShell(props: Props) {
       )}
 
       <main className="flex-1 flex flex-col min-h-0 overflow-hidden">
-        {tab === 'library' && (
+        {activeTab === 'library' && (
           <MobileLibrary
             selectedProject={selectedProject}
             projects={projects}
@@ -210,9 +221,13 @@ function MobileShell(props: Props) {
           />
         )}
 
-        {tab === 'write' && renderWrite()}
+        {activeTab === 'write' && renderWrite()}
 
-        {tab === 'settings' && (
+        {activeTab === 'ai' && chat && selectedProject && (
+          <MobileAiScreen chat={chat} documents={documents} projectName={selectedProject.name} onComposerFocus={setAiTyping} />
+        )}
+
+        {activeTab === 'settings' && (
           <MobileSettings
             theme={theme}
             setTheme={setTheme}
@@ -232,17 +247,34 @@ function MobileShell(props: Props) {
         )}
       </main>
 
+      {!(activeTab === 'ai' && aiTyping) && (
       <MobileTabBar
-        tab={tab}
+        tab={activeTab}
         onTab={goTab}
         onTools={() => setToolsOpen((o) => !o)}
         toolsActive={toolsOpen}
         canWrite={!!selectedDocument}
-        canTools={isText && tab === 'write'}
+        canTools={isText && activeTab === 'write'}
+        canAi={!!selectedProject}
       />
+      )}
 
-      <ToolsSheet open={toolsOpen} onClose={() => setToolsOpen(false)} editor={activeEditor} />
+      <ToolsSheet open={toolsOpen && activeTab === 'write'} onClose={() => setToolsOpen(false)} editor={activeEditor} />
     </div>
+  );
+
+  if (!selectedProject) return shell(null);
+  return (
+    <AiScope
+      key={selectedProject.id}
+      project={selectedProject}
+      documents={documents}
+      activeDocument={selectedDocument}
+      isMobile
+      onConfigChange={onUpdateProjectAi}
+    >
+      {(chat) => shell(chat)}
+    </AiScope>
   );
 }
 

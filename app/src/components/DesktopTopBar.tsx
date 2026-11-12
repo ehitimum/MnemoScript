@@ -8,6 +8,7 @@ import {
   PanelRight,
   Search,
   ChevronRight,
+  Sparkles,
 } from 'lucide-react';
 
 interface Props {
@@ -24,6 +25,10 @@ interface Props {
   setIsLeftSidebarOpen: (v: boolean) => void;
   isRightSidebarOpen: boolean;
   setIsRightSidebarOpen: (v: boolean) => void;
+  /** The Format panel only applies to text documents. */
+  canFormat: boolean;
+  isAiOpen: boolean;
+  setIsAiOpen: (v: boolean) => void;
 }
 
 const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform);
@@ -44,6 +49,9 @@ function DesktopTopBar({
   setIsLeftSidebarOpen,
   isRightSidebarOpen,
   setIsRightSidebarOpen,
+  canFormat,
+  isAiOpen,
+  setIsAiOpen,
 }: Props) {
   const iconBtn =
     'w-8 h-8 flex items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary/60 hover:text-foreground active:scale-95 transition-all cursor-pointer disabled:opacity-35 disabled:pointer-events-none';
@@ -102,8 +110,21 @@ function DesktopTopBar({
           <button className={toggleBtn(isLeftSidebarOpen)} onClick={() => setIsLeftSidebarOpen(!isLeftSidebarOpen)} title="Toggle explorer">
             <PanelLeft className="w-4 h-4" />
           </button>
-          <button className={toggleBtn(isRightSidebarOpen)} onClick={() => setIsRightSidebarOpen(!isRightSidebarOpen)} title="Toggle format panel">
+          <button
+            className={`${toggleBtn(isRightSidebarOpen && canFormat)} disabled:opacity-35 disabled:pointer-events-none`}
+            onClick={() => setIsRightSidebarOpen(!isRightSidebarOpen)}
+            disabled={!canFormat}
+            title="Toggle format panel"
+          >
             <PanelRight className="w-4 h-4" />
+          </button>
+          <button
+            className={`${toggleBtn(isAiOpen)} gap-1.5 w-auto px-2.5`}
+            onClick={() => setIsAiOpen(!isAiOpen)}
+            title={`AI assistant (${isMac ? '⌘' : 'Ctrl'}+L)`}
+          >
+            <Sparkles className="w-4 h-4" />
+            <span className="hidden md:inline text-xs font-medium">AI</span>
           </button>
         </>
       )}
