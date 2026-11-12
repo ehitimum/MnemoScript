@@ -3,6 +3,15 @@
 A running log of substantive changes, so future work needs less re-discovery.
 Newest entries first. Dates are absolute.
 
+## 2026-11-12 — Match CI and release Node runtime to locked DOM dependencies
+
+- Remote CI failed before test collection: Node 20 lacks APIs needed by locked jsdom 30 /
+  undici 8 (`webidl.util.markAsUncloneable`). Local verification ran on Node 24.15.0.
+- Pin Node 24.15.0 in `.node-version`, use it for both CI and release builds, declare the
+  supported 24.x runtime in package engines/lock metadata and update setup instructions.
+- Add a regression that starts the actual pinned jsdom in a fresh Node worker and checks a
+  synthetic Unicode chapter. Existing full suites remain the main runtime compatibility gate.
+
 ---
 
 ## 2026-11-12 — ChatGPT plan through Codex CLI
