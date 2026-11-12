@@ -3,6 +3,14 @@
 A quick map of how the app is put together, so changes don't require re-reading everything.
 For the chronological change history see [DEVLOG.md](./DEVLOG.md).
 
+## MnemoSync development
+
+The serverless sync strategy and dependency gates live in
+[MNEMOSYNC_ARCHITECTURE.md](./MNEMOSYNC_ARCHITECTURE.md), with a separate
+[threat model](./MNEMOSYNC_THREAT_MODEL.md), [migration contract](./MNEMOSYNC_MIGRATIONS.md)
+and [test matrix](./MNEMOSYNC_TEST_MATRIX.md). Start from current AI feature HEAD, not stale main.
+Phase 0 introduces recovery archives; LAN/Drive and Smart Merge remain later gated phases.
+
 ## Stack
 - **Shell:** Tauri 2 (Rust backend + system WebView).
 - **Frontend:** React 19 + TypeScript + Vite 8, Tailwind CSS v4.

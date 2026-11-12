@@ -5,6 +5,12 @@ _Assessed 2026-09-11 on branch `v1_stable_UI` (HEAD `1a4535f`); shipped as v2.0.
 
 ## 1. Where the codebase stands
 
+**MnemoSync (2026-11-12):** development starts from the integrated AI feature HEAD. Strategy,
+ADRs and security/test gates: [MNEMOSYNC_ARCHITECTURE.md](./MNEMOSYNC_ARCHITECTURE.md).
+First deliverable is native checked backup/restore with existing desktop/phone settings styling;
+then SQLite/IndexedDB and portable assets, Smart Merge, shared replay engine, LAN, Drive, hybrid
+and recovery UX. The Android/installed-app gate remains pending until actual device evidence.
+
 **Stack:** Tauri 2 (Rust) · React 19 + TypeScript 6 · Vite 8 · Tailwind v4 · TipTap 3 · React Flow 12 ·
 Konva 10. Three targets share one codebase: Windows desktop (WebView2), Android (Tauri mobile), and the
 web build (browser fallback backend in `lib/api.ts` → localStorage).

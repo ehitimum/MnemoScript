@@ -3,6 +3,33 @@
 A running log of substantive changes, so future work needs less re-discovery.
 Newest entries first. Dates are absolute.
 
+## 2026-11-12 — Isolate AI revisions from nearby typing in undo history
+
+- After fixing the CI runtime, Linux exposed a real timing bug: a fast accepted AI rewrite
+  could join the preceding edit's history group, so Undo removed both. Explicit history
+  boundaries now separate word rewrites, structural rewrites and continuations from typing
+  on either side. Preview, formatting and stale-text behavior stay the same.
+- Three fixed-clock editor regressions verify undo/redo across the writer's prior edit,
+  the AI change and following typing; existing full-App slash/Accept/Undo coverage remains.
+
+## 2026-11-12 — Match CI and release Node runtime to locked DOM dependencies
+
+- Remote CI failed before test collection: Node 20 lacks APIs needed by locked jsdom 30 /
+  undici 8 (`webidl.util.markAsUncloneable`). Local verification ran on Node 24.15.0.
+- Pin Node 24.15.0 in `.node-version`, use it for both CI and release builds, declare the
+  supported 24.x runtime in package engines/lock metadata and update setup instructions.
+- Add a regression that starts the actual pinned jsdom in a fresh Node worker and checks a
+  synthetic Unicode chapter. Existing full suites remain the main runtime compatibility gate.
+
+## 2026-11-12 — MnemoSync strategy and initial recovery slice
+
+- Extracted the supplied development plan and MEMORY.md under `docs/mnemosync/`; treated as
+  reference documents. Verified PR #1 is open and feature HEAD is still `0f15939e2f30`.
+- Recorded architecture decisions, threat model, schema/migration contract, phased PR strategy
+  and an honest automated/device/visual acceptance matrix. Preserve current AI work and UI shells.
+- Phase 0 implementation begins with checked native ZIP recovery; transports and Smart Merge
+  remain gated follow-on work. Baseline `npm run check`: 116 tests, lint/types/build pass.
+
 ---
 
 ## 2026-11-12 — ChatGPT plan through Codex CLI

@@ -20,7 +20,7 @@ Map studio: [docs/FANTASYMAP.md](docs/FANTASYMAP.md) · Android: [docs/ANDROID.m
 
 ## Getting started
 
-Prerequisites: Node.js 20+, Rust (stable), and on Windows the MSVC build tools.
+Prerequisites: Node.js 24.15+ (24.x, pinned in `.node-version`), Rust (stable), and on Windows the MSVC build tools.
 
 ```bash
 cd app
