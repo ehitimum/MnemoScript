@@ -3,6 +3,7 @@ import { buildTurnRequest, type TurnContext } from './context';
 import { addUserMessage, applyEvent, recordProposal, recordToolResult, startAssistantMessage, uid, withAssistantMessage } from './session';
 import { executeTool, type ProjectAccess } from './tools';
 import type { AiEvent, AiSession, AiTurnRequest } from './types';
+import { recordUsage } from './usage';
 
 /** Backend surface the turn runner needs (the real one is `api`; tests inject a fake). */
 export interface AiTransport {
@@ -68,6 +69,9 @@ export function runTurn(opts: RunTurnOptions): RunningTurn {
       if (ev.type === 'rateLimit') {
         opts.onRateLimit?.(ev);
         return;
+      }
+      if (ev.type === 'usage') {
+        recordUsage({ provider: opts.provider, model: reply.model, inputTokens: ev.inputTokens, outputTokens: ev.outputTokens, costUsd: ev.costUsd });
       }
       update(applyEvent(reply, ev));
       if (ev.type === 'toolCall') {
@@ -139,6 +143,9 @@ export function runInlineTurn(opts: InlineTurnOptions): { done: Promise<InlineRe
           break;
         case 'rateLimit':
           opts.onRateLimit?.(ev);
+          break;
+        case 'usage':
+          recordUsage({ provider: opts.provider, model: acc.model, inputTokens: ev.inputTokens, outputTokens: ev.outputTokens, costUsd: ev.costUsd });
           break;
         case 'done':
           finish();

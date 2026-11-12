@@ -49,14 +49,18 @@ delete, legacy `project.json` without new fields, missing-document errors.
 - Unit `lib/ai/inline.test.ts` — inline prompts and output cleanup, `runInlineTurn`, and
   `flatten`/`applyRewrite`/`insertParagraphsAfter` against a real TipTap editor (marks kept, one undo
   step, structural fallback, stale-text refusal), `AiTarget` range mapping.
+- Unit `lib/ai/usage.test.ts` — `/usage` report parsing (real captured text), local usage totals,
+  default mode for unconfigured projects.
 - Regression `regression/ai.regression.test.tsx` — desktop panel (Ctrl+L, connect screen, a full mocked
   turn saved to the right project with its model), Ask → Apply → Undo on the open chapter (formatting
   and word count follow), Plan mode makes no edits, `/polish` from the slash menu → preview → Accept
-  keeps bold → Ctrl+Z, phone AI tab (needs a project, API-key providers only,
+  keeps bold → Ctrl+Z, Settings (desktop limit bars / account / default mode; phone without the
+  Claude card), phone AI tab (needs a project, API-key providers only,
   tab bar hides while the composer has focus).
 - Backend `cargo test ai::` — SSE parsing, the three API stream accumulators, Claude Code stream-json,
   MCP JSON-RPC, turn registry/cancel, session files, key storage. Live (costs a little usage, so
-  `#[ignore]`d): `cargo test live_claude_code -- --ignored --nocapture`.
+  `#[ignore]`d): `cargo test live_claude_code -- --ignored --nocapture` (the round trip costs a
+  little; `live_claude_code_usage` is free).
 - UI work in a browser: `npm run dev`, open `http://127.0.0.1:1420/?aimock` (add `&shell=mobile` for the
   phone). `?aimock` (or `localStorage['mnemoscript:aimock']='1'`) turns on `lib/ai/devMock.ts`, a fake
   provider for the browser fallback only — never in the Tauri app. A message with "edit", "fix" or

@@ -150,6 +150,8 @@ export const api = {
   aiClearApiKey: (provider: ApiKeyProvider) => call<void>('ai_clear_api_key', { provider }),
   /** Claude Code CLI: installed / signed in / plan. */
   aiCliStatus: () => call<CliStatus>('ai_cli_status'),
+  /** Plan limits as the writer's Claude Code reports them (`/usage`; free). Desktop only. */
+  aiCliUsage: () => call<{ text: string }>('ai_cli_usage'),
 
   /**
    * Start a turn. Events stream to `onEvent` until a terminal `done` / `error`. Tool calls must
@@ -378,6 +380,17 @@ async function browserBackend<T>(cmd: string, args: Record<string, unknown>): Pr
       return (aiMockEnabled()
         ? { installed: true, loggedIn: true, version: '2.1.215 (mock)', email: 'writer@example.com', plan: 'pro' }
         : { installed: false, loggedIn: false }) as T;
+    case 'ai_cli_usage':
+      if (aiMockEnabled()) {
+        return {
+          text:
+            'You are currently using your subscription to power your Claude Code usage\n\n' +
+            'Current session: 42% used · resets Nov 12, 4pm (Asia/Dhaka)\n' +
+            'Current week (all models): 78% used · resets Nov 18, 2pm (Asia/Dhaka)\n' +
+            'Current week (Fable): 93% used · resets Nov 18, 2pm (Asia/Dhaka)',
+        } as T;
+      }
+      throw new Error('Usage limits need the MnemoScript desktop app.');
     case 'ai_set_api_key':
     case 'ai_clear_api_key':
     case 'ai_start_turn':

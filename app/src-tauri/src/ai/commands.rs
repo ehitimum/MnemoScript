@@ -62,6 +62,19 @@ pub async fn ai_cli_status() -> ApiResponse<Value> {
     ApiResponse::success(status)
 }
 
+/// Plan usage report from the writer's Claude Code (`/usage`; free, answered by the CLI).
+#[tauri::command]
+pub async fn ai_cli_usage() -> ApiResponse<Value> {
+    #[cfg(desktop)]
+    let r = super::claude_code::usage().await;
+    #[cfg(not(desktop))]
+    let r: Result<String, String> = Err("Claude Code is not available on this device.".into());
+    match r {
+        Ok(text) => ApiResponse::success(serde_json::json!({ "text": text })),
+        Err(e) => ApiResponse::error(e),
+    }
+}
+
 /// Start a turn; events stream over `on_event` until a terminal `done` / `error` event.
 #[tauri::command]
 pub fn ai_start_turn(request: TurnRequest, on_event: Channel<AiEvent>) -> ApiResponse<()> {

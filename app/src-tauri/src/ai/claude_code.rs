@@ -109,6 +109,40 @@ pub async fn status() -> CliStatus {
     parse_auth_status(&auth, version)
 }
 
+/// Plan limits exactly as Claude Code reports them: `claude -p /usage` is answered by the CLI
+/// itself with its own sign-in (no model call, no cost). Returns the report text
+/// ("Current session: 50% used · resets …"); `lib/ai/usage.ts` parses it.
+pub async fn usage() -> Result<String, String> {
+    let cli = find_cli().ok_or_else(|| "Claude Code is not installed.".to_string())?;
+    let dir = std::env::temp_dir().join("mnemoscript-ai").join("usage");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let run = command(&cli)
+        .current_dir(&dir)
+        // Lockdown as for turns; haiku only matters if an old CLI sent "/usage" to the model.
+        .args(["-p", "/usage", "--output-format", "json", "--model", "haiku", "--tools", "", "--setting-sources", ""])
+        .args(["--strict-mcp-config", "--no-session-persistence"])
+        .stdin(Stdio::null())
+        .output();
+    let out = tokio::time::timeout(std::time::Duration::from_secs(45), run)
+        .await
+        .map_err(|_| "Claude Code took too long to answer.".to_string())?
+        .map_err(|e| e.to_string())?;
+    parse_usage_result(&String::from_utf8_lossy(&out.stdout))
+}
+
+pub fn parse_usage_result(json_text: &str) -> Result<String, String> {
+    let v: Value = serde_json::from_str(json_text.trim()).map_err(|_| "Claude Code did not return a usage report.".to_string())?;
+    let text = v["result"].as_str().unwrap_or_default().to_string();
+    if v["is_error"].as_bool().unwrap_or(false) {
+        return Err(if text.is_empty() { "Claude Code reported an error.".into() } else { text });
+    }
+    // A model answered instead of the CLI: this Claude Code is too old to report usage.
+    if v["num_turns"].as_u64().unwrap_or(0) > 0 || !text.contains('%') {
+        return Err("This version of Claude Code can't report usage. Update it with `claude update`.".into());
+    }
+    Ok(text)
+}
+
 /// The CLI takes one prompt per run, so earlier turns go into the system prompt.
 pub fn system_with_transcript(system: &str, earlier: &[ChatMessage]) -> String {
     if earlier.is_empty() {
@@ -292,6 +326,27 @@ pub async fn run(turn: &Turn, req: &TurnRequest) -> Result<(), AiEvent> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Live: asks the installed, signed-in Claude Code for its usage report (free: no model call).
+    /// `cargo test live_claude_code_usage -- --ignored --nocapture`
+    #[tokio::test]
+    #[ignore]
+    async fn live_claude_code_usage() {
+        let text = usage().await.expect("usage report");
+        println!("{text}");
+        assert!(text.contains("% used"));
+    }
+
+    #[test]
+    fn usage_report_is_returned_only_when_the_cli_answered_it() {
+        let ok = r#"{"type":"result","is_error":false,"num_turns":0,"result":"Current session: 50% used · resets Nov 12, 4pm","total_cost_usd":0}"#;
+        assert!(parse_usage_result(ok).unwrap().starts_with("Current session: 50%"));
+        let model = r#"{"type":"result","is_error":false,"num_turns":1,"result":"I'll read that file","total_cost_usd":0.02}"#;
+        assert!(parse_usage_result(model).unwrap_err().contains("claude update"));
+        let err = r#"{"type":"result","is_error":true,"num_turns":0,"result":"Not logged in"}"#;
+        assert_eq!(parse_usage_result(err).unwrap_err(), "Not logged in");
+        assert!(parse_usage_result("garbage").is_err());
+    }
 
     #[test]
     fn stream_json_lines_become_ui_events() {

@@ -5,6 +5,24 @@ Newest entries first. Dates are absolute.
 
 ---
 
+## 2026-11-12 — AI assistant, Phase 5: Settings → AI (account, limit bars, keys, defaults)
+
+- **Exact plan limits:** `claude -p /usage` turns out to work non-interactively and is answered by
+  Claude Code itself (num_turns 0, $0) with the session (5-hour) and weekly percentages and reset
+  times. New command `ai_cli_usage` (45 s timeout; refuses the result if an old CLI handed "/usage" to
+  a model). Phase 0 had concluded percentages were only available near a limit; that is now superseded.
+- **Settings → AI** (desktop settings screen + phone Settings tab): Claude account card (email, plan,
+  CLI version, bars coloured at 70 % / 90 %, "resets …", refresh); API keys per provider with add /
+  replace / two-step remove; default mode for new projects; tokens and cost used through MnemoScript
+  today / last 7 days per provider (logged on this device from chat replies and inline commands).
+  Phones show keys, defaults and local usage (no Claude Code there).
+- **Tests:** `lib/ai/usage.test.ts` (4, parser fed the real captured report), 2 regression tests
+  (desktop bars + account + default mode; phone has no Claude card), Rust `parse_usage_result` test and
+  an ignored live test (`cargo test live_claude_code_usage -- --ignored --nocapture`, free) that read
+  58 % / 22 % / 6 % from the real CLI. 115/115 Vitest, 28 `cargo test ai::`, lint 0, clippy clean.
+
+---
+
 ## 2026-11-12 — AI assistant, Phase 4: inline commands in the writing area
 
 - **Commands:** Polish, Proofread, Fix grammar, Shorten, Expand, Change tone (Darker, Lighter, Tenser,

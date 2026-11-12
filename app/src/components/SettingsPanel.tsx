@@ -3,6 +3,7 @@ import { Check, Palette, Type, Save, FolderOpen, MousePointer2, SpellCheck } fro
 import type { ThemeType } from '../App';
 import { THEMES, FONTS } from '../lib/prefs';
 import { isTauri, isMobileOS } from '../lib/platform';
+import AiSettings from './ai/AiSettings';
 
 export interface SettingsProps {
   theme: ThemeType;
@@ -42,7 +43,7 @@ function SettingsPanel(p: SettingsProps) {
       <div className="flex-1 max-w-4xl w-full mx-auto p-6 md:p-10 flex flex-col gap-8">
         <div className="flex flex-col gap-1.5">
           <h2 className="text-2xl font-semibold tracking-tight text-foreground">Settings</h2>
-          <p className="text-sm text-muted-foreground">Theme, typography, writing aids, and where your work is stored.</p>
+          <p className="text-sm text-muted-foreground">Theme, typography, writing aids, the AI assistant, and where your work is stored.</p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -111,6 +112,9 @@ function SettingsPanel(p: SettingsProps) {
               <p className="text-3xs text-muted-foreground/60">Changes are also saved when you switch documents or close the app.</p>
             </div>
           </section>
+
+          {/* AI assistant: subscription limits, API keys, defaults */}
+          <AiSettings variant="desktop" />
 
           {/* Storage (desktop only; mobile storage is app-private) */}
           {isTauri && !isMobileOS && (

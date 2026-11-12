@@ -1,6 +1,7 @@
 import type { ThemeType } from '../../App';
 import { Check } from 'lucide-react';
 import { THEMES, FONTS } from '../../lib/prefs';
+import AiSettings from '../ai/AiSettings';
 
 interface Props {
   theme: ThemeType;
@@ -126,6 +127,8 @@ function MobileSettings({
           </select>
         </div>
       </section>
+
+      <AiSettings variant="mobile" />
 
       <p className="text-3xs text-muted-foreground/50 text-center pt-2">MnemoScript · local-first writing studio</p>
     </div>

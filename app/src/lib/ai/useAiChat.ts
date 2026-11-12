@@ -4,6 +4,7 @@ import { api } from '../api';
 import { runTurn, type RunningTurn } from './client';
 import { getProvider, providersFor } from './providers';
 import { textHash } from './diff';
+import { defaultAiMode } from './usage';
 import { documentToText } from './documents';
 import { forStorage, newSession, patchChange } from './session';
 import type { ProjectAccess } from './tools';
@@ -27,7 +28,7 @@ export function resolveConfig(ai: ProjectAiConfig | null | undefined, isMobile: 
   const allowed = providersFor(isMobile);
   if (ai && allowed.some((p) => p.id === ai.provider)) return ai;
   const provider = allowed[0];
-  return { provider: provider.id, model: provider.defaultModel, mode: ai?.mode ?? 'ask' };
+  return { provider: provider.id, model: provider.defaultModel, mode: ai?.mode ?? defaultAiMode() };
 }
 
 /** How the AI reads and writes the open project's documents (implemented by App). */

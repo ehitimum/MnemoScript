@@ -185,8 +185,13 @@ Feasibility and the reasoning behind the design: [AI_PHASE0.md](./AI_PHASE0.md).
 - **Storage.** Sessions: `ai/sessions/<id>.json` in the project folder (`sessions.rs`; the schema
   is `AiSession` in `lib/ai/types.ts`). API keys: OS secret store on desktop (`keyring`), app-private
   file on Android (`secrets.rs`); the frontend can set/clear/check a key but never read it back.
-- **Usage data.** Claude Code emits `rateLimit` (window + reset time; `utilization` only near a
-  limit) and per-turn cost; API providers emit token counts.
+- **Usage data.** Plan limits come from the writer's own Claude Code: `claude -p /usage` is answered
+  by the CLI itself (no model call, no cost) with "Current session: 58% used · resets …" lines for the
+  5-hour and weekly windows (`claude_code.rs#usage`, command `ai_cli_usage`; refused if an old CLI sent
+  it to a model instead). Per-turn `rateLimit` events (window + reset; `utilization` only near a limit)
+  still drive the composer's warning. Token counts and cost of every reply and inline command are
+  logged on this device (`lib/ai/usage.ts#recordUsage`, localStorage `mnemoscript:ai-usage-log`,
+  31 days).
 - **UI (Phase 2).** `lib/ai/useAiChat.ts` holds all chat state for one project (sessions, active
   session, view `chat`/`sessions`/`connect`, readiness, streaming batched to one render per frame,
   save-on-send + save-on-finish). `components/ai/AiScope.tsx` mounts it **above** the panel/screen
@@ -246,6 +251,12 @@ Feasibility and the reasoning behind the design: [AI_PHASE0.md](./AI_PHASE0.md).
     character; `applyRewrite` word-diffs old → new and applies only the changed words in one
     transaction (marks on kept words survive; one Ctrl+Z). If the paragraph count changes, or the
     writer edited the passage meanwhile, it replaces the range with plain paragraphs instead.
+- **Settings → AI (Phase 5).** `components/ai/AiSettings.tsx` (`variant` desktop | mobile, state in
+  `lib/ai/useAiSettings.ts`), in `SettingsPanel` and `MobileSettings`: **Claude subscription** (desktop:
+  account, plan, Claude Code version, limit bars parsed by `usage.ts#parseCliUsage`, refresh;
+  sign-in hint when needed), **API keys** (add / replace / remove per provider, status only — keys are
+  never read back), **Assistant** (default mode for projects that haven't chosen one, pref
+  `mnemo_ai_mode` read by `resolveConfig`; today / 7-day tokens and cost per provider).
   - The editor gets the AI as `ai: InlineAiHost` (`lib/ai/inlineHost.ts#inlineHostFor`, built in App
     and MobileShell from the chat state, with `openConnect` = AI panel / AI tab on the Connect screen).
 

@@ -184,6 +184,38 @@ describe('AI assistant — inline commands (regression)', () => {
   }, 20000);
 });
 
+describe('AI assistant — settings (regression)', () => {
+  it('desktop Settings shows the Claude account, plan limit bars and API key status', async () => {
+    localStorage.setItem('mnemoscript:aimock', '1');
+    const App = await loadApp();
+    render(<App />);
+    fireEvent.click((await screen.findByText('Settings', { selector: 'h3, span, p, div' })).closest('button')!);
+    expect(await screen.findByText('writer@example.com', {}, { timeout: 6000 })).toBeInTheDocument();
+    expect(screen.getByText('Pro plan')).toBeInTheDocument();
+    const bars = await screen.findAllByRole('progressbar');
+    expect(bars.map((b) => [b.getAttribute('aria-label'), b.getAttribute('aria-valuenow')])).toEqual([
+      ['Current session used', '42'],
+      ['This week · all models used', '78'],
+      ['This week · Fable used', '93'],
+    ]);
+    expect(screen.getByText(/5-hour window · resets Nov 12, 4pm/)).toBeInTheDocument();
+    // Default mode for new projects is a setting.
+    fireEvent.click(screen.getByRole('radio', { name: /plan/i }));
+    expect(localStorage.getItem('mnemo_ai_mode')).toBe('plan');
+  }, 15000);
+
+  it('phone Settings has keys and defaults but no Claude Code card', async () => {
+    localStorage.setItem('mnemoscript:aimock', '1');
+    const App = await loadApp('?shell=mobile');
+    render(<App />);
+    fireEvent.click(within(document.querySelector('.mn-tabbar') as HTMLElement).getByText('Settings'));
+    expect(await screen.findByText(/api keys/i)).toBeInTheDocument();
+    expect(screen.getByText(/default mode for new projects/i)).toBeInTheDocument();
+    expect(screen.queryByText(/claude subscription/i)).toBeNull();
+    expect(screen.queryByRole('progressbar')).toBeNull();
+  });
+});
+
 describe('AI assistant — phone shell (regression)', () => {
   it('adds an AI tab that needs a project, and hides the tab bar while typing', async () => {
     localStorage.setItem('mnemoscript:aimock', '1');
