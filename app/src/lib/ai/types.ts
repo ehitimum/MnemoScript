@@ -5,7 +5,7 @@
  */
 
 /** How MnemoScript reaches the model. One provider is connected per project at a time. */
-export type AiProviderId = 'claude-code' | 'anthropic' | 'openai' | 'gemini';
+export type AiProviderId = 'claude-code' | 'paired' | 'anthropic' | 'openai' | 'gemini';
 export type ApiKeyProvider = 'anthropic' | 'openai' | 'gemini';
 
 /** plan = read-only, ask = edits need approval, auto = edits apply (with undo). */
@@ -143,3 +143,39 @@ export interface CliStatus {
 }
 
 export type KeyStatus = Record<ApiKeyProvider, boolean>;
+
+/** Phone: is it paired with a PC, and can it reach it right now? */
+export interface PairStatus {
+  paired: boolean;
+  online?: boolean;
+  pcName?: string;
+  host?: string;
+  /** The PC's Claude Code status. */
+  cli?: CliStatus | null;
+  error?: string;
+}
+
+export interface PairedDevice {
+  id: string;
+  name: string;
+  createdAt: string;
+  lastSeen?: string | null;
+}
+
+/** PC: Settings → AI → Phone pairing. */
+export interface PairingState {
+  enabled: boolean;
+  listening: boolean;
+  port?: number | null;
+  address?: string | null;
+  pcName: string;
+  devices: PairedDevice[];
+  window?: { code: string; expiresAt: number } | null;
+  error?: string | null;
+}
+
+export interface FoundPc {
+  name: string;
+  host: string;
+  id: string;
+}

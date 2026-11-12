@@ -306,6 +306,9 @@ pub fn run() {
             };
             fs::create_dir_all(&base).ok();
             project::init_data_dir(base);
+            // Phone pairing listens again at launch if the writer turned it on (desktop only).
+            #[cfg(desktop)]
+            ai::pair_server::autostart();
 
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -340,6 +343,16 @@ pub fn run() {
             ai::commands::ai_clear_api_key,
             ai::commands::ai_cli_status,
             ai::commands::ai_cli_usage,
+            ai::commands::ai_pairing_state,
+            ai::commands::ai_pairing_enable,
+            ai::commands::ai_pairing_open,
+            ai::commands::ai_pairing_close,
+            ai::commands::ai_pairing_remove,
+            ai::commands::ai_pair_discover,
+            ai::commands::ai_pair_connect,
+            ai::commands::ai_pair_check,
+            ai::commands::ai_pair_usage,
+            ai::commands::ai_pair_forget,
             ai::commands::ai_start_turn,
             ai::commands::ai_tool_result,
             ai::commands::ai_cancel_turn,

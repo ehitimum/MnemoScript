@@ -7,6 +7,9 @@ import type {
   AiTurnRequest,
   ApiKeyProvider,
   CliStatus,
+  FoundPc,
+  PairingState,
+  PairStatus,
   KeyStatus,
 } from './ai/types';
 
@@ -152,6 +155,19 @@ export const api = {
   aiCliStatus: () => call<CliStatus>('ai_cli_status'),
   /** Plan limits as the writer's Claude Code reports them (`/usage`; free). Desktop only. */
   aiCliUsage: () => call<{ text: string }>('ai_cli_usage'),
+  // Phone pairing — PC side.
+  aiPairingState: () => call<PairingState>('ai_pairing_state'),
+  aiPairingEnable: (enabled: boolean) => call<PairingState>('ai_pairing_enable', { enabled }),
+  aiPairingOpen: () => call<PairingState>('ai_pairing_open'),
+  aiPairingClose: () => call<PairingState>('ai_pairing_close'),
+  aiPairingRemove: (deviceId: string) => call<PairingState>('ai_pairing_remove', { deviceId }),
+  // Phone pairing — phone side.
+  aiPairDiscover: () => call<FoundPc[]>('ai_pair_discover'),
+  aiPairConnect: (host: string, code: string, deviceName: string) =>
+    call<{ pcName: string; host: string }>('ai_pair_connect', { host, code, deviceName }),
+  aiPairCheck: () => call<PairStatus>('ai_pair_check'),
+  aiPairUsage: () => call<{ text: string }>('ai_pair_usage'),
+  aiPairForget: () => call<void>('ai_pair_forget'),
 
   /**
    * Start a turn. Events stream to `onEvent` until a terminal `done` / `error`. Tool calls must
@@ -380,6 +396,25 @@ async function browserBackend<T>(cmd: string, args: Record<string, unknown>): Pr
       return (aiMockEnabled()
         ? { installed: true, loggedIn: true, version: '2.1.215 (mock)', email: 'writer@example.com', plan: 'pro' }
         : { installed: false, loggedIn: false }) as T;
+    case 'ai_pairing_state':
+    case 'ai_pairing_enable':
+    case 'ai_pairing_open':
+      if (aiMockEnabled()) {
+        return {
+          enabled: true,
+          listening: true,
+          port: 47815,
+          address: '192.168.1.20',
+          pcName: 'WRITING-PC',
+          devices: [{ id: 'd1', name: 'Pixel 8', createdAt: new Date().toISOString(), lastSeen: new Date().toISOString() }],
+          window: cmd === 'ai_pairing_open' ? { code: '4821 7730', expiresAt: Date.now() + 300000 } : null,
+        } as T;
+      }
+      throw new Error('Phone pairing needs the MnemoScript desktop app.');
+    case 'ai_pair_check':
+      return { paired: false } as T;
+    case 'ai_pair_discover':
+      return (aiMockEnabled() ? [{ name: 'WRITING-PC', host: '192.168.1.20:47815', id: 'mock' }] : []) as T;
     case 'ai_cli_usage':
       if (aiMockEnabled()) {
         return {

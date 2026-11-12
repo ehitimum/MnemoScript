@@ -17,6 +17,7 @@ import type {
   ApiKeyProvider,
   CliStatus,
   KeyStatus,
+  PairStatus,
   ProjectAiConfig,
 } from './types';
 
@@ -27,7 +28,8 @@ export type AiView = 'chat' | 'sessions' | 'connect';
 export function resolveConfig(ai: ProjectAiConfig | null | undefined, isMobile: boolean): ProjectAiConfig {
   const allowed = providersFor(isMobile);
   if (ai && allowed.some((p) => p.id === ai.provider)) return ai;
-  const provider = allowed[0];
+  // "Your PC" needs pairing first, so it is never the silent default.
+  const provider = allowed.find((p) => p.auth !== 'paired') ?? allowed[0];
   return { provider: provider.id, model: provider.defaultModel, mode: ai?.mode ?? defaultAiMode() };
 }
 
@@ -79,6 +81,7 @@ export function useAiChat({ project, documents, activeDocument, isMobile, onConf
   const [rateLimit, setRateLimit] = useState<RateLimitInfo | null>(null);
   const [keys, setKeys] = useState<KeyStatus | null>(null);
   const [cli, setCli] = useState<CliStatus | null>(null);
+  const [pair, setPair] = useState<PairStatus | null>(null);
   const [checking, setChecking] = useState(false);
   const [conflict, setConflict] = useState<UndoConflict | null>(null);
   const [undoing, setUndoing] = useState(false);
@@ -115,6 +118,7 @@ export function useAiChat({ project, documents, activeDocument, isMobile, onConf
       Promise.all([
         api.aiKeyStatus().then(setKeys).catch(() => setKeys({ anthropic: false, openai: false, gemini: false })),
         isMobile ? Promise.resolve() : api.aiCliStatus().then(setCli).catch(() => setCli({ installed: false, loggedIn: false })),
+        isMobile ? api.aiPairCheck().then(setPair).catch(() => setPair({ paired: false })) : Promise.resolve(),
       ]),
     [isMobile],
   );
@@ -151,8 +155,12 @@ export function useAiChat({ project, documents, activeDocument, isMobile, onConf
   );
 
   const ready =
-    provider.auth === 'cli' ? !!cli?.installed && !!cli.loggedIn : !!keys?.[provider.id as ApiKeyProvider];
-  const statusKnown = provider.auth === 'cli' ? cli != null : keys != null;
+    provider.auth === 'cli'
+      ? !!cli?.installed && !!cli.loggedIn
+      : provider.auth === 'paired'
+        ? !!pair?.online && !!pair.cli?.loggedIn
+        : !!keys?.[provider.id as ApiKeyProvider];
+  const statusKnown = provider.auth === 'cli' ? cli != null : provider.auth === 'paired' ? pair != null : keys != null;
 
   const persist = useCallback(
     (s: AiSession) => {
@@ -352,6 +360,7 @@ export function useAiChat({ project, documents, activeDocument, isMobile, onConf
     checking,
     keys,
     cli,
+    pair,
     sessions,
     session,
     view,

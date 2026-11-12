@@ -1,10 +1,11 @@
-import { useState, type ReactNode } from 'react';
-import { Activity, Bot, Check, ClipboardList, Hand, KeyRound, Loader2, RefreshCw, Terminal, Zap } from 'lucide-react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { Activity, Bot, Check, ClipboardList, Hand, KeyRound, Laptop, Loader2, RefreshCw, Smartphone, Terminal, Zap } from 'lucide-react';
+import { api } from '../../lib/api';
 import { getProvider, type ModelVendor } from '../../lib/ai/providers';
 import { useAiSettings, type AiSettingsState } from '../../lib/ai/useAiSettings';
-import { DEFAULT_MODE_KEY, defaultAiMode, formatTokens, type UsageTotals, type UsageWindow } from '../../lib/ai/usage';
+import { DEFAULT_MODE_KEY, defaultAiMode, formatTokens, parseCliUsage, type CliUsageReport, type UsageTotals, type UsageWindow } from '../../lib/ai/usage';
 import { relativeTime } from '../../lib/ai/format';
-import type { AiMode, ApiKeyProvider } from '../../lib/ai/types';
+import type { AiMode, ApiKeyProvider, PairingState, PairStatus } from '../../lib/ai/types';
 import ModelBadge from './ModelBadge';
 
 /**
@@ -78,6 +79,15 @@ export default function AiSettings({ variant }: { variant: Variant }) {
           }
         >
           <ClaudeAccount s={s} />
+        </Section>
+      )}
+      {mobile ? (
+        <Section variant={variant} title="Your PC" icon={<Laptop className={ic} />}>
+          <PairedPcCard />
+        </Section>
+      ) : (
+        <Section variant={variant} title="Phone pairing" icon={<Smartphone className={ic} />}>
+          <PhonePairing />
         </Section>
       )}
       <Section variant={variant} title="API keys" icon={<KeyRound className={ic} />}>
@@ -372,6 +382,184 @@ function LocalUsage({ s }: { s: AiSettingsState }) {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Phone pairing ─────────────────────────────────────────────────────────────
+
+const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+/** PC: let a phone use this PC's Claude Code over the home network. */
+function PhonePairing() {
+  const [st, setSt] = useState<PairingState | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [now, setNow] = useState(0);
+  const windowOpen = !!st?.window;
+
+  useEffect(() => {
+    let alive = true;
+    api
+      .aiPairingState()
+      .then((s) => alive && setSt(s))
+      .catch((e: unknown) => alive && setErr(errText(e)));
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // While the code is shown: tick the countdown and notice when the phone has paired.
+  useEffect(() => {
+    if (!windowOpen) return;
+    const id = window.setInterval(() => {
+      setNow(Date.now());
+      api.aiPairingState().then(setSt).catch(() => undefined);
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [windowOpen]);
+
+  const act = (p: Promise<PairingState>) =>
+    p
+      .then((s) => {
+        setSt(s);
+        setErr(null);
+      })
+      .catch((e: unknown) => setErr(errText(e)));
+
+  if (!st) return <p className="text-xs text-muted-foreground">{err ?? 'Loading…'}</p>;
+  const left = st.window && now ? Math.max(0, Math.round((st.window.expiresAt - now) / 1000)) : null;
+  const btn = 'h-8 px-3 rounded-lg text-xs font-medium cursor-pointer transition-colors disabled:opacity-40';
+
+  return (
+    <div className="flex flex-col gap-3.5">
+      <label className="flex items-start gap-3 cursor-pointer">
+        <input
+          type="checkbox"
+          className="mt-0.5 w-4 h-4 accent-primary cursor-pointer"
+          checked={st.enabled}
+          onChange={(e) => void act(api.aiPairingEnable(e.target.checked))}
+        />
+        <span className="flex flex-col gap-0.5">
+          <span className="text-xs text-foreground/90">Let my phone use this PC’s Claude Code</span>
+          <span className="text-3xs text-muted-foreground/70 leading-snug">
+            The phone sends its AI requests here over your Wi-Fi, encrypted. Only phones you pair can connect.
+          </span>
+        </span>
+      </label>
+
+      {st.enabled && (
+        <>
+          <p className="text-3xs text-muted-foreground">
+            {st.listening ? (
+              <>
+                This PC: <span className="text-foreground">{st.pcName}</span>
+                {st.address && (
+                  <>
+                    {' '}
+                    · <span className="font-mono text-foreground">{st.address}</span>
+                  </>
+                )}
+                {st.port && <span className="font-mono">:{st.port}</span>}
+              </>
+            ) : (
+              'Not listening.'
+            )}
+          </p>
+          {st.window ? (
+            <div className="rounded-xl border border-primary/30 bg-primary/[0.06] p-4 flex flex-col items-center gap-2 text-center">
+              <span className="text-3xs uppercase tracking-[0.12em] text-muted-foreground">Pairing code</span>
+              <span className="font-mono text-3xl tracking-[0.2em] text-foreground" aria-label="Pairing code">
+                {st.window.code}
+              </span>
+              <span className="text-3xs text-muted-foreground leading-relaxed">
+                On the phone: AI → Connect → Your PC, then enter this code.
+                {left != null && ` Expires in ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}.`}
+              </span>
+              <button className={`${btn} text-muted-foreground hover:bg-secondary/60`} onClick={() => void act(api.aiPairingClose())}>
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button className={`${btn} self-start bg-primary text-primary-foreground hover:bg-primary/90`} onClick={() => void act(api.aiPairingOpen())} disabled={!st.listening}>
+              Pair a phone
+            </button>
+          )}
+          {st.devices.length > 0 && (
+            <div className="flex flex-col divide-y divide-border/30">
+              {st.devices.map((d) => (
+                <div key={d.id} className="flex items-center gap-2 py-2 text-xs">
+                  <Smartphone className="w-3.5 h-3.5 text-primary" />
+                  <span className="text-foreground/90 truncate">{d.name}</span>
+                  <span className="text-3xs text-muted-foreground/70 truncate">{d.lastSeen ? `used ${relativeTime(d.lastSeen)}` : 'paired'}</span>
+                  <button className={`${btn} ml-auto text-muted-foreground hover:text-destructive hover:bg-secondary/60`} onClick={() => void act(api.aiPairingRemove(d.id))}>
+                    Remove
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="text-3xs text-muted-foreground/70 leading-relaxed">
+            Keep MnemoScript open on this PC while you use the phone. If Windows asks whether MnemoScript may use private networks, choose Allow.
+          </p>
+        </>
+      )}
+      {(err || st.error) && <p className="text-3xs text-destructive">{err ?? st.error}</p>}
+    </div>
+  );
+}
+
+/** Phone: the paired PC and its plan limits. */
+function PairedPcCard() {
+  const [pair, setPair] = useState<PairStatus | null>(null);
+  const [usage, setUsage] = useState<CliUsageReport | null>(null);
+
+  const load = useCallback(
+    () =>
+      api
+        .aiPairCheck()
+        .catch((): PairStatus => ({ paired: false }))
+        .then((p) => {
+          setPair(p);
+          if (!p.online) return;
+          return api
+            .aiPairUsage()
+            .then((r) => setUsage(parseCliUsage(r.text)))
+            .catch(() => setUsage(null));
+        }),
+    [],
+  );
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  if (!pair) return <p className="text-xs text-muted-foreground">Checking…</p>;
+  if (!pair.paired) {
+    return (
+      <p className="text-xs text-muted-foreground leading-relaxed">
+        Not paired. To use your PC’s Claude subscription here, open the AI tab → Connect → Your PC.
+      </p>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center gap-2 text-sm">
+        <Laptop className="w-4 h-4 text-primary" />
+        <span className="font-medium text-foreground">{pair.pcName}</span>
+        <span className={`text-xs ${pair.online ? 'text-emerald-500' : 'text-amber-500'}`}>{pair.online ? 'connected' : 'not reachable'}</span>
+      </div>
+      {pair.error && <p className="text-xs text-muted-foreground leading-relaxed">{pair.error}</p>}
+      {usage?.windows.map((w) => <LimitBar key={w.label} w={w} />)}
+      <div className="flex gap-2">
+        <button className="h-9 px-3 rounded-lg text-sm font-medium bg-secondary text-foreground cursor-pointer" onClick={() => void load()}>
+          Check again
+        </button>
+        <button
+          className="h-9 px-3 rounded-lg text-sm font-medium text-muted-foreground cursor-pointer"
+          onClick={() => void api.aiPairForget().then(load)}
+        >
+          Unpair
+        </button>
+      </div>
     </div>
   );
 }

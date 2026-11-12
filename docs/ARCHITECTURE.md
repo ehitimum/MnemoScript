@@ -251,6 +251,20 @@ Feasibility and the reasoning behind the design: [AI_PHASE0.md](./AI_PHASE0.md).
     character; `applyRewrite` word-diffs old → new and applies only the changed words in one
     transaction (marks on kept words survive; one Ctrl+Z). If the paragraph count changes, or the
     writer edited the passage meanwhile, it replaces the range with plain paragraphs instead.
+- **Phone pairing.** A phone uses the PC's Claude Code over the home Wi-Fi (provider `paired`, phone
+  only). PC: `ai/pair_server.rs` — off until Settings → AI → Phone pairing is on (persisted in
+  `<data>/pairing/server.json`, autostarts), TCP on 47815 (or a free port) + UDP discovery on 47815,
+  minimal one-request-per-connection HTTP, streamed NDJSON replies flushed per event with a blank-line
+  keep-alive every 20 s (a vanished phone cancels its turn). Phone: `ai/pair_client.rs` — UDP
+  discovery, pairing, and `run` (relays the turn; tool calls from the PC run on the phone through the
+  normal engine path; Stop sends `/v1/cancel`; re-finds the PC by id if its IP changed). Crypto
+  (`ai/pair_crypto.rs`): an 8-digit code, 5-minute window, ≤5 tries, run through SPAKE2 (no offline
+  guessing); the PC hands out a per-phone 32-byte key sealed under that SPAKE key and keeps the device
+  only after the phone proves it holds it (`/v1/hello`). Every later message is XChaCha20-Poly1305
+  sealed with associated data binding direction, path, device, request id and line number;
+  timestamps (±10 min) + request-id memory stop replays. Paired phones can only run Claude Code turns
+  (model alias validated). Removing a device revokes it at once. Keys live in the app's data folder
+  (PC) and app-private storage (phone, `secrets/paired-pc.json`).
 - **Settings → AI (Phase 5).** `components/ai/AiSettings.tsx` (`variant` desktop | mobile, state in
   `lib/ai/useAiSettings.ts`), in `SettingsPanel` and `MobileSettings`: **Claude subscription** (desktop:
   account, plan, Claude Code version, limit bars parsed by `usage.ts#parseCliUsage`, refresh;

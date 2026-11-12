@@ -5,6 +5,22 @@ Newest entries first. Dates are absolute.
 
 ---
 
+## 2026-11-12 — Phone pairing: the phone uses the PC's Claude subscription
+
+- PC: Settings → AI → **Phone pairing** (switch, address, "Pair a phone" with an 8-digit code and
+  countdown, paired phones with Remove). Phone: AI → Connect → **Your PC** (finds the PC on the Wi-Fi,
+  or type its address; enter the code), Settings → **Your PC** (status, the PC's plan limit bars, Unpair).
+  Phones still default to API keys; "Your PC" is chosen explicitly.
+- Design and security: ARCHITECTURE.md → "Phone pairing". New crates: spake2, chacha20poly1305, base64.
+- Tests: Rust end-to-end over loopback (no window → refused, wrong code → refused and nothing kept,
+  pair, a relayed turn whose tool call is answered on the phone, revoke → refused), crypto tests
+  (SPAKE agreement, sealing bound to key/context, tamper), replay/stale refusal; regression for the
+  phone Connect card. 116/116 Vitest, 33 `cargo test ai::`, lint 0, clippy clean.
+- Not yet verified: a real phone on real Wi-Fi (Windows firewall prompt, router broadcast filtering,
+  Android local-network rules).
+
+---
+
 ## 2026-11-12 — AI assistant, Phase 5: Settings → AI (account, limit bars, keys, defaults)
 
 - **Exact plan limits:** `claude -p /usage` turns out to work non-interactively and is answered by

@@ -145,6 +145,8 @@ pub async fn run_turn(turn: Turn, req: TurnRequest) {
                 "unavailable",
                 "Claude Code runs on your computer. On a phone, use an API key instead.",
             )),
+            // A phone paired with a PC: the PC's Claude Code answers, tools run here.
+            "paired" => super::pair_client::run(&turn, &req).await,
             other => Err(AiEvent::error("unavailable", format!("Unknown AI provider \"{other}\""))),
         }
     }

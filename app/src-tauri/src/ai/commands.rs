@@ -75,6 +75,115 @@ pub async fn ai_cli_usage() -> ApiResponse<Value> {
     }
 }
 
+// ── Phone pairing: PC side (desktop) ─────────────────────────────────────────
+
+#[tauri::command]
+pub fn ai_pairing_state() -> ApiResponse<Value> {
+    #[cfg(desktop)]
+    return ApiResponse::success(super::pair_server::global().state());
+    #[cfg(not(desktop))]
+    ApiResponse::error("Phone pairing is set up on the PC.".into())
+}
+
+#[tauri::command]
+#[allow(clippy::needless_return)] // desktop / phone split by cfg
+pub fn ai_pairing_enable(enabled: bool) -> ApiResponse<Value> {
+    #[cfg(desktop)]
+    {
+        let s = super::pair_server::global();
+        return match s.set_enabled(enabled) {
+            Ok(()) => ApiResponse::success(s.state()),
+            Err(e) => ApiResponse::error(e),
+        };
+    }
+    #[cfg(not(desktop))]
+    {
+        let _ = enabled;
+        ApiResponse::error("Phone pairing is set up on the PC.".into())
+    }
+}
+
+#[tauri::command]
+#[allow(clippy::needless_return)] // desktop / phone split by cfg
+pub fn ai_pairing_open() -> ApiResponse<Value> {
+    #[cfg(desktop)]
+    {
+        let s = super::pair_server::global();
+        if !s.is_enabled() {
+            return ApiResponse::error("Turn on phone pairing first.".into());
+        }
+        s.open_window();
+        return ApiResponse::success(s.state());
+    }
+    #[cfg(not(desktop))]
+    ApiResponse::error("Phone pairing is set up on the PC.".into())
+}
+
+#[tauri::command]
+#[allow(clippy::needless_return)] // desktop / phone split by cfg
+pub fn ai_pairing_close() -> ApiResponse<Value> {
+    #[cfg(desktop)]
+    {
+        let s = super::pair_server::global();
+        s.close_window();
+        return ApiResponse::success(s.state());
+    }
+    #[cfg(not(desktop))]
+    ApiResponse::error("Phone pairing is set up on the PC.".into())
+}
+
+#[tauri::command]
+#[allow(clippy::needless_return)] // desktop / phone split by cfg
+pub fn ai_pairing_remove(device_id: String) -> ApiResponse<Value> {
+    #[cfg(desktop)]
+    {
+        let s = super::pair_server::global();
+        s.remove_device(&device_id);
+        return ApiResponse::success(s.state());
+    }
+    #[cfg(not(desktop))]
+    {
+        let _ = device_id;
+        ApiResponse::error("Phone pairing is set up on the PC.".into())
+    }
+}
+
+// ── Phone pairing: phone side (any platform; the UI offers it on phones) ─────
+
+#[tauri::command]
+pub async fn ai_pair_discover() -> ApiResponse<Value> {
+    let found = tauri::async_runtime::spawn_blocking(|| super::pair_client::discover(std::time::Duration::from_millis(1800), &[]))
+        .await
+        .unwrap_or_default();
+    ApiResponse::success(serde_json::to_value(found).unwrap_or(Value::Null))
+}
+
+#[tauri::command]
+pub async fn ai_pair_connect(host: String, code: String, device_name: String) -> ApiResponse<Value> {
+    match super::pair_client::pair_and_save(&host, &code, &device_name).await {
+        Ok(pc) => ApiResponse::success(serde_json::json!({ "pcName": pc.pc_name, "host": pc.host })),
+        Err(e) => ApiResponse::error(e),
+    }
+}
+
+#[tauri::command]
+pub async fn ai_pair_check() -> ApiResponse<Value> {
+    ApiResponse::success(super::pair_client::check().await)
+}
+
+#[tauri::command]
+pub async fn ai_pair_usage() -> ApiResponse<Value> {
+    match super::pair_client::usage().await {
+        Ok(text) => ApiResponse::success(serde_json::json!({ "text": text })),
+        Err(e) => ApiResponse::error(e),
+    }
+}
+
+#[tauri::command]
+pub fn ai_pair_forget() -> ApiResponse<()> {
+    wrap(super::pair_client::forget())
+}
+
 /// Start a turn; events stream over `on_event` until a terminal `done` / `error` event.
 #[tauri::command]
 pub fn ai_start_turn(request: TurnRequest, on_event: Channel<AiEvent>) -> ApiResponse<()> {

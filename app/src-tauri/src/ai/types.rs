@@ -4,11 +4,11 @@ use serde_json::Value;
 
 /// One chat turn, provider-neutral. The frontend builds it from the stored session
 /// (`lib/ai/context.ts`), so switching providers or models never needs a provider's own history.
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Deserialize, Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct TurnRequest {
     pub turn_id: String,
-    /// `claude-code` | `anthropic` | `openai` | `gemini`
+    /// `claude-code` | `anthropic` | `openai` | `gemini` | `paired` (phone → the PC's Claude Code)
     pub provider: String,
     /// Provider model id or CLI alias (`opus`, `sonnet`, …). Empty = the provider's default.
     #[serde(default)]
@@ -39,8 +39,9 @@ pub struct ToolSpec {
     pub input_schema: Value,
 }
 
-/// Streamed to the frontend over a Tauri `Channel` while a turn runs.
-#[derive(Serialize, Clone, Debug, PartialEq)]
+/// Streamed to the frontend over a Tauri `Channel` while a turn runs (and, sealed, from a paired
+/// PC to the phone — hence `Deserialize`).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum AiEvent {
     /// The model that actually answers (resolved alias, or a server-side fallback model).

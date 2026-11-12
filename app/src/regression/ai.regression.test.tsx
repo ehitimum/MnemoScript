@@ -211,9 +211,37 @@ describe('AI assistant — settings (regression)', () => {
     fireEvent.click(within(document.querySelector('.mn-tabbar') as HTMLElement).getByText('Settings'));
     expect(await screen.findByText(/api keys/i)).toBeInTheDocument();
     expect(screen.getByText(/default mode for new projects/i)).toBeInTheDocument();
-    expect(screen.queryByText(/claude subscription/i)).toBeNull();
+    expect(screen.queryByText(/^claude subscription$/i)).toBeNull();
+    // Instead: the paired PC (not paired yet in this test).
+    expect(screen.getByText(/^your pc$/i)).toBeInTheDocument();
+    expect(screen.getByText(/not paired/i)).toBeInTheDocument();
     expect(screen.queryByRole('progressbar')).toBeNull();
   });
+});
+
+describe('AI assistant — phone pairing (regression)', () => {
+  it('phone Connect offers "Your PC", finds the PC on the network and asks for the code; the PC never offers it', async () => {
+    localStorage.setItem('mnemoscript:aimock', '1');
+    const { providersFor } = await import('../lib/ai/providers');
+    expect(providersFor(false).map((p) => p.id)).not.toContain('paired');
+    expect(providersFor(true).map((p) => p.id)[0]).toBe('paired');
+
+    const App = await loadApp('?shell=mobile');
+    render(<App />);
+    await createProject('Paired Novel', true);
+    const tabBar = () => document.querySelector('.mn-tabbar') as HTMLElement;
+    await waitFor(() => expect(within(tabBar()).getByText('AI').closest('button')).not.toBeDisabled());
+    fireEvent.click(within(tabBar()).getByText('AI'));
+    fireEvent.click(await screen.findByTitle('Sessions'));
+    fireEvent.click(await screen.findByTitle('AI connection'));
+    fireEvent.click(await screen.findByText('Your PC (Claude subscription)'));
+    expect(await screen.findByText('WRITING-PC')).toBeInTheDocument();
+    expect(screen.getByLabelText('PC address')).toHaveValue('192.168.1.20:47815');
+    const pairBtn = screen.getByRole('button', { name: /^pair$/i });
+    expect(pairBtn).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('Pairing code'), { target: { value: '4821 7730' } });
+    expect(pairBtn).not.toBeDisabled();
+  }, 15000);
 });
 
 describe('AI assistant — phone shell (regression)', () => {

@@ -14,9 +14,11 @@ export interface AiProviderInfo {
   label: string;
   vendor: ModelVendor;
   /** `cli`: the writer's own official CLI sign-in (subscription). `apiKey`: a saved API key. */
-  auth: 'cli' | 'apiKey';
+  auth: 'cli' | 'apiKey' | 'paired';
   /** CLIs can't run on phones. */
   desktopOnly: boolean;
+  /** Phone → paired PC only makes sense on a phone. */
+  mobileOnly?: boolean;
   models: AiModelOption[];
   defaultModel: string;
   /** The writer may type any model id (vendors ship new ones often). */
@@ -35,6 +37,24 @@ export const PROVIDERS: AiProviderInfo[] = [
     vendor: 'anthropic',
     auth: 'cli',
     desktopOnly: true,
+    models: [
+      { id: '', label: 'Plan default' },
+      { id: 'opus', label: 'Opus', hint: 'Deepest, uses limits fastest' },
+      { id: 'sonnet', label: 'Sonnet', hint: 'Balanced' },
+      { id: 'haiku', label: 'Haiku', hint: 'Fastest, lightest on limits' },
+      { id: 'fable', label: 'Fable', hint: 'Most capable, if your plan has it' },
+    ],
+    defaultModel: '',
+    customModels: false,
+  },
+  {
+    // A phone using the paired PC's Claude Code over the home Wi-Fi (Settings → AI → Phone pairing).
+    id: 'paired',
+    label: 'Your PC (Claude subscription)',
+    vendor: 'anthropic',
+    auth: 'paired',
+    desktopOnly: false,
+    mobileOnly: true,
     models: [
       { id: '', label: 'Plan default' },
       { id: 'opus', label: 'Opus', hint: 'Deepest, uses limits fastest' },
@@ -96,7 +116,7 @@ export function getProvider(id: AiProviderId): AiProviderInfo {
 
 /** Providers usable on this device. */
 export function providersFor(isMobile: boolean): AiProviderInfo[] {
-  return PROVIDERS.filter((p) => !isMobile || !p.desktopOnly);
+  return PROVIDERS.filter((p) => (isMobile ? !p.desktopOnly : !p.mobileOnly));
 }
 
 /** Which company's model this is (for the session/message model icon). */

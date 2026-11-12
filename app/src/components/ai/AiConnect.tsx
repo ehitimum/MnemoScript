@@ -1,8 +1,9 @@
-import { useState } from 'react';
-import { Check, KeyRound, Loader2, RefreshCw, Terminal } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Check, KeyRound, Laptop, Loader2, RefreshCw, Terminal, Unlink } from 'lucide-react';
+import { api } from '../../lib/api';
 import type { AiChat } from '../../lib/ai/useAiChat';
 import { providersFor, type AiProviderInfo } from '../../lib/ai/providers';
-import type { ApiKeyProvider } from '../../lib/ai/types';
+import type { ApiKeyProvider, FoundPc } from '../../lib/ai/types';
 import ModelBadge from './ModelBadge';
 
 interface Props {
@@ -24,7 +25,7 @@ export default function AiConnect({ chat, size, isMobile }: Props) {
         <span className="text-3xs font-semibold tracking-[0.12em] uppercase text-muted-foreground/70">Connect an AI</span>
         <p className="text-xs text-muted-foreground leading-relaxed">
           One AI is connected to this project at a time. Other projects can use a different one.
-          {isMobile && ' On a phone, AI runs on an API key from the provider (billed per use).'}
+          {isMobile && ' On a phone, use your PC’s Claude subscription (paired over Wi-Fi) or an API key (billed per use).'}
         </p>
       </div>
       {providers.map((p) => (
@@ -41,7 +42,12 @@ export default function AiConnect({ chat, size, isMobile }: Props) {
 
 function ProviderCard({ p, chat, lg }: { p: AiProviderInfo; chat: AiChat; lg: boolean }) {
   const selected = chat.config.provider === p.id;
-  const ready = p.auth === 'cli' ? !!chat.cli?.installed && !!chat.cli.loggedIn : !!chat.keys?.[p.id as ApiKeyProvider];
+  const ready =
+    p.auth === 'cli'
+      ? !!chat.cli?.installed && !!chat.cli.loggedIn
+      : p.auth === 'paired'
+        ? !!chat.pair?.online && !!chat.pair.cli?.loggedIn
+        : !!chat.keys?.[p.id as ApiKeyProvider];
   return (
     <div className={`rounded-xl border transition-all ${selected ? 'border-primary/50 bg-primary/[0.06]' : 'border-border/35 bg-secondary/20'}`}>
       <button
@@ -53,7 +59,11 @@ function ProviderCard({ p, chat, lg }: { p: AiProviderInfo; chat: AiChat; lg: bo
         <span className="flex flex-col flex-1 min-w-0">
           <span className={`text-foreground ${lg ? 'text-sm font-medium' : 'text-xs font-medium'}`}>{p.label}</span>
           <span className="text-3xs text-muted-foreground/75">
-            {p.auth === 'cli' ? 'Uses your plan through Claude Code on this computer' : 'Pay-as-you-go with your own API key'}
+            {p.auth === 'cli'
+              ? 'Uses your plan through Claude Code on this computer'
+              : p.auth === 'paired'
+                ? 'Uses your plan through Claude Code on your PC, over Wi-Fi'
+                : 'Pay-as-you-go with your own API key'}
           </span>
         </span>
         {ready ? (
@@ -62,7 +72,7 @@ function ProviderCard({ p, chat, lg }: { p: AiProviderInfo; chat: AiChat; lg: bo
           selected && <span className="text-3xs text-muted-foreground">Set up</span>
         )}
       </button>
-      {selected && <div className={`${lg ? 'px-3.5 pb-3.5' : 'px-3 pb-3'}`}>{p.auth === 'cli' ? <CliSetup chat={chat} lg={lg} /> : <KeySetup p={p} chat={chat} lg={lg} />}</div>}
+      {selected && <div className={`${lg ? 'px-3.5 pb-3.5' : 'px-3 pb-3'}`}>{p.auth === 'cli' ? <CliSetup chat={chat} lg={lg} /> : p.auth === 'paired' ? <PairSetup chat={chat} lg={lg} /> : <KeySetup p={p} chat={chat} lg={lg} />}</div>}
     </div>
   );
 }
@@ -168,5 +178,131 @@ function KeySetup({ p, chat, lg }: { p: AiProviderInfo; chat: AiChat; lg: boolea
       {error && <p className="text-3xs text-destructive">{error}</p>}
       <p className="text-3xs text-muted-foreground/70">Kept in your system’s secure storage, never in the project folder. Used only from this device.</p>
     </div>
+  );
+}
+
+/** "Pixel 8" from the WebView's user agent; falls back to "Phone". */
+function deviceName(): string {
+  const m = /Android [\d.]+; ([^;)]+)/.exec(typeof navigator !== 'undefined' ? navigator.userAgent : '');
+  return m?.[1]?.replace(/\s*Build\/.*$/, '').trim() || 'Phone';
+}
+
+/** Phone: find the PC on the Wi-Fi, enter the code it shows, and use its Claude Code. */
+function PairSetup({ chat, lg }: { chat: AiChat; lg: boolean }) {
+  const pair = chat.pair;
+  const [found, setFound] = useState<FoundPc[] | null>(null);
+  const [host, setHost] = useState('');
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const field = `w-full bg-background/60 border border-border/50 rounded-lg px-3 outline-none focus:border-primary/50 text-foreground ${lg ? 'h-11 text-sm' : 'h-8 text-xs'}`;
+  const btn = `rounded-lg font-medium cursor-pointer disabled:opacity-40 ${lg ? 'h-11 text-sm px-4' : 'h-8 text-xs px-3'}`;
+  const paired = !!pair?.paired;
+
+  // Look for PCs on the network while the card is open (answers arrive within ~2 s).
+  useEffect(() => {
+    if (paired) return;
+    let alive = true;
+    api
+      .aiPairDiscover()
+      .then((f) => {
+        if (!alive) return;
+        setFound(f);
+        if (f[0]) setHost((h) => h || f[0].host);
+      })
+      .catch(() => alive && setFound([]));
+    return () => {
+      alive = false;
+    };
+  }, [paired]);
+
+  if (paired && pair) {
+    return (
+      <div className="flex flex-col gap-2.5 text-xs text-muted-foreground">
+        <div className="flex items-center gap-2">
+          <Laptop className="w-4 h-4 text-primary" />
+          <span className="text-foreground font-medium">{pair.pcName}</span>
+          <span className={pair.online ? 'text-emerald-500' : 'text-amber-500'}>{pair.online ? '· connected' : '· not reachable'}</span>
+        </div>
+        {pair.error && <p className="leading-relaxed">{pair.error}</p>}
+        {pair.online && !pair.cli?.loggedIn && (
+          <p>
+            Claude Code on the PC isn’t signed in. Run <code className="font-mono text-foreground">claude auth login</code> there.
+          </p>
+        )}
+        <div className="flex gap-2">
+          <button className={`${btn} bg-secondary text-foreground inline-flex items-center gap-1.5`} onClick={chat.refreshStatus} disabled={chat.checking}>
+            {chat.checking ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />} Check again
+          </button>
+          <button
+            className={`${btn} text-muted-foreground hover:text-destructive inline-flex items-center gap-1.5`}
+            onClick={() => void api.aiPairForget().then(chat.refreshStatus)}
+          >
+            <Unlink className="w-3.5 h-3.5" /> Unpair
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const connect = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.aiPairConnect(host, code, deviceName());
+      setCode('');
+      chat.refreshStatus();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form
+      className="flex flex-col gap-2.5 text-xs text-muted-foreground"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void connect();
+      }}
+    >
+      <p className="leading-relaxed">
+        On your PC, open MnemoScript → Settings → AI → <span className="text-foreground">Phone pairing</span>, turn it on and choose{' '}
+        <span className="text-foreground">Pair a phone</span>. Both need to be on the same Wi-Fi.
+      </p>
+      {found == null ? (
+        <p className="flex items-center gap-2">
+          <Loader2 className="w-3.5 h-3.5 animate-spin" /> Looking for your PC…
+        </p>
+      ) : (
+        found.map((f) => (
+          <button
+            key={f.id}
+            type="button"
+            onClick={() => setHost(f.host)}
+            className={`flex items-center gap-2 rounded-lg border px-3 text-left cursor-pointer ${lg ? 'h-11' : 'h-8'} ${
+              host === f.host ? 'border-primary/50 bg-primary/10 text-foreground' : 'border-border/50'
+            }`}
+          >
+            <Laptop className="w-4 h-4 text-primary" /> {f.name} <span className="ml-auto font-mono text-3xs">{f.host}</span>
+          </button>
+        ))
+      )}
+      <input className={`${field} font-mono`} value={host} onChange={(e) => setHost(e.target.value)} placeholder="PC address, e.g. 192.168.1.20" aria-label="PC address" inputMode="url" />
+      <input
+        className={`${field} font-mono tracking-widest`}
+        value={code}
+        onChange={(e) => setCode(e.target.value.replace(/[^\d ]/g, '').slice(0, 9))}
+        placeholder="8-digit code"
+        aria-label="Pairing code"
+        inputMode="numeric"
+        autoComplete="one-time-code"
+      />
+      <button type="submit" className={`${btn} bg-primary text-primary-foreground`} disabled={busy || !host.trim() || code.replace(/\D/g, '').length !== 8}>
+        {busy ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'Pair'}
+      </button>
+      {error && <p className="text-destructive leading-relaxed">{error}</p>}
+    </form>
   );
 }

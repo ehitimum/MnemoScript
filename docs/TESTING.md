@@ -49,6 +49,8 @@ delete, legacy `project.json` without new fields, missing-document errors.
 - Unit `lib/ai/inline.test.ts` — inline prompts and output cleanup, `runInlineTurn`, and
   `flatten`/`applyRewrite`/`insertParagraphsAfter` against a real TipTap editor (marks kept, one undo
   step, structural fallback, stale-text refusal), `AiTarget` range mapping.
+- Backend `cargo test pair` — pairing crypto, and an end-to-end loopback test of the PC server + phone
+  client (pairing, relayed turn with a tool call, wrong code, revocation, replay).
 - Unit `lib/ai/usage.test.ts` — `/usage` report parsing (real captured text), local usage totals,
   default mode for unconfigured projects.
 - Regression `regression/ai.regression.test.tsx` — desktop panel (Ctrl+L, connect screen, a full mocked
