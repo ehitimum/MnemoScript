@@ -50,6 +50,11 @@ zip = { version = "9.5", default-features = false, features = ["deflate"] }
 sha2 = "0.10"
 lol_html = "3"
 html-escape = "0.2"
+# MnemoSync state (revisions, outbox, conflicts, Drive cursors). Bundled SQLite: no system
+# library on Windows/Android. Project JSON files stay the source of truth.
+rusqlite = { version = "0.32", features = ["bundled"] }
+flate2 = "1"
+url = "2"
 
 [dev-dependencies]
 tempfile = "3"
@@ -62,4 +67,6 @@ rfd = "0.15"
 keyring = { version = "3", features = ["windows-native", "apple-native"] }
 # Tiny local HTTP server for the in-app MCP endpoint the Claude Code CLI connects to.
 tiny_http = "0.12"
+# Opens Google sign-in in the writer's own browser (desktop OAuth loopback flow).
+open = "5"
 
