@@ -38,6 +38,14 @@ Items 1–3 were in the released 2.1.0; each fix has a regression test.
   and an honest automated/device/visual acceptance matrix. Preserve current AI work and UI shells.
 - Phase 0 implementation begins with checked native ZIP recovery; transports and Smart Merge
   remain gated follow-on work. Baseline `npm run check`: 116 tests, lint/types/build pass.
+- Implemented backup/restore commands, a versioned SHA-256 manifest, defensive bounded extraction,
+  private staging, fresh recovered project identities and image-path relocation with HTML entity
+  handling. Includes saved chapters/maps/assets/sessions/exports; excludes app credentials/grants.
+- Added settings controls using the existing desktop cards and phone rows: create locally, save a
+  separate copy, restore a selected ZIP, progress/errors and retry. Failed local save aborts backup.
+- Final checks: 126 frontend tests, 37 regressions, production build/lint/types; cargo check,
+  56 backend tests (3 existing live-AI tests ignored), and Clippy with warnings denied pass.
+  Visual preview remains permission-blocked; packaged Windows/real Android acceptance pending.
 
 ## 2026-11-12 — Isolate AI revisions from nearby typing in undo history
 

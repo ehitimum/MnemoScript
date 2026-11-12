@@ -4,6 +4,7 @@ import type { ThemeType } from '../App';
 import { THEMES, FONTS } from '../lib/prefs';
 import { isTauri, isMobileOS } from '../lib/platform';
 import AiSettings from './ai/AiSettings';
+import BackupSettings, { type BackupActions } from './sync/BackupSettings';
 
 export interface SettingsProps {
   theme: ThemeType;
@@ -25,6 +26,7 @@ export interface SettingsProps {
   defaultSavePath: string;
   setDefaultSavePath: (s: string) => void;
   onClose: () => void;
+  backup?: BackupActions;
 }
 
 const card = 'bg-card/60 border border-border/40 rounded-2xl p-5 flex flex-col gap-4 shadow-xs';
@@ -115,6 +117,7 @@ function SettingsPanel(p: SettingsProps) {
 
           {/* AI assistant: subscription limits, API keys, defaults */}
           <AiSettings variant="desktop" />
+          {p.backup && <BackupSettings variant="desktop" {...p.backup} />}
 
           {/* Storage (desktop only; mobile storage is app-private) */}
           {isTauri && !isMobileOS && (

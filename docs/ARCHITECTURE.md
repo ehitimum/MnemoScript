@@ -11,6 +11,14 @@ The serverless sync strategy and dependency gates live in
 and [test matrix](./MNEMOSYNC_TEST_MATRIX.md). Start from current AI feature HEAD, not stale main.
 Phase 0 introduces recovery archives; LAN/Drive and Smart Merge remain later gated phases.
 
+- `src-tauri/src/backup.rs` streams allowlisted files to unique ZIPs in app-level `backups/`,
+  records SHA-256/lengths, validates paths and bounds, and stages restores as independent copies.
+  `backup_project` / raw `restore_project_backup` run work off the UI thread; restored projects
+  are registered only after activation. `src/components/sync/BackupSettings.tsx` is shared by the
+  two settings shells. `App.tsx` flushes dirty content before backup and propagates save failures.
+- Recovery rewrites image attributes and known map asset fields, preserving manuscript/graph
+  identity and the original archive. Browser ZIP recovery remains explicitly native-only.
+
 ## Stack
 - **Shell:** Tauri 2 (Rust backend + system WebView).
 - **Frontend:** React 19 + TypeScript + Vite 8, Tailwind CSS v4.
