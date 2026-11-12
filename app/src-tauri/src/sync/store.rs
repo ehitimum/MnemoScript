@@ -10,6 +10,8 @@ pub struct Store {
     pub conn: Connection,
 }
 
+pub type NoticeRow = (i64, String, String, String, String);
+
 fn err(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
@@ -510,17 +512,6 @@ impl Store {
             .map_err(err)
     }
 
-    pub fn last_applied_seq(&self, project_id: &str, transport: &str, device: &str) -> Result<u64, String> {
-        self.conn
-            .query_row(
-                "SELECT COALESCE(MAX(seq), 0) FROM applied_batches WHERE project_id = ?1 AND transport = ?2 AND device = ?3",
-                [project_id, transport, device],
-                |r| r.get::<_, i64>(0),
-            )
-            .map(|n| n as u64)
-            .map_err(err)
-    }
-
     pub fn mark_applied(&self, project_id: &str, transport: &str, device: &str, seq: u64) -> Result<(), String> {
         self.conn
             .execute(
@@ -585,7 +576,8 @@ impl Store {
             .map_err(err)
     }
 
-    pub fn notices(&self, project_id: &str, limit: usize) -> Result<Vec<(i64, String, String, String, String)>, String> {
+    /// Recent notices, newest first: `(id, entity, kind, detail, created_at)`.
+    pub fn notices(&self, project_id: &str, limit: usize) -> Result<Vec<NoticeRow>, String> {
         let mut stmt = self
             .conn
             .prepare("SELECT id, entity, kind, detail, created_at FROM notices WHERE project_id = ?1 ORDER BY id DESC LIMIT ?2")
