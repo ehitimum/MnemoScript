@@ -1,4 +1,5 @@
 mod ai;
+mod backup;
 mod project;
 
 use project::{Document, Project, Registry};
@@ -280,6 +281,37 @@ fn load_document(project_id: String, document_id: String) -> ApiResponse<Documen
     }
 }
 
+/// Run compression on a worker so a large backup cannot block the app's UI thread.
+#[tauri::command]
+async fn backup_project(project_id: String) -> ApiResponse<String> {
+    match tauri::async_runtime::spawn_blocking(move || backup::create(&project_id)).await {
+        Ok(Ok(path)) => ApiResponse::success(path),
+        Ok(Err(e)) => ApiResponse::error(e),
+        Err(e) => ApiResponse::error(e.to_string()),
+    }
+}
+
+#[tauri::command]
+async fn restore_project_backup(request: Request<'_>) -> Result<ApiResponse<Project>, String> {
+    if matches!(request.body(), InvokeBody::Raw(bytes) if bytes.len() as u64 > backup::MAX_ARCHIVE) {
+        return Ok(ApiResponse::error("Backup exceeds the 600 MiB archive limit".into()));
+    }
+    let bytes = match body_bytes(&request) {
+        Ok(bytes) if bytes.len() as u64 <= backup::MAX_ARCHIVE => bytes,
+        Ok(_) => return Ok(ApiResponse::error("Backup exceeds the 600 MiB archive limit".into())),
+        Err(e) => return Ok(ApiResponse::error(e)),
+    };
+    Ok(match tauri::async_runtime::spawn_blocking(move || {
+        let project = backup::restore_in(std::io::Cursor::new(bytes), &Project::projects_dir())?;
+        Registry::add(&project).map_err(|e| format!("Restored files at {}; registration failed: {e}", project.get_dir().display()))?;
+        Ok::<_, String>(project)
+    }).await {
+        Ok(Ok(project)) => ApiResponse::success(project),
+        Ok(Err(e)) => ApiResponse::error(e),
+        Err(e) => ApiResponse::error(e.to_string()),
+    })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -334,6 +366,8 @@ pub fn run() {
             export_file,
             select_directory,
             open_project_by_path,
+            backup_project,
+            restore_project_backup,
             ai::commands::list_ai_sessions,
             ai::commands::load_ai_session,
             ai::commands::save_ai_session,

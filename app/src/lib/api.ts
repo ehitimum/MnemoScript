@@ -139,6 +139,21 @@ export const api = {
 
   selectDirectory: () => call<string | null>('select_directory'),
 
+  /** Native recovery archives are stored outside the project (never recursively backed up). */
+  backupProject: (projectId: string) => call<string>('backup_project', { projectId }),
+  restoreProjectBackup: (bytes: Uint8Array) => callRaw<Project>('restore_project_backup', bytes, {}),
+
+  /** A separate user-selected copy, suitable for moving off this device. */
+  saveBackupCopy: async (backupPath: string): Promise<string | null> => {
+    const [{ save }, { readFile, writeFile }] = await Promise.all([
+      import('@tauri-apps/plugin-dialog'), import('@tauri-apps/plugin-fs'),
+    ]);
+    const destination = await save({ defaultPath: 'MnemoScript-backup.zip', filters: [{ name: 'Project backup', extensions: ['zip'] }] });
+    if (!destination) return null;
+    await writeFile(destination, await readFile(backupPath));
+    return destination;
+  },
+
   /* ---------------------------- AI assistant ---------------------------- */
   // Sessions are stored per project (`<project>/ai/sessions/`), so one project never sees another's.
 

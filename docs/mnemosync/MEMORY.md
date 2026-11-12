@@ -71,6 +71,10 @@ Implement optional, secure, low-cost **local-first project synchronization** for
   via alternate browser tooling. Installed Windows/real Android acceptance remains pending.
 - Next: finish Phase 0 device acceptance, then Phase 1 durable SQLite/IndexedDB intents and
   portable assets. Google client setup and real LAN/Drive tests are still future work.
+- Final local checks: 126 frontend tests, 37 regression tests, frontend lint/types/build,
+  cargo check, 56 Rust tests (3 existing live-AI tests ignored), Clippy -D warnings pass.
+  Strategy baseline commit: `5b34ff1` on `codex/mnemosync-foundation`; implementation branch:
+  `codex/mnemosync-backup`. PR publication status must be checked, not inferred from a push.
 
 ## Critical scenario / regression test
 

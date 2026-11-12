@@ -6,7 +6,7 @@ authors = ["ehitimum"]
 license = ""
 repository = "https://github.com/ehitimum/MnemoScript"
 edition = "2021"
-rust-version = "1.77.2"
+rust-version = "1.88"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -45,6 +45,14 @@ futures-util = "0.3"
 spake2 = "0.4"
 chacha20poly1305 = "0.10"
 base64 = "0.22"
+# Versioned, checksummed local recovery archives; only pure-Rust ZIP deflate.
+zip = { version = "9.5", default-features = false, features = ["deflate"] }
+sha2 = "0.10"
+lol_html = "3"
+html-escape = "0.2"
+
+[dev-dependencies]
+tempfile = "3"
 
 # Native folder picker — desktop only (rfd has no Android/iOS backend). Mobile
 # uses the dialog/fs plugins instead.
