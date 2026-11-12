@@ -116,7 +116,10 @@ phone shell.
   quality. Never use OpenCode's Claude-subscription sign-in plug-ins (forbidden by Anthropic).
 - **Ollama** — local open models on the PC: free and fully private; with phone pairing the phone
   could use it too (pairing currently allows Claude Code turns only).
-- **Codex CLI** — ChatGPT plan via OpenAI's own CLI, if the writer installs it.
+- **Codex CLI** — ✅ done (ChatGPT (your subscription)); phone pairing still relays Claude Code only.
+- OpenCode finding (2026-11-12): free models reported "Free usage limit reached" for this account and
+  `opencode run` retried instead of exiting — the bridge needs a stall timeout; test after the limit resets
+  or with the writer's own provider key (DeepSeek is configured in OpenCode).
 
 ### P1 — next sprint
 - **Grammar without the network.** `grammar-service.ts` posts every document to api.languagetool.org

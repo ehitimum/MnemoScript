@@ -152,7 +152,8 @@ export const api = {
   aiSetApiKey: (provider: ApiKeyProvider, key: string) => call<void>('ai_set_api_key', { provider, key }),
   aiClearApiKey: (provider: ApiKeyProvider) => call<void>('ai_clear_api_key', { provider }),
   /** Claude Code CLI: installed / signed in / plan. */
-  aiCliStatus: () => call<CliStatus>('ai_cli_status'),
+  /** Status of an installed agent CLI: Claude Code (default) or `codex`. */
+  aiCliStatus: (provider?: 'claude-code' | 'codex') => call<CliStatus>('ai_cli_status', provider ? { provider } : undefined),
   /** Plan limits as the writer's Claude Code reports them (`/usage`; free). Desktop only. */
   aiCliUsage: () => call<{ text: string }>('ai_cli_usage'),
   // Phone pairing — PC side.

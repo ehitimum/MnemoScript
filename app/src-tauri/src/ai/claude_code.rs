@@ -55,7 +55,7 @@ pub fn find_cli() -> Option<PathBuf> {
         .find(|p| p.is_file())
 }
 
-fn command(cli: &Path) -> tokio::process::Command {
+pub(crate) fn command(cli: &Path) -> tokio::process::Command {
     let mut cmd = tokio::process::Command::new(cli);
     cmd.env_clear().envs(clean_env()).kill_on_drop(true);
     // Ask mode: a write tool waits for the writer's Apply / Reject, which can take a while.
@@ -232,7 +232,7 @@ pub fn parse_line(v: &Value, st: &mut StreamState) -> Vec<AiEvent> {
 }
 
 /// Per-turn scratch folder (empty cwd, prompt + MCP config files). Removed on drop.
-struct Scratch(PathBuf);
+pub(crate) struct Scratch(pub(crate) PathBuf);
 impl Drop for Scratch {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.0);

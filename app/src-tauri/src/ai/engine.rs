@@ -140,6 +140,8 @@ pub async fn run_turn(turn: Turn, req: TurnRequest) {
             "gemini" => super::gemini::run(&turn, &req, api_key("gemini", "Google Gemini")?).await,
             #[cfg(desktop)]
             "claude-code" => super::claude_code::run(&turn, &req).await,
+            #[cfg(desktop)]
+            "codex" => super::codex::run(&turn, &req).await,
             #[cfg(not(desktop))]
             "claude-code" => Err(AiEvent::error(
                 "unavailable",

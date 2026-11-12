@@ -28,7 +28,9 @@ export default function AiConnect({ chat, size, isMobile }: Props) {
           {isMobile && ' On a phone, use your PC’s Claude subscription (paired over Wi-Fi) or an API key (billed per use).'}
         </p>
       </div>
-      {providers.map((p) => (
+      {providers
+        .filter((p) => p.id !== 'codex' || chat.codex?.installed || chat.config.provider === 'codex')
+        .map((p) => (
         <ProviderCard key={p.id} p={p} chat={chat} lg={lg} />
       ))}
       {chat.ready && (
@@ -44,7 +46,7 @@ function ProviderCard({ p, chat, lg }: { p: AiProviderInfo; chat: AiChat; lg: bo
   const selected = chat.config.provider === p.id;
   const ready =
     p.auth === 'cli'
-      ? !!chat.cli?.installed && !!chat.cli.loggedIn
+      ? !!cliOf(chat, p.id)?.installed && !!cliOf(chat, p.id)?.loggedIn
       : p.auth === 'paired'
         ? !!chat.pair?.online && !!chat.pair.cli?.loggedIn
         : !!chat.keys?.[p.id as ApiKeyProvider];
@@ -60,7 +62,7 @@ function ProviderCard({ p, chat, lg }: { p: AiProviderInfo; chat: AiChat; lg: bo
           <span className={`text-foreground ${lg ? 'text-sm font-medium' : 'text-xs font-medium'}`}>{p.label}</span>
           <span className="text-3xs text-muted-foreground/75">
             {p.auth === 'cli'
-              ? 'Uses your plan through Claude Code on this computer'
+              ? `Uses your plan through ${p.id === 'codex' ? 'Codex' : 'Claude Code'} on this computer`
               : p.auth === 'paired'
                 ? 'Uses your plan through Claude Code on your PC, over Wi-Fi'
                 : 'Pay-as-you-go with your own API key'}
@@ -72,13 +74,21 @@ function ProviderCard({ p, chat, lg }: { p: AiProviderInfo; chat: AiChat; lg: bo
           selected && <span className="text-3xs text-muted-foreground">Set up</span>
         )}
       </button>
-      {selected && <div className={`${lg ? 'px-3.5 pb-3.5' : 'px-3 pb-3'}`}>{p.auth === 'cli' ? <CliSetup chat={chat} lg={lg} /> : p.auth === 'paired' ? <PairSetup chat={chat} lg={lg} /> : <KeySetup p={p} chat={chat} lg={lg} />}</div>}
+      {selected && <div className={`${lg ? 'px-3.5 pb-3.5' : 'px-3 pb-3'}`}>{p.auth === 'cli' ? <CliSetup chat={chat} lg={lg} id={p.id} /> : p.auth === 'paired' ? <PairSetup chat={chat} lg={lg} /> : <KeySetup p={p} chat={chat} lg={lg} />}</div>}
     </div>
   );
 }
 
-function CliSetup({ chat, lg }: { chat: AiChat; lg: boolean }) {
-  const cli = chat.cli;
+const cliOf = (chat: AiChat, id: string) => (id === 'codex' ? chat.codex : chat.cli);
+
+const CLI_INFO: Record<string, { name: string; install: string; login: string; account: string }> = {
+  'claude-code': { name: 'Claude Code', install: 'claude.com/code', login: 'claude auth login', account: 'your Claude account' },
+  codex: { name: 'Codex', install: 'npm install -g @openai/codex', login: 'codex login', account: 'your ChatGPT account' },
+};
+
+function CliSetup({ chat, lg, id }: { chat: AiChat; lg: boolean; id: string }) {
+  const cli = cliOf(chat, id);
+  const info = CLI_INFO[id] ?? CLI_INFO['claude-code'];
   const recheck = (
     <button
       className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline cursor-pointer disabled:opacity-50"
@@ -88,11 +98,11 @@ function CliSetup({ chat, lg }: { chat: AiChat; lg: boolean }) {
       {chat.checking ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />} Check again
     </button>
   );
-  if (!cli) return <p className="text-xs text-muted-foreground flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Looking for Claude Code…</p>;
+  if (!cli) return <p className="text-xs text-muted-foreground flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Looking for {info.name}…</p>;
   if (!cli.installed) {
     return (
       <div className="flex flex-col gap-2 text-xs text-muted-foreground">
-        <p>Claude Code isn’t installed on this computer. Install it from <span className="text-foreground">claude.com/code</span>, sign in once in a terminal, then check again.</p>
+        <p>{info.name} isn’t installed on this computer. Install it (<span className="text-foreground">{info.install}</span>), sign in once in a terminal, then check again.</p>
         {recheck}
       </div>
     );
@@ -100,9 +110,9 @@ function CliSetup({ chat, lg }: { chat: AiChat; lg: boolean }) {
   if (!cli.loggedIn) {
     return (
       <div className="flex flex-col gap-2 text-xs text-muted-foreground">
-        <p>Claude Code {cli.version ? `(${cli.version.split(' ')[0]})` : ''} is installed but not signed in. Run this once in a terminal and sign in with your Claude account:</p>
+        <p>{info.name} {cli.version ? `(${cli.version.split(' ')[0]})` : ''} is installed but not signed in. Run this once in a terminal and sign in with {info.account}:</p>
         <code className={`self-start flex items-center gap-2 rounded-md bg-secondary/70 px-2 py-1 font-mono text-foreground ${lg ? 'text-sm' : 'text-xs'}`}>
-          <Terminal className="w-3.5 h-3.5 text-primary" /> claude auth login
+          <Terminal className="w-3.5 h-3.5 text-primary" /> {info.login}
         </code>
         {recheck}
       </div>
@@ -111,10 +121,10 @@ function CliSetup({ chat, lg }: { chat: AiChat; lg: boolean }) {
   return (
     <div className="flex flex-col gap-1 text-xs text-muted-foreground">
       <p>
-        Signed in{cli.email ? <> as <span className="text-foreground">{cli.email}</span></> : ''}
+        Signed in{cli.email ? <> as <span className="text-foreground">{cli.email}</span></> : cli.authMethod === 'chatgpt' ? ' with ChatGPT' : ''}
         {cli.plan ? <> · <span className="text-foreground capitalize">{cli.plan}</span> plan</> : ''}.
       </p>
-      <p className="text-3xs text-muted-foreground/70">MnemoScript never sees your Claude login — Claude Code handles it. It can only reach this project, through MnemoScript.</p>
+      <p className="text-3xs text-muted-foreground/70">MnemoScript never sees your login; {info.name} handles it. It can only reach this project, through MnemoScript.</p>
     </div>
   );
 }

@@ -251,6 +251,16 @@ Feasibility and the reasoning behind the design: [AI_PHASE0.md](./AI_PHASE0.md).
     character; `applyRewrite` word-diffs old → new and applies only the changed words in one
     transaction (marks on kept words survive; one Ctrl+Z). If the paragraph count changes, or the
     writer edited the passage meanwhile, it replaces the range with plain paragraphs instead.
+- **Codex (ChatGPT plan).** `ai/codex.rs`, provider `codex` (desktop): the writer's own signed-in
+  OpenAI Codex CLI, found as `codex.exe` or as the npm package run with Node (avoids cmd.exe quoting).
+  Per message: `codex exec --json --ephemeral --ignore-user-config --ignore-rules -s read-only` in an
+  empty folder, prompt (instructions + transcript + message) on stdin, MnemoScript's MCP endpoint by
+  URL with its tools pre-approved (`default_tools_approval_mode="approve"`; MnemoScript's modes still
+  decide), and every built-in feature that reaches beyond those tools disabled (shell, unified exec,
+  multi-agent, browser/computer use, apps, plugins, images, web search…). `code_mode_host` stays on:
+  this Codex version calls MCP tools through it; a live probe confirmed no file access remains.
+  Events: `agent_message` items → text, `turn.completed` → usage + done, `turn.failed` → error.
+  Status from `codex login status`. The Connect screen shows Codex only when it is installed.
 - **Phone pairing.** A phone uses the PC's Claude Code over the home Wi-Fi (provider `paired`, phone
   only). PC: `ai/pair_server.rs` — off until Settings → AI → Phone pairing is on (persisted in
   `<data>/pairing/server.json`, autostarts), TCP on 47815 (or a free port) + UDP discovery on 47815,

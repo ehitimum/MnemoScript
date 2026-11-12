@@ -5,6 +5,22 @@ Newest entries first. Dates are absolute.
 
 ---
 
+## 2026-11-12 — ChatGPT plan through Codex CLI
+
+- New provider "ChatGPT (your subscription)" = the writer's signed-in Codex CLI, locked down like
+  Claude Code (design: ARCHITECTURE.md → "Codex"). Shown in Connect only when Codex is installed,
+  with `codex login` guidance; models: Codex default or a typed model id.
+- Found along the way: this Codex routes MCP tools through `code_mode_host` (disabling it hides
+  MnemoScript's tools) and asks approval for MCP calls (pre-approved per server). A live probe asking
+  Codex to read `C:\Windows\win.ini` and list `C:\Users` found no way to touch files.
+- OpenCode: probed too; its free models currently answer "Free usage limit reached" for this account,
+  and `opencode run` keeps retrying instead of exiting, so the OpenCode bridge waits (needs a stall
+  timeout). Noted in IMPROVEMENT_PLAN.
+- Tests: Codex stream parsing/login/model-name unit test; live `cargo test live_codex -- --ignored`
+  passed (tool call → right answer, ~11 s). 116/116 Vitest, lint 0, clippy clean.
+
+---
+
 ## 2026-11-12 — Phone pairing: the phone uses the PC's Claude subscription
 
 - PC: Settings → AI → **Phone pairing** (switch, address, "Pair a phone" with an 8-digit code and

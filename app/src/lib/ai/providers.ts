@@ -48,6 +48,17 @@ export const PROVIDERS: AiProviderInfo[] = [
     customModels: false,
   },
   {
+    // The writer's ChatGPT plan through their own signed-in OpenAI Codex CLI.
+    id: 'codex',
+    label: 'ChatGPT (your subscription)',
+    vendor: 'openai',
+    auth: 'cli',
+    desktopOnly: true,
+    models: [{ id: '', label: 'Codex default', hint: 'The model your ChatGPT plan uses in Codex' }],
+    defaultModel: '',
+    customModels: true,
+  },
+  {
     // A phone using the paired PC's Claude Code over the home Wi-Fi (Settings → AI → Phone pairing).
     id: 'paired',
     label: 'Your PC (Claude subscription)',
@@ -137,6 +148,7 @@ const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
  */
 export function modelLabel(model: string): string {
   if (!model) return 'Default model';
+  if (model === 'codex') return 'Codex';
   const id = model.replace(/\[.*\]$/, '');
   const claude = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/.exec(id);
   if (claude) return `Claude ${cap(claude[1])} ${claude[2]}${claude[3] ? `.${claude[3]}` : ''}`;

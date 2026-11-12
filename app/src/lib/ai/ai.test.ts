@@ -24,7 +24,10 @@ describe('providers', () => {
     const claude = getProvider('claude-code');
     expect(claude.models.map((m) => m.id)).toEqual(['', 'opus', 'sonnet', 'haiku', 'fable']);
     expect(providersFor(true).map((p) => p.id)).not.toContain('claude-code');
-    expect(providersFor(false)).toHaveLength(4);
+    expect(providersFor(true).map((p) => p.id)).not.toContain('codex');
+    // PC: both subscription CLIs plus the three API-key providers (no phone-only pairing).
+    expect(providersFor(false).map((p) => p.id)).toEqual(['claude-code', 'codex', 'anthropic', 'openai', 'gemini']);
+    expect(modelLabel('codex')).toBe('Codex');
   });
 
   it('labels resolved model ids and knows their vendor', () => {

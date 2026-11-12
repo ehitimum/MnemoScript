@@ -62,7 +62,8 @@ delete, legacy `project.json` without new fields, missing-document errors.
 - Backend `cargo test ai::` — SSE parsing, the three API stream accumulators, Claude Code stream-json,
   MCP JSON-RPC, turn registry/cancel, session files, key storage. Live (costs a little usage, so
   `#[ignore]`d): `cargo test live_claude_code -- --ignored --nocapture` (the round trip costs a
-  little; `live_claude_code_usage` is free).
+  little; `live_claude_code_usage` is free). Codex: `cargo test live_codex -- --ignored --nocapture`
+  (a little of the ChatGPT plan).
 - UI work in a browser: `npm run dev`, open `http://127.0.0.1:1420/?aimock` (add `&shell=mobile` for the
   phone). `?aimock` (or `localStorage['mnemoscript:aimock']='1'`) turns on `lib/ai/devMock.ts`, a fake
   provider for the browser fallback only — never in the Tauri app. A message with "edit", "fix" or

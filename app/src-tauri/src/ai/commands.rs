@@ -54,11 +54,18 @@ pub fn ai_clear_api_key(provider: String) -> ApiResponse<()> {
 
 /// Claude Code CLI: installed / signed in / plan. Always "not installed" on phones.
 #[tauri::command]
-pub async fn ai_cli_status() -> ApiResponse<Value> {
+pub async fn ai_cli_status(provider: Option<String>) -> ApiResponse<Value> {
     #[cfg(desktop)]
-    let status = serde_json::to_value(super::claude_code::status().await).unwrap_or(Value::Null);
+    let status = serde_json::to_value(match provider.as_deref() {
+        Some("codex") => super::codex::status().await,
+        _ => super::claude_code::status().await,
+    })
+    .unwrap_or(Value::Null);
     #[cfg(not(desktop))]
-    let status = serde_json::json!({ "installed": false, "loggedIn": false });
+    let status = {
+        let _ = provider;
+        serde_json::json!({ "installed": false, "loggedIn": false })
+    };
     ApiResponse::success(status)
 }
 

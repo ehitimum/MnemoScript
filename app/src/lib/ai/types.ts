@@ -5,7 +5,7 @@
  */
 
 /** How MnemoScript reaches the model. One provider is connected per project at a time. */
-export type AiProviderId = 'claude-code' | 'paired' | 'anthropic' | 'openai' | 'gemini';
+export type AiProviderId = 'claude-code' | 'codex' | 'paired' | 'anthropic' | 'openai' | 'gemini';
 export type ApiKeyProvider = 'anthropic' | 'openai' | 'gemini';
 
 /** plan = read-only, ask = edits need approval, auto = edits apply (with undo). */

@@ -6,6 +6,8 @@
 pub mod anthropic;
 #[cfg(desktop)]
 pub mod claude_code;
+#[cfg(desktop)]
+pub mod codex;
 pub mod commands;
 pub mod engine;
 pub mod gemini;
