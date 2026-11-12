@@ -34,7 +34,7 @@ Newest entries first. Dates are absolute.
   handling. Includes saved chapters/maps/assets/sessions/exports; excludes app credentials/grants.
 - Added settings controls using the existing desktop cards and phone rows: create locally, save a
   separate copy, restore a selected ZIP, progress/errors and retry. Failed local save aborts backup.
-- Final checks after integrating the runtime fix: 127 frontend tests, 38 regressions, production build/lint/types; cargo check,
+- Final checks after integrating the runtime and undo fixes: 130 frontend tests, 41 regressions, production build/lint/types; cargo check,
   56 backend tests (3 existing live-AI tests ignored), and Clippy with warnings denied pass.
   Visual preview remains permission-blocked; packaged Windows/real Android acceptance pending.
 
