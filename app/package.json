@@ -1,23 +1,35 @@
 {
-  "name": "app",
+  "name": "mnemoscript",
   "private": true,
-  "version": "0.0.0",
+  "version": "2.1.0",
   "type": "module",
+  "engines": {
+    "node": "^24.15.0"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
     "tauri": "tauri",
+    "setup:speech": "node ../scripts/setup_speech_assets.mjs",
+    "fetch:model": "node ../scripts/fetch_whisper_model.mjs",
     "dev:tauri": "tauri dev",
     "build:tauri": "tauri build",
     "android:init": "tauri android init",
     "android:dev": "tauri android dev",
-    "android:build": "tauri android build"
+    "android:build": "tauri android build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:regression": "vitest run src/regression",
+    "typecheck": "tsc -b",
+    "check": "npm run lint && npm run typecheck && npm run test && npm run build"
   },
   "dependencies": {
     "@dagrejs/dagre": "^3.0.0",
+    "@huggingface/transformers": "^4.2.0",
     "@radix-ui/react-scroll-area": "^1.2.3",
+    "@ricky0123/vad-web": "^0.0.30",
     "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/plugin-dialog": "^2.7.1",
     "@tauri-apps/plugin-fs": "^2.5.1",
@@ -41,6 +53,7 @@
     "d3-delaunay": "^6.0.4",
     "konva": "^10.3.0",
     "lucide-react": "^0.475.0",
+    "onnxruntime-web": "^1.27.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "react-icons": "^5.6.0",
@@ -52,6 +65,9 @@
     "@eslint/js": "^9.39.4",
     "@tailwindcss/vite": "^4.0.0",
     "@tauri-apps/cli": "^2.10.1",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
     "@types/node": "^24.12.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
@@ -61,9 +77,11 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.5.0",
+    "jsdom": "^30.0.1",
     "tailwindcss": "^4.0.0",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.58.2",
-    "vite": "^8.0.9"
+    "vite": "^8.0.9",
+    "vitest": "^5.0.0"
   }
 }

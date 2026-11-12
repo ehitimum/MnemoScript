@@ -29,10 +29,21 @@ export default defineConfig({
   server: {
     port: 1420,
     strictPort: true,
+    // Never watch the Rust side (its target/ folder holds GBs of build output).
+    watch: { ignored: ['**/src-tauri/**'] },
   },
   // to make use of `TAURI_DEBUG` and other env variables
   // https://tauri.app/v1/api/config#buildconfig.beforedevcommand
   envPrefix: ['VITE_', 'TAURI_'],
+  // onnxruntime-web / vad-web are dynamically imported but still must be
+  // pre-bundled in dev so their wasm/worker sub-imports resolve in the browser;
+  // transformers.js only runs inside the Web Worker (its own module graph), so it
+  // doesn't need to be listed here.
+  optimizeDeps: {
+    // Scan only the real entry; the default globs every .html in the repo, including src-tauri/target.
+    entries: ['index.html'],
+    include: ['@ricky0123/vad-web', 'onnxruntime-web'],
+  },
   build: {
     // Use Tauri-specific targets when TAURI_PLATFORM is set, otherwise use a modern web fallback.
     target: buildTarget,

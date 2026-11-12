@@ -1,8 +1,8 @@
 import { Extension, Editor } from '@tiptap/core';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
-import { Node as ProsemirrorNode } from '@tiptap/pm/model';
 import { grammarService, type LTMatch } from './grammar-service';
+import { buildFlatText } from '../lib/proseFlatText';
 
 declare module '@tiptap/core' {
   interface Storage {
@@ -14,54 +14,9 @@ declare module '@tiptap/core' {
 
 export const linguisticPluginKey = new PluginKey('linguisticCheck');
 
-interface FlatText {
-  text: string;
-  // map[i] = the ProseMirror document position immediately BEFORE flat-text
-  // character `i`. Length is `text.length + 1` so the *exclusive* end offset of
-  // any match (offset + length) is always mappable.
-  map: number[];
-}
-
-/**
- * Build the plain text sent to LanguageTool AND the offset -> doc-position map
- * in ONE pass.
- *
- * This is the core correctness fix. The old code extracted text with one rule
- * (`node.isBlock && text.length > 0`) and mapped offsets with a *different* rule
- * (`node.isBlock && pos > 0`), in two independent traversals. Those rules
- * diverge for empty leading blocks (your default `<h2></h2><p></p>` shifted
- * every highlight left by one) and for nested lists/blockquotes (larger drift,
- * sometimes falling back to position 1). Producing both from the same walk makes
- * a LanguageTool `offset` impossible to drift away from its real position.
- */
-function buildFlatText(doc: ProsemirrorNode): FlatText {
-  let text = '';
-  const map: number[] = [];
-  let sawContentBlock = false;
-
-  doc.descendants((node, pos) => {
-    if (node.isText && node.text) {
-      const t = node.text;
-      for (let i = 0; i < t.length; i++) {
-        map.push(pos + i); // position right before this character
-      }
-      text += t;
-    } else if (node.isBlock) {
-      // Insert a single whitespace separator between content blocks so words at
-      // block edges don't get glued together (e.g. "endStart" -> "end Start").
-      if (sawContentBlock && text.length > 0 && !text.endsWith(' ')) {
-        map.push(pos); // separator maps to the block boundary
-        text += ' ';
-      }
-      sawContentBlock = true;
-    }
-  });
-
-  // Sentinel so that map[text.length] (an exclusive end offset) is valid.
-  map.push(map.length > 0 ? map[map.length - 1] + 1 : 1);
-
-  return { text, map };
-}
+// The flat-text + offset→doc-position map (`buildFlatText`) now lives in
+// ../lib/proseFlatText so Read-Aloud can map spoken text back to editor positions
+// using the exact same coordinate system the grammar highlighter uses.
 
 export const LinguisticCheck = Extension.create({
   name: 'linguisticCheck',

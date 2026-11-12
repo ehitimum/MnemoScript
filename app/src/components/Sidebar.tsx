@@ -148,12 +148,14 @@ function Sidebar({
     setCtx(null);
   };
 
-  const getIconForDoc = (title: string) => {
-    const t = title.toLowerCase();
+  // Icon comes from the document *type* first (a mind map called "Ideas" is
+  // still a mind map), then from a title keyword for text documents.
+  const getIconForDoc = (doc: Document) => {
+    if (doc.docType === 'mindmap') return <Layers className="w-3.5 h-3.5 text-purple-500/80" />;
+    if (doc.docType === 'fantasymap') return <MapIcon className="w-3.5 h-3.5 text-teal-500/80" />;
+    const t = doc.title.toLowerCase();
     if (t.includes('chapter')) return <BookOpen className="w-3.5 h-3.5 text-amber-500/80" />;
     if (t.includes('note')) return <Edit3 className="w-3.5 h-3.5 text-emerald-500/80" />;
-    if (t.includes('mindmap')) return <Layers className="w-3.5 h-3.5 text-purple-500/80" />;
-    if (t.includes('map')) return <MapIcon className="w-3.5 h-3.5 text-teal-500/80" />;
     if (t.includes('scene')) return <FileText className="w-3.5 h-3.5 text-sky-500/80" />;
     return <File className="w-3.5 h-3.5 text-muted-foreground/80" />;
   };
@@ -443,7 +445,7 @@ function Sidebar({
               }`}
               style={{ paddingLeft: depth * 12 + 24 }}
             >
-              {getIconForDoc(doc.title)}
+              {getIconForDoc(doc)}
               {renamingDocId === doc.id ? (
                 <input
                   autoFocus
@@ -561,7 +563,7 @@ function Sidebar({
             className="flex-1 min-w-0 bg-secondary/40 border border-primary/50 text-foreground text-xs rounded px-2 py-1 outline-none placeholder:text-muted-foreground/60"
             type="text"
             autoFocus
-            placeholder="document-title.md"
+            placeholder="Document title"
             value={newDocumentTitle}
             onChange={(e) => setNewDocumentTitle(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -576,7 +578,7 @@ function Sidebar({
         <input
           className="w-full bg-secondary/35 border border-border/25 text-foreground rounded px-2.5 py-1.5 pl-7 text-xs outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/20 placeholder:text-muted-foreground/60 transition-all"
           type="text"
-          placeholder="Filter workspace items..."
+          placeholder="Filter documents…"
           value={filterText}
           onChange={(e) => setFilterText(e.target.value)}
         />
@@ -648,14 +650,14 @@ function Sidebar({
                             : 'text-foreground/80 hover:bg-secondary/35 hover:text-foreground border-transparent'
                       }`}
                     >
-                      {getIconForDoc(doc.title)}
+                      {getIconForDoc(doc)}
                       <span className="truncate flex-1" title={doc.title}>{doc.title}</span>
                     </div>
                   );
                 })
               )
             ) : folders.length === 0 && documents.length === 0 && creatingParent === undefined ? (
-              <div className="text-xs text-muted-foreground/60 italic px-3 py-2 pl-6">Empty workspace</div>
+              <div className="text-xs text-muted-foreground/60 italic px-3 py-2 pl-6">No documents yet — use + to add one</div>
             ) : (
               renderTree(null, 0)
             )}

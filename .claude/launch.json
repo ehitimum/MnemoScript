@@ -4,8 +4,9 @@
     {
       "name": "mnemoscript-web",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--prefix", "app"],
-      "port": 1420
+      "runtimeArgs": ["run", "dev", "--prefix", "app", "--", "--host", "0.0.0.0"],
+      "port": 1420,
+      "url": "http://127.0.0.1:1420"
     }
   ]
 }

@@ -1,10 +1,10 @@
 [package]
 name = "app"
-version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
+version = "2.1.0"
+description = "MnemoScript - a calm, local-first writing studio (rich text, mind maps, fantasy maps)"
+authors = ["ehitimum"]
 license = ""
-repository = ""
+repository = "https://github.com/ehitimum/MnemoScript"
 edition = "2021"
 rust-version = "1.77.2"
 
@@ -13,6 +13,13 @@ rust-version = "1.77.2"
 [lib]
 name = "app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+# The executable is named after this target, not the package, so Windows
+# installs "MnemoScript.exe" rather than the package's generic "app.exe".
+# Keep [lib] name = "app_lib": gen/android links libapp_lib.so by that name.
+[[bin]]
+name = "MnemoScript"
+path = "src/main.rs"
 
 [build-dependencies]
 tauri-build = { version = "2.5.6", features = [] }
@@ -28,9 +35,23 @@ tauri-plugin-fs = "2"
 uuid = { version = "1", features = ["v4", "serde"] }
 chrono = "0.4"
 dirs = "5"
+# AI assistant: async runtime pieces (process spawn, channels), HTTPS streaming to the
+# provider APIs (rustls/ring — no OpenSSL or CMake needed on Windows/Android).
+tokio = { version = "1", features = ["process", "io-util", "sync", "time", "macros", "rt"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json"] }
+futures-util = "0.3"
+# Phone ↔ PC pairing: SPAKE2 turns the short pairing code into a strong shared key (no offline
+# guessing), XChaCha20-Poly1305 encrypts and authenticates every message, base64 for the wire.
+spake2 = "0.4"
+chacha20poly1305 = "0.10"
+base64 = "0.22"
 
 # Native folder picker — desktop only (rfd has no Android/iOS backend). Mobile
 # uses the dialog/fs plugins instead.
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 rfd = "0.15"
+# OS secret store for API keys (Windows Credential Manager / macOS Keychain).
+keyring = { version = "3", features = ["windows-native", "apple-native"] }
+# Tiny local HTTP server for the in-app MCP endpoint the Claude Code CLI connects to.
+tiny_http = "0.12"
 

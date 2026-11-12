@@ -1,3 +1,5 @@
+import type { ProjectAiConfig } from './lib/ai/types';
+
 export type DocType = 'text' | 'mindmap' | 'fantasymap';
 
 export interface Project {
@@ -10,6 +12,8 @@ export interface Project {
   documents: Document[];
   /** Directory tree. Documents reference a folder via `folderId`. */
   folders: Folder[];
+  /** AI assistant connection for this project (provider + model + default mode). */
+  ai?: ProjectAiConfig | null;
 }
 
 /** A directory in the explorer tree. `parentId == null` → lives at the project root. */

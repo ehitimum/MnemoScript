@@ -3,6 +3,346 @@
 A running log of substantive changes, so future work needs less re-discovery.
 Newest entries first. Dates are absolute.
 
+## 2026-11-12 — Isolate AI revisions from nearby typing in undo history
+
+- After fixing the CI runtime, Linux exposed a real timing bug: a fast accepted AI rewrite
+  could join the preceding edit's history group, so Undo removed both. Explicit history
+  boundaries now separate word rewrites, structural rewrites and continuations from typing
+  on either side. Preview, formatting and stale-text behavior stay the same.
+- Three fixed-clock editor regressions verify undo/redo across the writer's prior edit,
+  the AI change and following typing; existing full-App slash/Accept/Undo coverage remains.
+
+## 2026-11-12 — Match CI and release Node runtime to locked DOM dependencies
+
+- Remote CI failed before test collection: Node 20 lacks APIs needed by locked jsdom 30 /
+  undici 8 (`webidl.util.markAsUncloneable`). Local verification ran on Node 24.15.0.
+- Pin Node 24.15.0 in `.node-version`, use it for both CI and release builds, declare the
+  supported 24.x runtime in package engines/lock metadata and update setup instructions.
+- Add a regression that starts the actual pinned jsdom in a fresh Node worker and checks a
+  synthetic Unicode chapter. Existing full suites remain the main runtime compatibility gate.
+
+---
+
+## 2026-11-12 — ChatGPT plan through Codex CLI
+
+- New provider "ChatGPT (your subscription)" = the writer's signed-in Codex CLI, locked down like
+  Claude Code (design: ARCHITECTURE.md → "Codex"). Shown in Connect only when Codex is installed,
+  with `codex login` guidance; models: Codex default or a typed model id.
+- Found along the way: this Codex routes MCP tools through `code_mode_host` (disabling it hides
+  MnemoScript's tools) and asks approval for MCP calls (pre-approved per server). A live probe asking
+  Codex to read `C:\Windows\win.ini` and list `C:\Users` found no way to touch files.
+- OpenCode: probed too; its free models currently answer "Free usage limit reached" for this account,
+  and `opencode run` keeps retrying instead of exiting, so the OpenCode bridge waits (needs a stall
+  timeout). Noted in IMPROVEMENT_PLAN.
+- Tests: Codex stream parsing/login/model-name unit test; live `cargo test live_codex -- --ignored`
+  passed (tool call → right answer, ~11 s). 116/116 Vitest, lint 0, clippy clean.
+
+---
+
+## 2026-11-12 — Phone pairing: the phone uses the PC's Claude subscription
+
+- PC: Settings → AI → **Phone pairing** (switch, address, "Pair a phone" with an 8-digit code and
+  countdown, paired phones with Remove). Phone: AI → Connect → **Your PC** (finds the PC on the Wi-Fi,
+  or type its address; enter the code), Settings → **Your PC** (status, the PC's plan limit bars, Unpair).
+  Phones still default to API keys; "Your PC" is chosen explicitly.
+- Design and security: ARCHITECTURE.md → "Phone pairing". New crates: spake2, chacha20poly1305, base64.
+- Tests: Rust end-to-end over loopback (no window → refused, wrong code → refused and nothing kept,
+  pair, a relayed turn whose tool call is answered on the phone, revoke → refused), crypto tests
+  (SPAKE agreement, sealing bound to key/context, tamper), replay/stale refusal; regression for the
+  phone Connect card. 116/116 Vitest, 33 `cargo test ai::`, lint 0, clippy clean.
+- Not yet verified: a real phone on real Wi-Fi (Windows firewall prompt, router broadcast filtering,
+  Android local-network rules).
+
+---
+
+## 2026-11-12 — AI assistant, Phase 5: Settings → AI (account, limit bars, keys, defaults)
+
+- **Exact plan limits:** `claude -p /usage` turns out to work non-interactively and is answered by
+  Claude Code itself (num_turns 0, $0) with the session (5-hour) and weekly percentages and reset
+  times. New command `ai_cli_usage` (45 s timeout; refuses the result if an old CLI handed "/usage" to
+  a model). Phase 0 had concluded percentages were only available near a limit; that is now superseded.
+- **Settings → AI** (desktop settings screen + phone Settings tab): Claude account card (email, plan,
+  CLI version, bars coloured at 70 % / 90 %, "resets …", refresh); API keys per provider with add /
+  replace / two-step remove; default mode for new projects; tokens and cost used through MnemoScript
+  today / last 7 days per provider (logged on this device from chat replies and inline commands).
+  Phones show keys, defaults and local usage (no Claude Code there).
+- **Tests:** `lib/ai/usage.test.ts` (4, parser fed the real captured report), 2 regression tests
+  (desktop bars + account + default mode; phone has no Claude card), Rust `parse_usage_result` test and
+  an ignored live test (`cargo test live_claude_code_usage -- --ignored --nocapture`, free) that read
+  58 % / 22 % / 6 % from the real CLI. 115/115 Vitest, 28 `cargo test ai::`, lint 0, clippy clean.
+
+---
+
+## 2026-11-12 — AI assistant, Phase 4: inline commands in the writing area
+
+- **Commands:** Polish, Proofread, Fix grammar, Shorten, Expand, Change tone (Darker, Lighter, Tenser,
+  Lyrical, Formal, Casual), Continue writing. One tool-less request each to the project's AI; never
+  stored in chat sessions; always previewed, whatever the chat mode.
+- **Triggers:** slash menu ("AI" group: `/polish`, `/proofread`, …); desktop Ctrl/⌘+J or the ✦ button
+  beside a selection; Format panel and phone Tools sheet → AI section.
+- **Card:** streams the result under the passage (docked above the tab bar on phones), highlights the
+  passage, word diff ("Show changes"), tone chips, Accept (Ctrl/⌘+Enter) / Retry / Discard (Esc). No
+  AI connected → "Connect an AI" jumps to the Connect screen.
+- **Accept keeps formatting:** only changed words are written (`lib/ai/rewrite.ts`), as one undo step.
+  Structural changes (new/merged paragraphs) or text edited meanwhile fall back to plain paragraphs.
+- **Design note:** the inline runner lives outside `useAiChat` (`client.ts#runInlineTurn`,
+  `inlineHost.ts`): returning it from the hook made the React Compiler skip the whole hook
+  (`preserve-manual-memoization`).
+- **Tests:** `lib/ai/inline.test.ts` (9: prompts, output cleanup, runner, flatten/rewrite with a real
+  TipTap editor incl. undo, target mapping) + 1 regression (`/polish` → card → Accept keeps bold →
+  Ctrl+Z; not saved as a chat). Test setup polyfills `Range.getClientRects`. 109/109 Vitest, lint 0,
+  build OK. Checked in the browser preview: slash menu, card + diff, Accept/undo, selection button →
+  menu → tones via keyboard, Esc, Continue, no-AI state, phone Tools sheet + docked card at 375×812.
+
+---
+
+## 2026-11-12 — AI assistant, Phase 3: the AI can edit (Ask approvals, Auto + undo)
+
+- **Write tools:** `edit_text`, `write_document`, `create_document`, `edit_mind_map`,
+  `edit_fantasy_map` (design: ARCHITECTURE.md → "Edits"). Plan mode still offers none.
+- **Ask:** each change appears as a card with a diff and Apply/Reject; the turn waits. Applying re-reads
+  the document, so edits the writer made while deciding are kept. Stop rejects what's pending.
+- **Auto:** changes apply at once; each card has Undo, a reply with several has Undo all. Undo warns
+  first if the document changed after the AI's edit.
+- **Open documents update live:** chapters in place; mind maps / maps remount with the new content.
+  Canvases' debounced edits are flushed before the AI reads or writes (`lib/canvasFlush.ts`).
+- **Text edits keep formatting:** only changed words are replaced inside a paragraph; matching
+  tolerates curly quotes, spacing and list/heading markers; ambiguous or missing text is refused
+  with a message the model can act on.
+- **Session replay** tells the next model what happened to each change ("edit_text on “Ch 1”
+  (rejected by the writer)"). A proposal is never stored as pending.
+- **Backend:** Claude Code runs with `MCP_TOOL_TIMEOUT` = 24 h so an approval can't time out.
+- **Fixed:** status-bar word count didn't update when content was applied from outside the editor
+  (now counts on every doc-changing transaction); mind map node ids could collide after deletions
+  (`nextMindNodeIndex`).
+- **Tests:** `lib/ai/edits.test.ts` (16) + 2 regression tests (Ask → Apply → Undo on an open chapter
+  incl. word count; Plan mode makes no edits). 99/99 Vitest, 27 `cargo test ai::`, lint 0, clippy
+  clean, build OK. Checked in the browser preview: desktop Ask/Apply/Undo, Auto + "Undo anyway",
+  Auto edit of an open mind map (node + link appear), phone card at 375×812, AI-tab badge.
+
+---
+
+## 2026-11-12 — AI assistant, Phase 2: chat UI (desktop panel + phone AI tab)
+
+- **Desktop:** right-edge `AiPanel` (same chrome as Format; the two are mutually exclusive), opened
+  from the top bar's ✦ AI button, ⌘K or **Ctrl/⌘+L**. Header: sessions, new session, connection, close.
+- **Phone:** new **AI** tab (5 tabs) → `MobileAiScreen`; composer sits in the flow above the tab bar,
+  the tab bar hides while typing, `useKeyboardInset` covers non-resizing WebViews. Model picker is a
+  bottom sheet. API-key providers only (no CLI on Android).
+- **Shared:** `useAiChat` + `AiScope` (state survives closing the panel), connect screen (Claude Code
+  status + `claude auth login` hint; API-key entry), per-project session list with model marks,
+  transcript with Markdown, tool chips and actionable error cards, Plan/Ask/Auto switch, model picker
+  with custom ids. Write tools arrive in Phase 3, so Ask/Auto currently read only.
+- **Fixed:** `MobileTopBar` used `flex-0` (Tailwind v4: `flex: 0`, i.e. shrinkable) and was squashed
+  to 37 px when the screen below it overflowed → `shrink-0`. Format toggle is disabled for non-text docs.
+- **Dev tooling:** `?aimock` mock provider for the browser preview (`lib/ai/devMock.ts`); Vite now
+  scans only `index.html` and ignores `src-tauri/**` (a big `target/` made first-run dependency
+  scanning hang); `.claude/launch.json` binds `--host 0.0.0.0` and opens 127.0.0.1.
+- **Tests:** 3 new App-level regression tests; the App-mounting suites warm the App import in
+  `beforeAll` (fixes the cold-start timeout flake). 81/81 Vitest, lint 0, build OK. Verified in the
+  browser preview at 1280×720 and 375×812: no horizontal overflow, header 56 px, transcript /
+  composer / tab bar don't overlap, sessions isolated per project, model switch recorded per reply.
+
+---
+
+## 2026-11-12 — AI assistant, Phase 1: backend engine + `lib/ai`
+
+The engine behind the coming chat UI. Design: ARCHITECTURE.md → "AI assistant".
+
+- **Rust `src/ai/`**: provider-neutral turn engine with tool round-trips and cancellation
+  (`engine.rs`); Anthropic Messages (SSE, tool loop, thinking blocks passed back, server-side
+  refusal fallbacks), OpenAI Chat Completions and Gemini streaming adapters; Claude Code bridge
+  (`claude_code.rs`) with an in-app loopback MCP endpoint (`mcp_http.rs`, tiny_http); per-project
+  session files (`sessions.rs`); API keys in the OS secret store / app-private file (`secrets.rs`);
+  11 new commands (`ai_*`, `*_ai_session*`). New deps: tokio (process/sync), reqwest 0.12 (rustls/ring),
+  futures-util, keyring + tiny_http (desktop only).
+- **Frontend `src/lib/ai/`**: types, provider/model catalogue with per-message model switching,
+  document → plain-text conversion (chapters, mind maps, fantasy maps), read tools with mode
+  enforcement, context builder (transcript replay + model-switch note), session reducer, `runTurn`.
+  `api.ts` gained the AI calls (+ browser fallback: sessions in localStorage, providers unavailable).
+- **Data safety:** debug builds now use `~/.mnemoscript-dev` (Android `<app data>/dev`) and the
+  `MnemoScript-dev` keychain service, so development never touches the installed app's projects
+  or keys. `Project.ai` is omitted from project.json when unset.
+- **Verified:** 38 cargo tests + 13 new Vitest tests; Android arm64 `cargo check`; a live
+  end-to-end run (`cargo test live_claude_code -- --ignored`) — Claude Code called MnemoScript's
+  `list_documents` through the in-app MCP endpoint, and `haiku` → Claude Haiku 4.5 / `sonnet` →
+  Claude Sonnet 5 switched models on one subscription. API-key adapters are covered by stream
+  fixtures only (no keys on the dev machine yet).
+
+---
+
+## 2026-11-12 — AI assistant, Phase 0 spike (branch `feature/ai-assistant`)
+
+Feasibility spike for the multi-provider AI chat. Findings in [AI_PHASE0.md](./AI_PHASE0.md).
+
+- `app/scripts/ai-spike/mnemo-mcp.mjs` — dependency-free MCP server exposing project tools
+  (`list_documents`, `read_document`, `edit_text`, `add_mindmap_node`); plan/ask/auto enforced server-side.
+- `app/scripts/ai-spike/run-spike.mjs` — drives the user's own Claude Code CLI headlessly with all
+  built-in tools disabled; tests lockdown, ask, plan, cross-model handoff and usage data. All pass.
+- Outcome: one session can span models (plan A). Exact limit percentages are only reported near a limit.
+
+---
+
+## 2026-09-13 — v2.0.0 packaging: Windows setup installer + signed Android APK
+
+Shippable builds for both platforms, verified by installing and launching them.
+
+- **Windows installer.** `tauri.conf.json` gained installer metadata (publisher, short/long
+  description, copyright, category) and a `bundle.windows` block: **NSIS per-user install mode** (no
+  UAC prompt), English-only, and a silent WebView2 `downloadBootstrapper`. Default window is now
+  1280×820 (min 760×520), centred. Output:
+  - `bundle/nsis/MnemoScript_2.0.0_x64-setup.exe` — wizard; installs to `%LOCALAPPDATA%\MnemoScript`,
+    creates Start-menu **and** desktop shortcuts, registers an uninstaller under *Settings → Apps*.
+  - `bundle/msi/MnemoScript_2.0.0_x64_en-US.msi` — for `msiexec` / managed deployment.
+  - `target/release/MnemoScript.exe` — portable.
+- **Fixed: the installed executable was `app.exe`.** The Cargo package is named `app`, and Tauri names
+  the binary after it, so the install folder and Task Manager showed a generic name. Added an explicit
+  `[[bin]] name = "MnemoScript"` plus `mainBinaryName` in `tauri.conf.json`. `[lib] name = "app_lib"`
+  is deliberately unchanged — `gen/android` links `libapp_lib.so` by that exact name.
+- **Android release signing.** Generated `gen/android/keystore.jks` and wired `signingConfigs` into
+  `gen/android/app/build.gradle.kts`, reading `keystore.properties`; both files are git-ignored, and
+  the gradle block degrades to an unsigned build if they are absent. A debug APK bundles all four ABIs
+  with debug symbols (~700 MB); the signed release APK is a fraction of that.
+- **Docs**: new [INSTALL.md](./INSTALL.md) (Windows wizard/MSI/portable/silent, SmartScreen, updating,
+  uninstalling; Android sideloading and the "back up your keystore" warning), README install sections,
+  `ANDROID.md` signing note. Artifacts are collected into the git-ignored `release/` folder.
+- **Verified on this machine**: ran the setup silently, confirmed the install folder, Start-menu and
+  desktop shortcuts and the *Add/Remove Programs* entry (publisher "ehitimum", version 2.0.0), launched
+  the app (window title "MnemoScript", WebView2 renderers up), and confirmed the backend created
+  `~/.mnemoscript/registry.json`.
+
+---
+
+
+## 2026-09-11 — v2.0.0: test suites, CI, concurrency fix, release metadata
+
+- **Tests** (new; see [TESTING.md](./TESTING.md)): Vitest + jsdom + Testing Library — 47 unit tests
+  (`platform`, `proseFlatText`, `heightmap`, `mapTypes`, `generator`, browser `api`) and 18 regression
+  tests that mount the real Sidebar / Editor / MindMap / App (shell selection, flush-on-switch, late
+  canvas flush routing, smooth-caret overlay, edit-echo). `cargo test`: 11 cases for `project.rs` /
+  `lib.rs`. `npm run check` runs lint → types → tests → build.
+- **Concurrency bug found by the tests**: `write_atomic` used one shared `*.tmp` name, so two
+  concurrent writers of the same file (e.g. `registry.json` from parallel saves) renamed each other's
+  temp file away. Temp names are now unique and registry mutations are serialised with a mutex.
+- **CI**: `.github/workflows/ci.yml` (lint, typecheck, tests, build, cargo test, clippy) on every push.
+- **Release metadata**: version 2.0.0 in `package.json`, `tauri.conf.json`, `Cargo.toml`; window/tab
+  title "MnemoScript"; README rewritten; `AGENTS.md` lists the gates.
+
+---
+
+## 2026-09-11 — Smooth caret back on every platform, data-safety pass, map studio refinement
+
+Full codebase audit; findings + roadmap in [IMPROVEMENT_PLAN.md](./IMPROVEMENT_PLAN.md).
+
+- **Word-style typing (restored, all platforms).** New `components/SmoothCaret.tsx`: a ref-driven caret
+  overlay (no React state, one rAF per change, GPU `transform`, content-space coords, blink only after
+  the caret rests, IME-aware, background-tab fallback). The old implementation re-rendered the editor on
+  every keystroke and had been disabled on mobile. Toggle in Settings + ⌘K.
+- **Editor.tsx rewrite** — keyed per document (own undo/decorations), static CSS moved to `index.css`,
+  echo-aware content sync (no double `getHTML()` per keystroke), readable `.mn-page` column, settings
+  extracted to `SettingsPanel.tsx`, empty state when no document is open.
+- **Data safety** — flush-save on document/project switch, app background, desktop window close; canvases
+  flush pending debounced edits on unmount/Save and tag updates with their `docId`; Rust atomic writes,
+  content-free `project.json`, tolerant document loading; save errors shown in the status bar.
+- **Shell by platform** (`lib/platform.ts`): phone shell only on phones; narrow desktop windows keep the
+  desktop shell with drawers. `?shell=mobile` forces the phone shell on the web build.
+- **Backend** — `rename_project`, `delete_project`, `export_file`; `save_asset` takes a raw binary body.
+  Capabilities: window close/destroy, dialog save, fs write.
+- **Fantasy map** — touch strokes fixed (touchstart, not tap), safe PNG export (Save-as / exports folder),
+  hillshade + slope relief, smoothed inked coastline, measured + haloed labels, single-shape grid, image
+  cache, hotkeys, phone panel overlays, lint-clean refs.
+- **Lint**: 50 → 0 errors (`public/` ignored; React-Compiler ref/effect rules fixed in MindMap,
+  FantasyMap, useImage, useMapHistory, App).
+- **Verified**: `tsc -b` ✓ · `eslint` ✓ (0) · `vite build` ✓ · `cargo check` ✓ · browser check of the
+  web build: project creation, chapter creation, typing, caret position == `coordsAtPos`, hidden on
+  selection/blur, blink after pause, flush-on-switch persisted, phone shell via `?shell=mobile`.
+  **Needs device testing**: Android touch painting, Save-as dialog on Windows, window-close flush.
+
+---
+
+## 2026-06-25 — UI redesign: separate mobile app shell + bolder desktop reshape
+
+The single VS Code-style shell felt cramped/misaligned on phones and IDE-like for non-technical
+writers. Goal: **simple UX, elegant UI** (the user clarified "simple" = experience, not plain visuals).
+
+- **`App.tsx` now branches on `isMobile`** → `<MobileShell>` vs. the desktop layout. All state +
+  handlers stay in App; both shells receive them.
+- **Mobile (new, `src/components/mobile/`)** — a phone-native shell: bottom **tab bar**
+  (Library / Write / Tools / Settings), `MobileTopBar`, `MobileLibrary` (grouped doc list + new-doc
+  `BottomSheet`, replaces the explorer tree), the reused `Editor` in **`chrome="mobile"`** (no
+  desktop toolbar, native caret), a `ToolsSheet` bottom sheet, and `MobileSettings` (theme swatches).
+- **Desktop reshape** — replaced the menubar with a slim **`DesktopTopBar`** + a **⌘K
+  `CommandPalette`** (New/Save/Compile/Close, toggle panels, themes, settings…). Right "Format" panel
+  is **closed by default** (editor-first); ⌘K / Ctrl+S shortcuts. Jargon sweep ("Repository"→"Save
+  folder", "Save Target"→"Save", "Workspace mounted"→"No project open", etc.).
+- **Shared controls** (`src/components/controls/`): extracted `FormatControls`/`ReadAloudControls`/
+  `DictationControls` from `RightSidebar` so the desktop panel and mobile sheet reuse one source.
+- **Touch fixes** — viewport `user-scalable=no,maximum-scale=1` (kills accidental page pinch-zoom);
+  `touch-action: manipulation`; FantasyMap gets Konva two-finger pinch-zoom/pan; React Flow pinch now
+  works. New `.mn-*` CSS primitives (sheet/tabbar/fab/rows/palette).
+- **Verified**: `npm run build` ✓; new components lint-clean (remaining lint errors are pre-existing
+  React-Compiler warnings in FantasyMap/MindMap/hooks). Visual check via headless-Chrome CDP at
+  390 px (mobile, **0 horizontal overflow**) + 1300 px (desktop): welcome, library, settings (theme
+  swatches), and the ⌘K palette all render cleanly. **Needs device testing**: data flows that require
+  the Tauri backend (create/open project, editor on a phone), and on-device pinch-zoom.
+
+---
+
+## 2026-06-25 — Read-Aloud (TTS) + offline Voice-to-Text (dictation)
+
+Two accessibility/authoring features for text docs (Notes / Chapters / Scenes). Both are
+Notes-only for free: `Editor` + `RightSidebar` mount only for `docType==='text'`.
+
+### Read-Aloud (Text-to-Speech) with karaoke highlight
+- Uses the WebView's built-in `speechSynthesis` (no deps; works on WebView2 + Android WebView).
+- New `app/src/lib/speech/ttsController.ts` splits the active text (selection if any, else the
+  whole doc) into sentences with `Intl.Segmenter`, speaks them one at a time, and pushes
+  highlight ranges to a new decoration extension `components/extensions/ReadAloudHighlight.ts`
+  (`.tts-sentence` always; `.tts-word` where the engine emits boundary events). The active node
+  auto-scrolls into view.
+- The flat-text↔ProseMirror offset map (`buildFlatText`) was extracted from `LinguisticCheck.ts`
+  into a shared `app/src/lib/proseFlatText.ts` (grammar + TTS now share one coordinate system).
+- UI: toolbar speaker toggle in `Editor.tsx` + a "Read Aloud" section in `RightSidebar.tsx`
+  (play/pause/stop, voice picker, speed). Hook: `lib/speech/useReadAloud.ts`.
+
+### Voice-to-Text (offline, two-stage pipeline)
+Pipeline: **mic → [① browser denoise] → [② Silero VAD gate] → [Whisper worker] → caret**.
+- **Gatekeeper model** = Silero VAD via `@ricky0123/vad-web` (drops silence/gaps/dud sound, emits
+  only real speech segments). **Main model** = Whisper (`onnx-community/whisper-tiny.en`, q8) via
+  `@huggingface/transformers`, run in a Web Worker (`dictation/transcriber.worker.ts`).
+- Modules under `app/src/lib/speech/dictation/`: `audioCapture.ts` (getUserMedia + denoise
+  constraints), `transcriber.ts` (worker handle), `dictationController.ts` (orchestration), plus
+  `useDictation.ts` (inserts segments at the caret). Heavy libs are dynamically imported so they
+  stay out of the main bundle (worker chunk ≈ 0.7 MB; ORT wasm code-split).
+- **Offline assets (two scripts; outputs gitignored)**: `npm run setup:speech`
+  (`scripts/setup_speech_assets.mjs`) copies the VAD worklet + Silero ONNX → `app/public/vad/` and
+  onnxruntime-web wasm → `app/public/ort/`; `npm run fetch:model`
+  (`scripts/fetch_whisper_model.mjs`) downloads the Whisper q8 (`_quantized`) files (~42 MB) →
+  `app/public/models/onnx-community/whisper-tiny.en/`. The worker loads the model **locally**
+  (`allowRemoteModels=false`) in single-threaded ORT mode — dictation is fully offline, no first-run
+  download.
+- **Debug pass (same day)** after on-device testing showed the model never loading:
+  - **App "loading forever"** — the worker forced transformers.js' bundled ORT (1.26-dev) to use our
+    `/ort/` wasm (1.27) → ABI mismatch that hangs init. Fixed: transformers uses its own wasm;
+    `/ort/` is for `vad-web` only (also 1.27, matched).
+  - **`load()` hung instead of erroring** — a load-phase worker error (no request id) was only
+    `console.error`'d. Fixed: it now rejects `load()` (+ a `worker.onerror` guard), so failures show
+    a message instead of an infinite spinner. Errors are split into model-load vs mic/VAD stages and
+    logged with a `[dictation]` prefix.
+  - **Web "refuse"** — an `optimizeDeps.exclude` of `onnxruntime-web`/`vad-web` broke dev-mode
+    resolution of the dynamic import. Fixed: switched to `optimizeDeps.include`.
+  - **Remote model fetch failed inside the WebView** → bundled the model locally (above) instead.
+- **Android**: added `RECORD_AUDIO` (+ optional microphone feature) to
+  `gen/android/app/src/main/AndroidManifest.xml`. ⚠ `gen/android` is regenerated by
+  `tauri android init` — re-add if lost.
+- UI: the previously-placeholder toolbar mic in `Editor.tsx` now toggles real dictation (loading /
+  listening / speaking states) + a "Dictation" section in `RightSidebar.tsx` (start/stop, noise
+  cleanup toggle, model-load progress, errors).
+- Vite: `optimizeDeps.exclude` the three speech libs (lazily loaded).
+- **Verified**: `npm run build` ✓ (tsc + vite), new files lint-clean, offline assets present in
+  `dist/vad` + `dist/ort`. **Needs device testing**: actual mic capture / WebView permission grant
+  (WebView2 `PermissionRequested`; Android runtime RECORD_AUDIO) and first-run model download.
+
 ---
 
 ## 2026-06-15 — Frontend theming + editor typography fixes

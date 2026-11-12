@@ -2,7 +2,8 @@ import { Extension } from '@tiptap/core';
 import Suggestion, { type SuggestionProps, type SuggestionKeyDownProps } from '@tiptap/suggestion';
 import { ReactRenderer } from '@tiptap/react';
 import SlashMenu, { type SlashMenuRef } from '../SlashMenu';
-import { getSlashItems, type SlashItem, type SlashOptions } from './slashItems';
+import { getAiSlashItems, getSlashItems, type SlashItem, type SlashOptions } from './slashItems';
+import { inlineAi } from './AiTarget';
 
 /**
  * Notion-style "/" command menu. Built on @tiptap/suggestion; the floating menu
@@ -28,8 +29,8 @@ export const SlashCommand = Extension.create<SlashOptions>({
         command: ({ editor, range, props }) => {
           props.action(editor, range);
         },
-        items: ({ query }) => {
-          const all = getSlashItems(this.options);
+        items: ({ query, editor }) => {
+          const all = [...getSlashItems(this.options), ...(inlineAi(editor) ? getAiSlashItems() : [])];
           const q = query.toLowerCase();
           if (!q) return all;
           return all.filter(
