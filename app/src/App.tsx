@@ -25,6 +25,13 @@ import { useShell, isTauri, isMobileOS } from './lib/platform';
 import { THEMES } from './lib/prefs';
 import type { Project, Document, DocType, Folder } from './types';
 import type { Editor as TiptapEditor } from '@tiptap/react';
+import SyncSettings from './components/sync/SyncSettings';
+import SyncPill from './components/sync/SyncPill';
+import DocumentSyncBanner from './components/sync/DocumentSyncBanner';
+import ConflictReview from './components/sync/ConflictReview';
+import { useSyncApplied, useSyncStatus } from './lib/sync/useSync';
+import { authorizeDrive } from './lib/sync/nativeAuth';
+import type { SyncAppliedEvent } from './lib/sync/types';
 import {
   Plus,
   Settings,
@@ -646,6 +653,97 @@ function App() {
     refreshProjects();
   };
 
+  // ── MnemoSync (Google Drive). The backend saves and syncs; the app only tells it which
+  // chapter is open (that chapter's text is never replaced under the writer) and reloads
+  // what other devices changed.
+  const { status: syncStatus, setStatus: setSyncStatus } = useSyncStatus();
+  const [conflictDocId, setConflictDocId] = useState<string | null>(null);
+  const selectedProjectId = selectedProject?.id ?? null;
+  const selectedDocumentId = selectedDocument?.id ?? null;
+  useEffect(() => {
+    // Runs after selectDocument() flushed the previous chapter, so leaving it is safe.
+    api.syncSetActive(selectedProjectId, selectedDocumentId).catch(() => {});
+  }, [selectedProjectId, selectedDocumentId]);
+
+  /** Re-read the open project from disk after sync wrote into it. */
+  const reloadFromSync = useCallback(async (projectId: string, changed: string[]) => {
+    refreshProjects();
+    const proj = selectedProjectRef.current;
+    if (!proj || proj.id !== projectId) return;
+    const full = await api.loadProject(projectId);
+    setSelectedProject(full);
+    setFolders(full.folders || []);
+    const current = selectedDocumentRef.current;
+    const fresh = current ? full.documents.find((d) => d.id === current.id) : undefined;
+    let next = current;
+    if (current && fresh) {
+      next = changed.includes(`text:${current.id}`)
+        ? fresh // the writer accepted new text (Load it / a resolved conflict)
+        : { ...current, title: fresh.title, folderId: fresh.folderId, order: fresh.order };
+      if (next !== current) {
+        selectedDocumentRef.current = next;
+        setSelectedDocument(next);
+        if (next === fresh) {
+          isSavedRef.current = true;
+          setIsSaved(true);
+          if (fresh.docType !== 'text') setDocRevisions((r) => ({ ...r, [fresh.id]: (r[fresh.id] ?? 0) + 1 }));
+        }
+      }
+    } else if (current && !fresh) {
+      selectedDocumentRef.current = null;
+      setSelectedDocument(null);
+    }
+    const docs = full.documents.map((d) => (next && d.id === next.id ? next : d));
+    documentsRef.current = docs;
+    setDocuments(docs);
+  }, [refreshProjects]);
+
+  const onSyncApplied = useCallback((event: SyncAppliedEvent) => {
+    if (event.changed.length) void reloadFromSync(event.projectId, event.changed);
+  }, [reloadFromSync]);
+  useSyncApplied(onSyncApplied);
+
+  const handleLoadSyncUpdate = useCallback(async () => {
+    const proj = selectedProjectRef.current;
+    const doc = selectedDocumentRef.current;
+    if (!proj || !doc) return;
+    flushCanvases();
+    await flushIfDirty();
+    const report = await api.syncApplyStaged(proj.id, doc.id);
+    await reloadFromSync(proj.id, report.changed);
+    setSyncStatus(await api.syncStatus());
+  }, [flushIfDirty, reloadFromSync, setSyncStatus]);
+
+  const conflictDoc = conflictDocId ? documents.find((d) => d.id === conflictDocId) : undefined;
+  const openConflict = useCallback(async () => {
+    flushCanvases();
+    await flushIfDirty();
+    setConflictDocId(selectedDocumentRef.current?.id ?? null);
+  }, [flushIfDirty]);
+
+  const syncSettings = (variant: 'desktop' | 'mobile') => (
+    <SyncSettings
+      variant={variant}
+      status={syncStatus}
+      setStatus={setSyncStatus}
+      projects={projects}
+      currentProjectId={selectedProject?.id}
+      onDownloaded={(project) => setProjects((prev) => [project, ...prev.filter((p) => p.id !== project.id)])}
+      authorizeNative={isMobileOS ? authorizeDrive : undefined}
+    />
+  );
+
+  const syncBanner = (variant: 'desktop' | 'mobile') => (
+    <DocumentSyncBanner
+      variant={variant}
+      status={syncStatus}
+      projectId={selectedProject?.id}
+      documentId={selectedDocument?.id}
+      onLoadUpdate={handleLoadSyncUpdate}
+      onReview={() => void openConflict()}
+    />
+  );
+
   // Desktop keyboard shortcuts: ⌘K / Ctrl+K toggles the command palette; ⌘S saves.
   useEffect(() => {
     if (isMobileShell) return;
@@ -749,6 +847,7 @@ function App() {
   const settingsPanel = (
     <SettingsPanel
       backup={backupActions}
+      sync={syncSettings('desktop')}
       theme={theme}
       setTheme={setTheme}
       editorFont={editorFont}
@@ -776,6 +875,9 @@ function App() {
       {isMobileShell ? (
         <MobileShell
           backup={backupActions}
+          syncSettings={syncSettings('mobile')}
+          syncBanner={syncBanner('mobile')}
+          syncStatus={syncStatus}
           selectedProject={selectedProject}
           selectedDocument={selectedDocument}
           documents={documents}
@@ -835,6 +937,7 @@ function App() {
             isAiOpen={isAiOpen}
             aiAttention={aiAttention}
             setIsAiOpen={setIsAiOpen}
+            sync={<SyncPill status={syncStatus} projectId={selectedProject?.id} onClick={() => setIsEditingSettings(true)} />}
           />
 
           {isEditingSettings && !selectedProject ? (
@@ -943,6 +1046,7 @@ function App() {
             >
             {(chat) => (
             <div className="flex-1 flex overflow-hidden relative">
+              {!isEditingSettings && syncBanner('desktop')}
               {isLeftSidebarOpen &&
                 (() => {
                   const sidebar = (
@@ -1125,6 +1229,24 @@ function App() {
       />
 
       {selectedProject && isCompilerOpen && <BookCompiler onClose={() => setIsCompilerOpen(false)} project={selectedProject} documents={documents} />}
+
+      {selectedProject && conflictDoc && (
+        <ConflictReview
+          key={conflictDoc.id}
+          projectId={selectedProject.id}
+          documentId={conflictDoc.id}
+          title={conflictDoc.title}
+          docType={conflictDoc.docType}
+          variant={isMobileShell ? 'mobile' : 'desktop'}
+          onClose={() => setConflictDocId(null)}
+          onResolved={() => {
+            const id = conflictDoc.id;
+            setConflictDocId(null);
+            void reloadFromSync(selectedProject.id, [`text:${id}`]);
+            api.syncStatus().then(setSyncStatus).catch(() => {});
+          }}
+        />
+      )}
     </div>
   );
 }

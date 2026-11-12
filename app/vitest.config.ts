@@ -21,5 +21,8 @@ export default defineConfig({
     unstubGlobals: true,
     // TipTap / React Flow mount real DOM trees; give slow CI boxes some headroom.
     testTimeout: 15000,
+    // Several suites mount the whole App. One worker per core starves them on a busy desktop
+    // and the streamed AI mock then times out; half the cores keeps runs fast and stable.
+    maxWorkers: '50%',
   },
 });
