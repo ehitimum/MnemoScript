@@ -17,6 +17,7 @@
         }
       ]
     },
+    "google-auth:default",
     "core:window:allow-close",
     "core:window:allow-destroy",
     "dialog:allow-save",

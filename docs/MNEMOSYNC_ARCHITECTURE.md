@@ -22,6 +22,13 @@ The requested work authorizes implementation, testing and new PRs.
 | 5 | Same-account Google OAuth and immutable Drive transport | Real cross-client appData access, secure native tokens, web expiry recovery |
 | 6–8 | Hybrid receipts, conflict/recovery UX, fault/security/performance tests | No false Synced state, account isolation, real hardware soak and rollback |
 
+**2026-11-13:** slices 1 (native part), 3 and 5 are implemented on `codex/mnemosync-drive`; see
+[MNEMOSYNC_DRIVE.md](MNEMOSYNC_DRIVE.md) for the design as built and what remains unverified.
+Two refinements to ADR 001/002: change capture is a disk scan against the last known state (the
+disk stays authoritative, so no separate write-intent journal is needed for crash safety), and
+revisions are per-entity snapshots (`project`, `folder:`, `doc:`, `text:`, `asset:`) rather than
+per-keystroke operations. Batches carry device sequence numbers; ids stay content-derived.
+
 Each slice gets its own reviewable PR. Where prerequisites are still open, use stacked PRs;
 retarget dependent PRs after their bases merge. Do not represent Phase 0 as working synchronization.
 

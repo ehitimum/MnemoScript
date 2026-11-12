@@ -1,5 +1,6 @@
 mod ai;
 mod backup;
+mod sync;
 mod project;
 
 use project::{Document, Project, Registry};
@@ -85,7 +86,10 @@ fn create_project(
 #[tauri::command]
 fn save_project(project: Project) -> ApiResponse<()> {
     match project.save() {
-        Ok(()) => ApiResponse::success(()),
+        Ok(()) => {
+            sync::service::nudge(&project.id);
+            ApiResponse::success(())
+        }
         Err(e) => ApiResponse::error(e),
     }
 }
@@ -102,7 +106,10 @@ fn rename_project(project_id: String, name: String) -> ApiResponse<Project> {
         Ok(mut project) => {
             project.name = name;
             match project.save() {
-                Ok(()) => ApiResponse::success(project),
+                Ok(()) => {
+                    sync::service::nudge(&project.id);
+                    ApiResponse::success(project)
+                }
                 Err(e) => ApiResponse::error(e),
             }
         }
@@ -121,7 +128,11 @@ fn delete_project(project_id: String, delete_files: Option<bool>) -> ApiResponse
         }
     }
     match Registry::remove(&project_id) {
-        Ok(()) => ApiResponse::success(()),
+        Ok(()) => {
+            // A forgotten or deleted project stops syncing on this device (Drive keeps its copy).
+            sync::service::forget(&project_id);
+            ApiResponse::success(())
+        }
         Err(e) => ApiResponse::error(e),
     }
 }
@@ -157,7 +168,10 @@ fn create_document(
         order.unwrap_or(0),
     );
     match doc.save(&project_id) {
-        Ok(()) => ApiResponse::success(doc),
+        Ok(()) => {
+            sync::service::nudge(&project_id);
+            ApiResponse::success(doc)
+        }
         Err(e) => ApiResponse::error(e),
     }
 }
@@ -227,10 +241,25 @@ fn save_asset(request: Request<'_>) -> ApiResponse<String> {
     }
 
     let dest = assets_dir.join(format!("{}.{}", Uuid::new_v4(), safe_ext));
-    match fs::write(&dest, &bytes) {
-        Ok(_) => ApiResponse::success(dest.to_string_lossy().to_string()),
-        Err(e) => ApiResponse::error(e.to_string()),
+    match write_bytes_atomic(&dest, &bytes) {
+        Ok(()) => {
+            sync::service::nudge(&project_id);
+            ApiResponse::success(dest.to_string_lossy().to_string())
+        }
+        Err(e) => ApiResponse::error(e),
     }
+}
+
+/// Write bytes via a temp file + rename so a crash, or a sync scan, never sees a half-written
+/// image. Asset files are treated as immutable once they have their final name.
+fn write_bytes_atomic(dest: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
+    let name = dest.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let tmp = dest.with_file_name(format!(".{name}.{}.tmp", Uuid::new_v4()));
+    fs::write(&tmp, bytes).map_err(|e| e.to_string())?;
+    fs::rename(&tmp, dest).map_err(|e| {
+        let _ = fs::remove_file(&tmp);
+        e.to_string()
+    })
 }
 
 /// Write an exported file (e.g. a rendered map PNG) into `<project>/exports/`
@@ -260,7 +289,10 @@ fn export_file(request: Request<'_>) -> ApiResponse<String> {
 #[tauri::command]
 fn save_document(project_id: String, document: Document) -> ApiResponse<()> {
     match document.save(&project_id) {
-        Ok(()) => ApiResponse::success(()),
+        Ok(()) => {
+            sync::service::nudge(&project_id);
+            ApiResponse::success(())
+        }
         Err(e) => ApiResponse::error(e),
     }
 }
@@ -268,7 +300,10 @@ fn save_document(project_id: String, document: Document) -> ApiResponse<()> {
 #[tauri::command]
 fn delete_document(project_id: String, document_id: String) -> ApiResponse<()> {
     match Document::delete(&project_id, &document_id) {
-        Ok(()) => ApiResponse::success(()),
+        Ok(()) => {
+            sync::service::nudge(&project_id);
+            ApiResponse::success(())
+        }
         Err(e) => ApiResponse::error(e),
     }
 }
@@ -312,9 +347,22 @@ async fn restore_project_backup(request: Request<'_>) -> Result<ApiResponse<Proj
     })
 }
 
+/// Google's native Drive authorization on Android (Kotlin: `GoogleAuthPlugin`). Desktop signs
+/// in through the loopback flow in `sync::drive::auth` instead, so nothing registers there.
+fn google_auth_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
+    tauri::plugin::Builder::new("google-auth")
+        .setup(|_app, _api| {
+            #[cfg(target_os = "android")]
+            _api.register_android_plugin("com.mnemoscript.app", "GoogleAuthPlugin")?;
+            Ok(())
+        })
+        .build()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(google_auth_plugin())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .setup(|app| {
@@ -338,6 +386,8 @@ pub fn run() {
             };
             fs::create_dir_all(&base).ok();
             project::init_data_dir(base);
+            // MnemoSync worker: idle until the writer connects Google Drive and picks projects.
+            sync::service::start(app.handle().clone());
             // Phone pairing listens again at launch if the writer turned it on (desktop only).
             #[cfg(desktop)]
             ai::pair_server::autostart();
@@ -368,6 +418,21 @@ pub fn run() {
             open_project_by_path,
             backup_project,
             restore_project_backup,
+            sync::service::sync_status,
+            sync::service::drive_sign_in,
+            sync::service::drive_cancel_sign_in,
+            sync::service::drive_set_access_token,
+            sync::service::drive_sign_out,
+            sync::service::sync_enable_project,
+            sync::service::sync_disable_project,
+            sync::service::drive_remote_projects,
+            sync::service::sync_download_project,
+            sync::service::sync_now,
+            sync::service::sync_set_active,
+            sync::service::sync_apply_staged,
+            sync::service::sync_conflict,
+            sync::service::sync_resolve_conflict,
+            sync::service::sync_dismiss_notice,
             ai::commands::list_ai_sessions,
             ai::commands::load_ai_session,
             ai::commands::save_ai_session,

@@ -78,6 +78,30 @@ delete, legacy `project.json` without new fields, missing-document errors.
 - The App-mounting suites warm `import('../App')` in `beforeAll`: a cold parallel import could exceed
   the 15 s test timeout and cascade into duplicate-render failures.
 
+**MnemoSync / Google Drive** (added 2026-11-13)
+- Backend `cargo test sync::` (30 tests) — canonical JSON and content-derived revision ids, entity-key
+  validation, symmetric field merge and edit-beats-delete, portable `mnemo-asset:` round trips
+  (Windows paths, map JSON incl. "My Imports", untouched bytes, hostile names), PKCE (RFC 7636 vector),
+  authorize URL scope, redirect state check, Drive error classification, gzip, duplicate batch files.
+  `sync::engine::tests` simulate 2–3 devices over an in-memory transport: download with images, move +
+  edit, concurrent edits → preserved conflict → resolve with copy, delete vs edit, offline delete
+  without resurrection, duplicated/reordered deliveries, staged open chapter (accept / typing → conflict
+  / remote delete), missing blobs held then applied, frozen batch retry, folder cycles, shuffled
+  three-device convergence, forged revisions rejected.
+- Backend `cargo test backup::` adds the restore regression for fantasy-map "My Imports" paths and
+  rejection of imports outside the project.
+- Regression `sync.regression.test.tsx` — settings states (browser, unconfigured, signed out with
+  privacy notes, sign-in with cancel and no double submit, Android token hand-off, per-project toggles,
+  download with same-name notice, reconnect + errors), open-chapter banner, pill hidden for local-only
+  projects, conflict review (inert plain-text preview, differences marked, keep with/without copy).
+- Regression `sync-app.regression.test.tsx` — App reports the open chapter, merges a remote rename into
+  the open chapter without losing unsaved typing (and the next save keeps both), and saves before
+  loading a held-back update.
+- UI in a browser: `?syncMock=1` turns on `lib/sync/devMock.ts` (signed-in account, one synced project
+  with a conflict, a remote project). Browser fallback only, never in the installed apps.
+- Vitest runs on half the cores (`maxWorkers: '50%'`); the App-mounting suites and the streamed AI mock
+  timed out when a busy desktop ran one worker per core.
+
 ## jsdom notes
 `src/test/setup.ts` stubs `ResizeObserver`, `matchMedia`, `fetch` (LanguageTool is never contacted),
 `scrollIntoView` and `elementFromPoint` (ProseMirror's viewport plugin). Konva needs a real canvas, so
@@ -94,3 +118,7 @@ Things jsdom cannot prove — run on Windows (packaged app) and an Android phone
    PNG export lands in `<project>/exports/`. Desktop: export opens Save-as.
 4. Read-aloud and dictation still start (WebView permission prompts).
 5. Web build in a phone browser gets the bottom-tab shell; a narrow desktop window keeps the desktop UI.
+6. Google Drive sync (needs your own OAuth clients, see `MNEMOSYNC_DRIVE.md`): connect on desktop and
+   phone with the same account; sync a project, download it on the other device (images and maps
+   render); edit while offline and reconnect; edit the same chapter on both → review; rename/move on
+   one while typing on the other; disconnect and reconnect without duplicates.
