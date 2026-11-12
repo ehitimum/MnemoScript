@@ -3,6 +3,8 @@
 Use Node 24.15.0 from the root `.node-version` (supported range: 24.15+ in 24.x). Both CI and
 release workflows read this file. Locked jsdom 30/undici 8 cannot start under the former Node 20
 CI runtime. `regression/runtime.regression.test.ts` exercises jsdom in a fresh Node worker.
+`regression/ai-history.regression.test.ts` fixes the clock to verify fast AI responses cannot
+merge undo history with preceding or following typing (word rewrite, structural rewrite, continue).
 
 Three layers, all run by CI (`.github/workflows/ci.yml`) on every push:
 

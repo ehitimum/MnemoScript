@@ -1,5 +1,6 @@
 import type { Editor } from '@tiptap/core';
 import type { Node as PMNode } from '@tiptap/pm/model';
+import { closeHistory } from '@tiptap/pm/history';
 import { wordDiff } from './diff';
 
 /**
@@ -60,6 +61,16 @@ const paragraphs = (t: string) =>
 const paragraphNodes = (t: string) =>
   paragraphs(t).map((p) => ({ type: 'paragraph', content: [{ type: 'text', text: p }] }));
 
+/** Keep a fast AI response separate from both preceding and subsequent typing. */
+function isolatedEdit(editor: Editor, edit: () => boolean): boolean {
+  editor.view.dispatch(closeHistory(editor.state.tr));
+  try {
+    return edit();
+  } finally {
+    editor.view.dispatch(closeHistory(editor.state.tr));
+  }
+}
+
 /**
  * Replace [from, to) with `next`. Word-level when the paragraph structure is unchanged (keeps
  * formatting); otherwise the range is replaced with plain paragraphs. Returns false if the range
@@ -80,10 +91,10 @@ export function applyRewrite(editor: Editor, from: number, to: number, next: str
     // Plain paragraphs; ProseMirror splits/joins the surrounding blocks as needed.
     const nodes = paragraphNodes(next);
     const single = nodes.length === 1 && state.doc.resolve(from).sameParent(state.doc.resolve(to));
-    return editor
+    return isolatedEdit(editor, () => editor
       .chain()
       .insertContentAt({ from, to }, single ? nodes[0].content : nodes.length ? nodes : '')
-      .run();
+      .run());
   }
 
   const chunks: { a: number; b: number; text: string }[] = [];
@@ -119,8 +130,10 @@ export function applyRewrite(editor: Editor, from: number, to: number, next: str
       tr.insertText(c.text, at);
     }
   }
-  editor.view.dispatch(tr);
-  return true;
+  return isolatedEdit(editor, () => {
+    editor.view.dispatch(tr);
+    return true;
+  });
 }
 
 /** "Continue writing": new paragraphs after the paragraph that contains `at`. */
@@ -129,5 +142,5 @@ export function insertParagraphsAfter(editor: Editor, at: number, text: string):
   const after = $at.depth > 0 ? $at.after($at.depth) : editor.state.doc.content.size;
   const nodes = paragraphNodes(text);
   if (!nodes.length) return false;
-  return editor.chain().insertContentAt(after, nodes).run();
+  return isolatedEdit(editor, () => editor.chain().insertContentAt(after, nodes).run());
 }
