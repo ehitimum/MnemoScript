@@ -3,6 +3,15 @@
 A running log of substantive changes, so future work needs less re-discovery.
 Newest entries first. Dates are absolute.
 
+## 2026-11-12 — MnemoSync strategy and initial recovery slice
+
+- Extracted the supplied development plan and MEMORY.md under `docs/mnemosync/`; treated as
+  reference documents. Verified PR #1 is open and feature HEAD is still `0f15939e2f30`.
+- Recorded architecture decisions, threat model, schema/migration contract, phased PR strategy
+  and an honest automated/device/visual acceptance matrix. Preserve current AI work and UI shells.
+- Phase 0 implementation begins with checked native ZIP recovery; transports and Smart Merge
+  remain gated follow-on work. Baseline `npm run check`: 116 tests, lint/types/build pass.
+
 ---
 
 ## 2026-11-12 — ChatGPT plan through Codex CLI
