@@ -364,6 +364,40 @@ fn three_devices_converge_under_shuffled_sync_order() {
     }
 }
 
+/// Regression (2026-11-13): turning sync off removed the project's row and with it the batch
+/// counter, so after turning it back on new batches reused published numbers and were skipped.
+#[test]
+fn turning_sync_off_and_on_never_reuses_a_batch_number() {
+    let (r, a, b) = seeded();
+    let before = a.store.next_seq(PID).unwrap();
+    a.store.disable_project(PID).unwrap();
+    a.write_doc("ch4", "Chapter 4", "<p>Written while sync was off.</p>", Some("vol1"), 4);
+    a.store.enable_project(PID, "acct-1", false).unwrap();
+    assert_eq!(a.store.next_seq(PID).unwrap(), before);
+    a.sync(&r);
+    let seqs: Vec<u64> = r.borrow().batches.iter().filter(|x| x.device_id == a.engine().device_id).map(|x| x.seq).collect();
+    let unique: BTreeSet<u64> = seqs.iter().copied().collect();
+    assert_eq!(seqs.len(), unique.len(), "duplicate batch numbers: {seqs:?}");
+    b.sync(&r);
+    assert_eq!(b.content("ch4"), "<p>Written while sync was off.</p>");
+}
+
+/// Regression (2026-11-13): re-enabling a project under another Google account published
+/// nothing, because every revision already counted as sent to the first account.
+#[test]
+fn a_new_google_account_receives_the_whole_project_history() {
+    let (_r1, a, _b) = seeded();
+    a.store.disable_project(PID).unwrap();
+    a.store.enable_project(PID, "acct-2", false).unwrap();
+    let r2 = remote();
+    a.sync(&r2);
+    let c = joiner("Tablet");
+    c.store.enable_project(PID, "acct-2", true).unwrap();
+    c.sync(&r2);
+    assert_eq!(c.content("ch3"), "<p>The crown was cold.</p>");
+    assert_eq!(a.snapshot(), c.snapshot());
+}
+
 #[test]
 fn damaged_remote_data_is_rejected_without_touching_disk() {
     let (r, a, b) = seeded();

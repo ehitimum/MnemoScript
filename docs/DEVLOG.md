@@ -49,6 +49,41 @@ Items 1–3 were in the released 2.1.0; each fix has a regression test.
   byte-identical, from `node_modules`, no network).
 - Version 2.1.1 in `package.json`, `Cargo.toml`, `tauri.conf.json` (not tagged).
 
+## 2026-11-13 — Google Drive sync (MnemoDrive) on the shared sync engine
+
+- Reviewed PRs #2 (strategy, Node 24 CI, AI undo) and #3 (Phase 0 backup/restore): sound, but
+  the plan's local sync (Phases 1–4) was not built, so Drive could not "reuse" it. Built the
+  transport-neutral engine first (`src-tauri/src/sync/`): per-entity revisions with
+  content-derived ids, SQLite WAL state outside project folders, disk-scan change capture,
+  causal fast-forward, deterministic field merge, preserved text conflicts, edit-beats-delete,
+  tree repair, staged updates for the open chapter, frozen batches for crash-safe publishing,
+  and portable `mnemo-asset:` image references (disk format unchanged).
+- Google Drive transport on the hidden `appDataFolder` (`drive.appdata` only): gzip blobs before
+  immutable batch files, changes feed + listing fallback, duplicate/forged file handling,
+  401/403/429/5xx/quota classes with backoff. Desktop sign-in = loopback + PKCE in the system
+  browser, refresh token in the OS keychain; Android = Google Play services AuthorizationClient via
+  an inline `google-auth` plugin (no refresh token stored). Account switches are refused while
+  projects are bound to the previous account. OAuth client comes from git-ignored `.env.local`.
+- UI: "Sync with Google Drive" card in both settings shells (connect, per-project toggles,
+  download from other devices with a same-name notice, sync notes), a quiet status pill for synced
+  projects only, a floating banner when the open chapter changed elsewhere ("Load it" saves first),
+  and a side-by-side conflict review that keeps the other version as its own chapter by default.
+- Stray fixes: restore left fantasy-map "My Imports" paths on the original project; imported images
+  were written non-atomically (a crash or scan could see half a file); forgotten projects kept
+  syncing; App-mounting Vitest suites and the streamed AI mock timed out with one worker per core.
+- Self-review fixes before the PR: turning a project's sync off and on reset its batch counter
+  (new batches collided with published numbers and were skipped), and re-enabling under another
+  Google account published nothing; both have engine regressions. Desktop status now reports
+  "needs-auth" after signing out while projects stay bound to the account.
+- Checks: `npm run check` (145 tests, 56 regressions, lint, types, build), `cargo test` (90 pass,
+  3 live-AI ignored; 32 sync tests), `cargo clippy -- -D warnings`. `npx tauri android build --apk
+  --debug --target aarch64` builds (Kotlin `GoogleAuthPlugin` + play-services-auth 21.3.0); the
+  three Android-only dead-code warnings in `ai/pair_crypto.rs` are now marked desktop-only.
+  The first Android build filled drive E: (16 GB worktree `target/`); builds now use a target dir
+  on C:.
+  Not verified: live Google OAuth and real desktop ↔ Android sync (needs the writer's own OAuth
+  clients; see `MNEMOSYNC_DRIVE.md`). Browser visual preview is still blocked by permission policy.
+
 ## 2026-11-12 — MnemoSync strategy and initial recovery slice
 
 - Extracted the supplied development plan and MEMORY.md under `docs/mnemosync/`; treated as
@@ -65,6 +100,7 @@ Items 1–3 were in the released 2.1.0; each fix has a regression test.
 - Final checks after integrating the runtime and undo fixes: 130 frontend tests, 41 regressions, production build/lint/types; cargo check,
   56 backend tests (3 existing live-AI tests ignored), and Clippy with warnings denied pass.
   Visual preview remains permission-blocked; packaged Windows/real Android acceptance pending.
+
 
 ## 2026-11-12 — Isolate AI revisions from nearby typing in undo history
 

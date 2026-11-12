@@ -24,7 +24,6 @@ CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS projects (
   project_id TEXT PRIMARY KEY,
   account TEXT NOT NULL,
-  next_seq INTEGER NOT NULL DEFAULT 1,
   fresh INTEGER NOT NULL DEFAULT 0,
   last_sync TEXT,
   last_error TEXT
@@ -135,14 +134,45 @@ impl Store {
     // ---- projects -------------------------------------------------------------------------
 
     /// `fresh` marks an empty downloaded skeleton that must pull before its first scan.
+    ///
+    /// The batch counter and the last account survive turning sync off, so turning it back on
+    /// never reuses a published sequence number. Re-enabling under a *different* Google account
+    /// starts that account's namespace from scratch: the whole local history is queued again,
+    /// since nothing of it exists in the new account's Drive.
     pub fn enable_project(&self, project_id: &str, account: &str, fresh: bool) -> Result<(), String> {
-        self.conn
-            .execute(
-                "INSERT INTO projects (project_id, account, fresh) VALUES (?1, ?2, ?3) ON CONFLICT(project_id) DO UPDATE SET account = excluded.account",
-                params![project_id, account, fresh as i64],
+        let last_key = format!("account.{project_id}");
+        let previous = self.get_meta(&last_key)?;
+        let tx = self.conn.unchecked_transaction().map_err(err)?;
+        if previous.as_deref().is_some_and(|p| p != account) {
+            for table in ["outbox", "pending_batches", "remote_blobs", "applied_batches", "inbox"] {
+                tx.execute(&format!("DELETE FROM {table} WHERE project_id = ?1"), [project_id]).map_err(err)?;
+            }
+            for table in ["drive_files", "drive_blob_ids"] {
+                // Transport tables may not exist yet in a fresh database.
+                let _ = tx.execute(&format!("DELETE FROM {table} WHERE project_id = ?1"), [project_id]);
+            }
+            tx.execute(
+                "INSERT OR IGNORE INTO outbox (project_id, transport, rev) SELECT project_id, 'drive', rev FROM revisions WHERE project_id = ?1 ORDER BY rowid",
+                [project_id],
             )
-            .map(|_| ())
-            .map_err(err)
+            .map_err(err)?;
+            tx.execute(
+                "DELETE FROM meta WHERE key IN (?1, ?2, ?3, ?4)",
+                params![format!("next_seq.{project_id}"), format!("drive.listed.{project_id}"), format!("drive.info.{project_id}"), format!("drive.info.{project_id}.name")],
+            )
+            .map_err(err)?;
+        }
+        tx.execute(
+            "INSERT INTO projects (project_id, account, fresh) VALUES (?1, ?2, ?3) ON CONFLICT(project_id) DO UPDATE SET account = excluded.account",
+            params![project_id, account, fresh as i64],
+        )
+        .map_err(err)?;
+        tx.execute(
+            "INSERT INTO meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            [last_key.as_str(), account],
+        )
+        .map_err(err)?;
+        tx.commit().map_err(err)
     }
 
     pub fn is_fresh(&self, project_id: &str) -> Result<bool, String> {
@@ -449,8 +479,11 @@ impl Store {
             params![batch.project_id, transport, batch.seq as i64, serde_json::to_string(batch).map_err(err)?],
         )
         .map_err(err)?;
-        tx.execute("UPDATE projects SET next_seq = ?2 WHERE project_id = ?1", params![batch.project_id, batch.seq as i64 + 1])
-            .map_err(err)?;
+        tx.execute(
+            "INSERT INTO meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![format!("next_seq.{}", batch.project_id), (batch.seq + 1).to_string()],
+        )
+        .map_err(err)?;
         tx.commit().map_err(err)
     }
 
@@ -464,12 +497,9 @@ impl Store {
             .map_err(err)
     }
 
+    /// Kept in `meta` (not the `projects` row) so it outlives turning sync off and on.
     pub fn next_seq(&self, project_id: &str) -> Result<u64, String> {
-        self.conn
-            .query_row("SELECT next_seq FROM projects WHERE project_id = ?1", [project_id], |r| r.get::<_, i64>(0))
-            .optional()
-            .map(|o| o.unwrap_or(1) as u64)
-            .map_err(err)
+        Ok(self.get_meta(&format!("next_seq.{project_id}"))?.and_then(|s| s.parse().ok()).unwrap_or(1))
     }
 
     pub fn publish_done(&self, batch: &Batch, transport: &str) -> Result<(), String> {
