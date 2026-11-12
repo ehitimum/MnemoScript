@@ -1,4 +1,6 @@
-import { useMemo, useState, lazy, Suspense } from 'react';
+import { useMemo, useState, lazy, Suspense, type ReactNode } from 'react';
+import SyncPill from '../sync/SyncPill';
+import type { SyncStatus } from '../../lib/sync/types';
 import type { Project, Document, DocType, Folder } from '../../types';
 import type { ThemeType } from '../../App';
 import type { Editor as TiptapEditor } from '@tiptap/react';
@@ -64,6 +66,10 @@ interface Props {
   /** Bumped when the AI rewrites the open canvas, so it remounts with the new content. */
   docRevision?: number;
   backup?: BackupActions;
+  /** Google Drive sync: settings section, the open-chapter banner and status. */
+  syncSettings?: ReactNode;
+  syncBanner?: ReactNode;
+  syncStatus?: SyncStatus;
 }
 
 /**
@@ -217,19 +223,25 @@ function MobileShell(props: Props) {
             </button>
           }
           right={
-            <button
-              className={`relative w-9 h-9 flex items-center justify-center rounded-xl active:scale-90 ${isSaved ? 'text-foreground/60' : 'text-primary'}`}
-              onClick={persistCurrent}
-              title={isSaved ? 'Saved' : 'Save'}
-            >
-              <Save className="w-5 h-5" />
-              {!isSaved && <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-amber-500" />}
-            </button>
+            <div className="flex items-center -mr-1">
+              {props.syncStatus && (
+                <SyncPill compact status={props.syncStatus} projectId={selectedProject?.id} onClick={() => goTab('settings')} />
+              )}
+              <button
+                className={`relative w-9 h-9 flex items-center justify-center rounded-xl active:scale-90 ${isSaved ? 'text-foreground/60' : 'text-primary'}`}
+                onClick={persistCurrent}
+                title={isSaved ? 'Saved' : 'Save'}
+              >
+                <Save className="w-5 h-5" />
+                {!isSaved && <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-amber-500" />}
+              </button>
+            </div>
           }
         />
       )}
 
-      <main className="flex-1 flex flex-col min-h-0 overflow-hidden">
+      <main className="relative flex-1 flex flex-col min-h-0 overflow-hidden">
+        {activeTab === 'write' && props.syncBanner}
         {activeTab === 'library' && (
           <MobileLibrary
             selectedProject={selectedProject}
@@ -261,6 +273,7 @@ function MobileShell(props: Props) {
         {activeTab === 'settings' && (
           <MobileSettings
             backup={props.backup}
+            sync={props.syncSettings}
             theme={theme}
             setTheme={setTheme}
             editorFont={props.editorFont}
