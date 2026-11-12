@@ -13,7 +13,7 @@ and recovery UX. The Android/installed-app gate remains pending until actual dev
 
 **Implemented Phase 0 slice:** native ZIP backup/restore, corruption/path/size validation, fresh
 recovered copies and asset relocation, with desktop/phone settings controls. Automated checks
-pass (126 frontend, 37 mounted regression, 56 backend tests; lint/types/build/check/Clippy).
+pass (127 frontend, 38 regression, 56 backend tests; lint/types/build/check/Clippy).
 No transport or existing-project linking is enabled. Finish manual device acceptance before
 advancing the Phase 0 gate; the following schemas remain design-only.
 

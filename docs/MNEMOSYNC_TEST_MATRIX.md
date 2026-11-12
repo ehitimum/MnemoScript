@@ -3,14 +3,20 @@
 Baseline on 2026-11-12: `npm run check` passed lint, types, 116 existing tests and production build.
 Large-bundle warnings predate this change. Run required checks again after the implementation.
 
-Implementation verification, 2026-11-12: `npm run check` passes lint, typecheck, all **126 tests**
-and production build; `npm run test:regression` passes **37 mounted regressions**. `cargo check`
+Implementation verification, 2026-11-12: `npm run check` passes lint, typecheck, all **127 tests**
+and production build; `npm run test:regression` passes **38 regressions** (including the clean
+Node worker runtime test). `cargo check`
 passes; `cargo test` passes **56 tests** (including 11 new archive tests), with the 3 existing
 live-AI tests intentionally ignored; `cargo clippy -- -D warnings` passes. The existing pairing
 test needs permission for loopback network access. No live provider usage was consumed.
 Visual preview was retried after user authorization but a saved permission policy still blocks
 the local origin. Generated Rust app artifacts were cleaned after E: filled up; sources and
 saved projects were unaffected. Filesystem hard-link fallback warnings are environmental.
+
+Remote CI initially failed before collection on the inherited Node 20 configuration. Locked
+jsdom/undici require newer APIs; both workflows now read the Node 24.15.0 pin in `.node-version`.
+The fresh-worker regression exercises that startup path; the complete implementation suite
+was rerun after integrating the runtime fix. New remote runs must be checked independently.
 
 | Layer | Required evidence | Scope |
 |---|---|---|
