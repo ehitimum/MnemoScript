@@ -9,6 +9,8 @@
 //!
 //! Only the `drive.appdata` scope is requested: MnemoScript's own hidden Drive folder, never
 //! the writer's other files.
+// The loopback flow (PKCE, redirect parsing, the browser page) is desktop-only.
+#![cfg_attr(not(desktop), allow(dead_code))]
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
 use serde::Deserialize;

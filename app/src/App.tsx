@@ -30,7 +30,7 @@ import SyncPill from './components/sync/SyncPill';
 import DocumentSyncBanner from './components/sync/DocumentSyncBanner';
 import ConflictReview from './components/sync/ConflictReview';
 import { useSyncApplied, useSyncStatus } from './lib/sync/useSync';
-import { authorizeDrive } from './lib/sync/nativeAuth';
+import { authorizeDrive, reauthorizeDriveSilently } from './lib/sync/nativeAuth';
 import type { SyncAppliedEvent } from './lib/sync/types';
 import {
   Plus,
@@ -664,6 +664,18 @@ function App() {
     // Runs after selectDocument() flushed the previous chapter, so leaving it is safe.
     api.syncSetActive(selectedProjectId, selectedDocumentId).catch(() => {});
   }, [selectedProjectId, selectedDocumentId]);
+
+  // Android keeps no refresh token: when the hour-long Google token lapses, ask Google's native
+  // API again silently (no UI unless consent changed). At most once every two minutes.
+  const lastSilentAuth = useRef(0);
+  useEffect(() => {
+    if (!isMobileOS || syncStatus.state !== 'needs-auth' || !syncStatus.account) return;
+    if (Date.now() - lastSilentAuth.current < 120_000) return;
+    lastSilentAuth.current = Date.now();
+    reauthorizeDriveSilently()
+      .then((grant) => (grant ? api.driveSetAccessToken(grant.token, grant.expiresIn).then(setSyncStatus) : undefined))
+      .catch(() => {});
+  }, [syncStatus.state, syncStatus.account, setSyncStatus]);
 
   /** Re-read the open project from disk after sync wrote into it. */
   const reloadFromSync = useCallback(async (projectId: string, changed: string[]) => {

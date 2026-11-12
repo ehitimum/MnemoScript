@@ -19,5 +19,13 @@ fn google_oauth_env() {
 
 fn main() {
     google_oauth_env();
-    tauri_build::build()
+    // `google-auth` is the app's own Android plugin (Google's native Drive authorization in
+    // `gen/android/.../GoogleAuthPlugin.kt`). Declaring it here gives it an ACL permission.
+    let attributes = tauri_build::Attributes::new().plugin(
+        "google-auth",
+        tauri_build::InlinedPlugin::new()
+            .commands(&["authorize"])
+            .default_permission(tauri_build::DefaultPermissionRule::AllowAllCommands),
+    );
+    tauri_build::try_build(attributes).expect("failed to run tauri-build");
 }

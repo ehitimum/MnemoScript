@@ -434,6 +434,9 @@ pub fn status() -> Result<SyncStatus, String> {
         "unconfigured".to_string()
     } else if acct.is_none() {
         "signed-out".to_string()
+    } else if !cfg!(target_os = "android") && !auth::has_grant() {
+        // Signed out (or revoked) while projects stay bound to this account: offer Reconnect.
+        "needs-auth".to_string()
     } else if g.state.is_empty() {
         "idle".to_string()
     } else {

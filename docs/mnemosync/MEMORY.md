@@ -38,16 +38,27 @@ Implement optional, secure, low-cost **local-first project synchronization** for
 
 ## Concrete next work, in order
 
-- [ ] Verify current branch/PR #1 again, merge or branch from its integrated HEAD.
-- [ ] Add architecture ADR, threat model and a lossless ZIP backup/restore command.
-- [ ] Implement SQLite sync state + web IndexedDB storage and migrations.
-- [ ] Build asset path-to-hash migration, portable resolver and test corpus.
+- [x] Verify current branch/PR #1 again, merge or branch from its integrated HEAD.
+- [x] Add architecture ADR, threat model and a lossless ZIP backup/restore command (device acceptance pending).
+- [~] Implement SQLite sync state + web IndexedDB storage and migrations. *(native SQLite done; web not)*
+- [x] Build asset portability: `mnemo-asset:` refs in synced content, disk format unchanged (no migration).
 - [ ] Implement Smart Merge candidate matching, desktop Volume 1 vs mobile root mapping, side-by-side chapter conflicts, alias IDs and non-destructive commit.
-- [ ] Implement revision DAG, durable outbox/inbox, tombstones, generic SyncTransport and randomized replay tests.
+- [x] Implement revision DAG, durable outbox/inbox, tombstones, generic SyncTransport and randomized replay tests.
 - [ ] Add separate LAN sync handshake/crypto/authorization and test Windows + Android on real Wi-Fi.
-- [ ] Implement Google OAuth on three platforms; validate same user's `appDataFolder` access from all clients.
-- [ ] Implement Drive change feed, immutable batches, blobs, resumable uploads, quota backoff and account switch handling.
-- [ ] Implement hybrid fan-out/dedupe, sync status UI, recovery, conflict review and full reliability/security tests.
+- [~] Implement Google OAuth: desktop loopback+PKCE and Android native authorization done; web not; live cross-client `appDataFolder` proof pending.
+- [x] Implement Drive change feed, immutable batches, blobs, resumable uploads, quota backoff and account switch handling.
+- [~] Sync status UI and conflict review done; hybrid fan-out, recovery UX and hardware reliability tests open.
+
+## Implementation update — 2026-11-13 (Google Drive)
+
+- Branch `codex/mnemosync-drive` (stacked on `codex/mnemosync-backup`). Design as built, setup
+  steps and open items: `docs/MNEMOSYNC_DRIVE.md`. Review of PRs #2/#3 found local sync
+  (Phases 1–4) unbuilt; the engine was built here, transport-neutral, before the Drive transport.
+- Fixed: restore left fantasy-map `imports[].path` pointing at the original project; imported
+  images were written non-atomically; forgotten projects kept syncing; Vitest one-worker-per-core
+  starved App-mounting suites (AI mock waits widened, workers capped at 50%).
+- Not verified: live Google OAuth, real desktop ↔ Android sync, quotas. Needs the writer's own
+  Desktop + Android OAuth clients in one Cloud project (`app/src-tauri/.env.local`).
 
 ## Implementation update — 2026-11-12
 

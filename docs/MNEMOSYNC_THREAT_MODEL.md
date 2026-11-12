@@ -54,6 +54,16 @@ namespaces and pending queues stay isolated. Publish blobs before batches; valid
 reference application; back off on errors; never turn missing cloud data into mass local deletion.
 Drive transport is not automatically end-to-end encryption or independent backup.
 
+Implemented Drive controls (2026-11-13): scope `drive.appdata` only; desktop PKCE S256 + state
+check on a 127.0.0.1 loopback, refresh token in the OS keychain (debug builds use a separate
+service), access tokens memory-only, nothing token-related in logs, project files or the web
+view; Android keeps no refresh token. Remote revisions are re-hashed and rejected on mismatch;
+entity ids and asset names are validated before they become file names; blobs are hash-checked,
+downloads capped at 256 MiB decompressed; batch files whose labels contradict their content are
+ignored. Expired change cursors trigger a re-listing, never deletion. Remote deletes of the open
+chapter are staged; edit beats delete. Conflict previews render plain text from an inert parse.
+Account switches are refused while projects are bound to the previous account.
+
 Merge/replay: preserve all concurrent heads, reject mismatched operation identities, retain
 tombstones and source snapshots; journal interrupted merges; never overwrite active editor
 content during composition. Test malicious HTML and graph payloads at rendering boundaries.

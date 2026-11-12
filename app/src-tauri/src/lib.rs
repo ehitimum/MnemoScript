@@ -347,9 +347,22 @@ async fn restore_project_backup(request: Request<'_>) -> Result<ApiResponse<Proj
     })
 }
 
+/// Google's native Drive authorization on Android (Kotlin: `GoogleAuthPlugin`). Desktop signs
+/// in through the loopback flow in `sync::drive::auth` instead, so nothing registers there.
+fn google_auth_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
+    tauri::plugin::Builder::new("google-auth")
+        .setup(|_app, _api| {
+            #[cfg(target_os = "android")]
+            _api.register_android_plugin("com.mnemoscript.app", "GoogleAuthPlugin")?;
+            Ok(())
+        })
+        .build()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(google_auth_plugin())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .setup(|app| {

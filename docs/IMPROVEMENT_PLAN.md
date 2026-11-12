@@ -17,6 +17,23 @@ pass (130 frontend, 41 regression, 56 backend tests; lint/types/build/check/Clip
 No transport or existing-project linking is enabled. Finish manual device acceptance before
 advancing the Phase 0 gate; the following schemas remain design-only.
 
+**Google Drive sync (2026-11-13, `codex/mnemosync-drive`):** implemented the shared sync engine
+(entity revisions, SQLite state, merge/conflicts, staged open-chapter updates, portable images),
+the Drive `appDataFolder` transport, desktop loopback+PKCE sign-in with keychain storage, Android
+native authorization, and the sync UI for both shells ([MNEMOSYNC_DRIVE.md](./MNEMOSYNC_DRIVE.md)).
+Automated checks pass; **live Google sign-in and real desktop ↔ Android sync are not yet verified**
+(needs the writer's own OAuth clients). Still open: Smart Merge, LAN, web sync, history pruning.
+
+| MnemoSync phase | Status |
+|---|---|
+| 0 Strategy + checked backup/restore | ✅ code; device acceptance pending |
+| 1 Sync state + portable assets | ✅ native SQLite + `mnemo-asset:` refs; web IndexedDB not done |
+| 2 Smart Merge | ⏳ not started (downloads create separate copies; same-name notice only) |
+| 3 Revision engine + transport interface | ✅ with multi-device simulations |
+| 4 LAN (MnemoLink) | ⏳ not started |
+| 5 Google Drive | ✅ code + tests; live OAuth/device proof pending |
+| 6–8 Hybrid, recovery UX, hardening | ⏳ partial (conflict review, notices) |
+
 **Stack:** Tauri 2 (Rust) · React 19 + TypeScript 6 · Vite 8 · Tailwind v4 · TipTap 3 · React Flow 12 ·
 Konva 10. Three targets share one codebase: Windows desktop (WebView2), Android (Tauri mobile), and the
 web build (browser fallback backend in `lib/api.ts` → localStorage).

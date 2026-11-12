@@ -32,6 +32,19 @@ fixed-clock regressions exercise the timing window. The combined frontend checks
 | Installed Windows | Custom-path project, image and map render after restore, library includes original and copy, external ZIP copy | Pending real app acceptance |
 | Real Android | App-private backup, ZIP chooser, Save a copy provider access, restore, reopen, image/map render | Pending real device acceptance |
 
+### Google Drive sync (2026-11-13)
+
+| Layer | Evidence | Status |
+|---|---|---|
+| Engine simulations | `cargo test sync::engine` — 2–3 devices, reorder/duplicate/offline/held blobs, conflicts, deletes, cycles, forged data | ✅ automated |
+| Drive client units | PKCE, scope, redirect state, error classes, gzip, duplicate files | ✅ automated |
+| Mounted UI + App boundary | `sync.regression`, `sync-app.regression` | ✅ automated |
+| Android compile | `npx tauri android build --apk --debug --target aarch64` | ✅ builds 2026-11-13 (not run on a device) |
+| Live Google OAuth (desktop, Android) | Real consent, token refresh, 7-day testing expiry, revoke | ⏳ pending your OAuth clients |
+| Real cross-device sync | Same account, desktop ↔ Android, shared appDataFolder across clients | ⏳ pending |
+| Quotas / outages | Real 403/429/5xx, Drive full, cursor expiry | ⏳ pending (only classified in unit tests) |
+| Visual layout | Settings card, pill, banner, review on both shells | ⏳ browser preview blocked by permission policy |
+
 ## Synthetic corpus for every storage/merge phase
 
 Use synthetic writing only, never the user's manuscripts in committed fixtures.
