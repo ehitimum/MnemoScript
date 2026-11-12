@@ -42,15 +42,21 @@ delete, legacy `project.json` without new fields, missing-document errors.
 - Unit `lib/ai/ai.test.ts` — model labels/vendors, phone provider list, document → text, tool mode
   enforcement, context replay across models, session reducer, `runTurn` tool round trip, per-project
   session storage.
+- Unit `lib/ai/edits.test.ts` — text edits (formatting kept, quotes/markers/spacing, cross-paragraph,
+  delete/insert/split, missing/ambiguous, all-or-nothing), light markdown → HTML, diffs, mind map and
+  fantasy map edits, write tools per mode (plan refuses, auto applies with undo data, ask waits and
+  re-reads on approval, reject), session storage/replay of change outcomes.
 - Regression `regression/ai.regression.test.tsx` — desktop panel (Ctrl+L, connect screen, a full mocked
-  turn saved to the right project with its model), phone AI tab (needs a project, API-key providers only,
+  turn saved to the right project with its model), Ask → Apply → Undo on the open chapter (formatting
+  and word count follow), Plan mode makes no edits, phone AI tab (needs a project, API-key providers only,
   tab bar hides while the composer has focus).
 - Backend `cargo test ai::` — SSE parsing, the three API stream accumulators, Claude Code stream-json,
   MCP JSON-RPC, turn registry/cancel, session files, key storage. Live (costs a little usage, so
   `#[ignore]`d): `cargo test live_claude_code -- --ignored --nocapture`.
 - UI work in a browser: `npm run dev`, open `http://127.0.0.1:1420/?aimock` (add `&shell=mobile` for the
   phone). `?aimock` (or `localStorage['mnemoscript:aimock']='1'`) turns on `lib/ai/devMock.ts`, a fake
-  provider for the browser fallback only — never in the Tauri app.
+  provider for the browser fallback only — never in the Tauri app. A message with "edit", "fix" or
+  "polish" (Ask/Auto) makes the mock read the open document and change it.
 - The App-mounting suites warm `import('../App')` in `beforeAll`: a cold parallel import could exceed
   the 15 s test timeout and cascade into duplicate-render failures.
 

@@ -178,7 +178,10 @@ Feasibility and the reasoning behind the design: [AI_PHASE0.md](./AI_PHASE0.md).
   (`--tools ""`, empty cwd, clean env, `--setting-sources ""`) and pointed at an in-app MCP endpoint
   (`mcp_http.rs`, `127.0.0.1:<port>/mcp/<per-turn token>`) that forwards `tools/call` to the same path.
 - **Modes** (`plan`/`ask`/`auto`) are enforced in code: plan mode never offers a write tool, and
-  `executeTool` refuses any tool the mode doesn't offer. Phase 1 has read tools only.
+  `executeTool` refuses any tool the mode doesn't offer. **Ask** sends each write to the chat as a
+  proposal and waits for Apply/Reject (`ProjectAccess.requestApproval`; Claude Code gets
+  `MCP_TOOL_TIMEOUT` = 24 h so the wait can't time out); **Auto** applies at once and keeps the old
+  content for undo.
 - **Storage.** Sessions: `ai/sessions/<id>.json` in the project folder (`sessions.rs`; the schema
   is `AiSession` in `lib/ai/types.ts`). API keys: OS secret store on desktop (`keyring`), app-private
   file on Android (`secrets.rs`); the frontend can set/clear/check a key but never read it back.
@@ -199,6 +202,29 @@ Feasibility and the reasoning behind the design: [AI_PHASE0.md](./AI_PHASE0.md).
     `MobileAiScreen`: top bar → transcript → composer, all in normal flow (nothing floats over the
     text). While the composer has focus the shell hides the tab bar; `useKeyboardInset` lifts the screen
     when an edge-to-edge WebView doesn't resize for the keyboard. Only API-key providers are offered.
+- **Edits (Phase 3).** Write tools: `edit_text` (find → replace on the plain text the model read),
+  `write_document`, `create_document` (chapter or mind map), `edit_mind_map`, `edit_fantasy_map`.
+  - `lib/ai/textEdits.ts` applies text edits to the HTML in place: matching ignores whitespace runs,
+    curly vs straight quotes and the `#`/`-`/`>` markers; a match must be unique; edits in one call are
+    all-or-nothing. Inside one paragraph only the changed words are replaced (word diff), so bold/italic
+    on kept words survive; across paragraphs it behaves like replacing an editor selection (blank
+    paragraphs inside go, list items stay list items). New paragraphs accept light markdown
+    (`textToBlocks`, TipTap-compatible HTML incl. task lists).
+  - `lib/ai/structEdits.ts`: mind maps (add under a parent with a linked, non-overlapping position,
+    `ref` chaining, rename, remove with its links) and fantasy maps (rename regions/places, labels);
+    every other field is kept verbatim.
+  - A write produces an `AiChange` on its tool call (`types.ts`): summary, preview (paragraph hunks →
+    word diff, or a +/−/→ list; `lib/ai/diff.ts`), status `pending/applied/rejected/undone/failed`,
+    the `before` content and a hash of the text after. `AiChangeCard` renders it with Apply/Reject or
+    Undo; a reply with several changes gets Apply all / Undo all.
+  - **Undo** (`useAiChat#undo`) restores `before` (or deletes a created document). If the document's
+    text no longer matches the stored hash, the card asks "Undo anyway?" first (later edits would be lost).
+  - **App bridge** (`AiDocumentBridge`, built in `App.tsx`, passed to `AiScope` on both shells): reads
+    documents via refs (including the open one's unsaved edits), writes + saves at once, refreshes the
+    open document — the editor applies external content in place; canvases (which read their document
+    on mount) are remounted via a per-document revision key. Before any read or write,
+    `lib/canvasFlush.ts` pushes the canvases' debounced (400 ms) edits through, so nothing is read stale.
+  - A pending proposal badges the ✦ AI button (desktop, via `AiScope#onAttentionChange`) and the AI tab.
 
 ## Styling
 Theme tokens (6 themes) live in `src/index.css` (`body.theme-*` CSS variables + Tailwind v4

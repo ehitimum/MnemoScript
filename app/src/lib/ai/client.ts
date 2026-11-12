@@ -1,6 +1,6 @@
 import { api } from '../api';
 import { buildTurnRequest, type TurnContext } from './context';
-import { addUserMessage, applyEvent, recordToolResult, startAssistantMessage, uid, withAssistantMessage } from './session';
+import { addUserMessage, applyEvent, recordProposal, recordToolResult, startAssistantMessage, uid, withAssistantMessage } from './session';
 import { executeTool, type ProjectAccess } from './tools';
 import type { AiEvent, AiSession, AiTurnRequest } from './types';
 
@@ -48,14 +48,15 @@ export function runTurn(opts: RunTurnOptions): RunningTurn {
   let session = withAssistantMessage(base, reply);
   opts.onUpdate?.(session);
 
+  let settled = false;
   const update = (next: typeof reply) => {
+    if (settled) return; // e.g. a proposal rejected after the turn was stopped
     reply = next;
     session = withAssistantMessage(session, reply);
     opts.onUpdate?.(session);
   };
 
   const done = new Promise<AiSession>((resolve) => {
-    let settled = false;
     const finish = () => {
       if (!settled) {
         settled = true;
@@ -71,11 +72,15 @@ export function runTurn(opts: RunTurnOptions): RunningTurn {
       update(applyEvent(reply, ev));
       if (ev.type === 'toolCall') {
         void (async () => {
-          const r = await executeTool(ev.name, ev.input, opts.access, opts.mode).catch((e: unknown) => ({
+          const r = await executeTool(ev.name, ev.input, opts.access, opts.mode, {
+            callId: ev.callId,
+            onProposal: (change) => update(recordProposal(reply, ev.callId, change)),
+          }).catch((e: unknown) => ({
             content: `Tool failed: ${e instanceof Error ? e.message : String(e)}`,
             isError: true,
+            change: undefined,
           }));
-          update(recordToolResult(reply, ev.callId, r.content, r.isError));
+          update(recordToolResult(reply, ev.callId, r.content, r.isError, r.change));
           await transport.toolResult(turnId, ev.callId, r.content, r.isError).catch(() => undefined);
         })();
       }

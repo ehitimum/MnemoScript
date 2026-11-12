@@ -23,6 +23,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import type { Document } from '../types';
 import type { ThemeType } from '../App';
+import { nextMindNodeIndex, registerCanvasFlush } from '../lib/canvasFlush';
 import {
   Save,
   Wand2,
@@ -422,7 +423,7 @@ function MindMapCanvas({ document: doc, onUpdateContent, onRequestSave }: MindMa
   const initial = useMemo(() => parseContent(doc.content), [doc.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const [nodes, setNodes, onNodesChange] = useNodesState<MindNode>(initial.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(initial.edges);
-  const idRef = useRef(initial.nodes.length + 1);
+  const idRef = useRef(nextMindNodeIndex(initial.nodes));
   const didMount = useRef(false);
   const { fitView, screenToFlowPosition } = useReactFlow();
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -707,6 +708,17 @@ function MindMapCanvas({ document: doc, onUpdateContent, onRequestSave }: MindMa
         onUpdateContent(JSON.stringify({ nodes: nodesRef.current, edges: edgesRef.current }), docId);
       }
     },
+    [docId, onUpdateContent],
+  );
+  // The AI flushes pending edits before it reads or rewrites a document.
+  useEffect(
+    () =>
+      registerCanvasFlush(() => {
+        if (pendingRef.current) {
+          pendingRef.current = false;
+          onUpdateContent(JSON.stringify({ nodes: nodesRef.current, edges: edgesRef.current }), docId);
+        }
+      }),
     [docId, onUpdateContent],
   );
   const flushAndSave = () => {

@@ -28,6 +28,8 @@ interface Props {
   /** The Format panel only applies to text documents. */
   canFormat: boolean;
   isAiOpen: boolean;
+  /** An AI change is waiting for Apply / Reject. */
+  aiAttention?: boolean;
   setIsAiOpen: (v: boolean) => void;
 }
 
@@ -51,6 +53,7 @@ function DesktopTopBar({
   setIsRightSidebarOpen,
   canFormat,
   isAiOpen,
+  aiAttention = false,
   setIsAiOpen,
 }: Props) {
   const iconBtn =
@@ -119,11 +122,14 @@ function DesktopTopBar({
             <PanelRight className="w-4 h-4" />
           </button>
           <button
-            className={`${toggleBtn(isAiOpen)} gap-1.5 w-auto px-2.5`}
+            className={`${toggleBtn(isAiOpen)} gap-1.5 w-auto px-2.5 relative`}
             onClick={() => setIsAiOpen(!isAiOpen)}
-            title={`AI assistant (${isMac ? '⌘' : 'Ctrl'}+L)`}
+            title={aiAttention ? 'An AI change is waiting for your approval' : `AI assistant (${isMac ? '⌘' : 'Ctrl'}+L)`}
           >
             <Sparkles className="w-4 h-4" />
+            {aiAttention && !isAiOpen && (
+              <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-primary ring-2 ring-background" aria-label="Waiting for approval" />
+            )}
             <span className="hidden md:inline text-xs font-medium">AI</span>
           </button>
         </>

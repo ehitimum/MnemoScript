@@ -1,4 +1,4 @@
-import { useState, lazy, Suspense } from 'react';
+import { useMemo, useState, lazy, Suspense } from 'react';
 import type { Project, Document, DocType, Folder } from '../../types';
 import type { ThemeType } from '../../App';
 import type { Editor as TiptapEditor } from '@tiptap/react';
@@ -13,7 +13,7 @@ import ToolsSheet from './ToolsSheet';
 import AiScope from '../ai/AiScope';
 import MobileAiScreen from '../ai/MobileAiScreen';
 import type { ProjectAiConfig } from '../../lib/ai/types';
-import type { AiChat } from '../../lib/ai/useAiChat';
+import type { AiChat, AiDocumentBridge } from '../../lib/ai/useAiChat';
 
 const FantasyMap = lazy(() => import('../FantasyMap'));
 
@@ -57,6 +57,10 @@ interface Props {
   theme: ThemeType;
   setTheme: (t: ThemeType) => void;
   onUpdateProjectAi: (config: ProjectAiConfig) => void;
+  /** Read/write access for the AI's edit tools. */
+  aiBridge?: AiDocumentBridge;
+  /** Bumped when the AI rewrites the open canvas, so it remounts with the new content. */
+  docRevision?: number;
 }
 
 /**
@@ -131,7 +135,7 @@ function MobileShell(props: Props) {
     if (isMindMap) {
       return (
         <MindMap
-          key={selectedDocument.id}
+          key={`${selectedDocument.id}:${props.docRevision ?? 0}`}
           document={selectedDocument}
           onUpdateContent={onUpdateDocumentContent}
           onRequestSave={persistCurrent}
@@ -143,7 +147,7 @@ function MobileShell(props: Props) {
       return (
         <Suspense fallback={<div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">Loading map studio…</div>}>
           <FantasyMap
-            key={selectedDocument.id}
+            key={`${selectedDocument.id}:${props.docRevision ?? 0}`}
             document={selectedDocument}
             projectId={selectedProject.id}
             onUpdateContent={onUpdateDocumentContent}
@@ -170,6 +174,21 @@ function MobileShell(props: Props) {
       />
     );
   };
+
+  // "Open" on an AI change card shows the document on the Write tab.
+  const baseBridge = props.aiBridge;
+  const aiBridge = useMemo<AiDocumentBridge | undefined>(
+    () =>
+      baseBridge && {
+        ...baseBridge,
+        openDocument: (id: string) => {
+          baseBridge.openDocument(id);
+          setTab('write');
+          setToolsOpen(false);
+        },
+      },
+    [baseBridge],
+  );
 
   // The AI tab needs a project; if it's closed while on the AI tab, fall back to the Library.
   const activeTab: MobileTab = tab === 'ai' && !selectedProject ? 'library' : tab;
@@ -256,6 +275,7 @@ function MobileShell(props: Props) {
         canWrite={!!selectedDocument}
         canTools={isText && activeTab === 'write'}
         canAi={!!selectedProject}
+        aiAttention={!!chat?.awaitingApproval && activeTab !== 'ai'}
       />
       )}
 
@@ -272,6 +292,7 @@ function MobileShell(props: Props) {
       activeDocument={selectedDocument}
       isMobile
       onConfigChange={onUpdateProjectAi}
+      bridge={aiBridge}
     >
       {(chat) => shell(chat)}
     </AiScope>

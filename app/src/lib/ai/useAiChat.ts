@@ -1,9 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Document, Project } from '../../types';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { DocType, Document, Project } from '../../types';
 import { api } from '../api';
 import { runTurn, type RunningTurn } from './client';
 import { getProvider, providersFor } from './providers';
-import { forStorage, newSession } from './session';
+import { textHash } from './diff';
+import { documentToText } from './documents';
+import { forStorage, newSession, patchChange } from './session';
+import type { ProjectAccess } from './tools';
 import type {
   AiEvent,
   AiMode,
@@ -27,6 +30,27 @@ export function resolveConfig(ai: ProjectAiConfig | null | undefined, isMobile: 
   return { provider: provider.id, model: provider.defaultModel, mode: ai?.mode ?? 'ask' };
 }
 
+/** How the AI reads and writes the open project's documents (implemented by App). */
+export interface AiDocumentBridge {
+  /** Latest documents, including unsaved edits in the open one. */
+  getDocuments(): Document[];
+  listFolderIds(): string[];
+  /** Push canvases' debounced edits into the documents now. */
+  flush(): void;
+  applyContent(docId: string, content: string): Promise<void>;
+  createDocument(title: string, docType: DocType, content: string, folderId: string | null): Promise<Document>;
+  deleteDocument(docId: string): Promise<void>;
+  openDocument(docId: string): void;
+}
+
+/** An undo that would also discard edits made after the AI's change: waits for confirmation. */
+export interface UndoConflict {
+  messageId: string;
+  /** The change that conflicts first, then the rest still to undo. */
+  callIds: string[];
+  docTitle: string;
+}
+
 export interface UseAiChatOptions {
   project: Project;
   documents: Document[];
@@ -34,6 +58,8 @@ export interface UseAiChatOptions {
   isMobile: boolean;
   /** Persist the project's AI connection (App saves project.json). */
   onConfigChange: (config: ProjectAiConfig) => void;
+  /** Write access for the edit tools. Without it the AI can only read. */
+  bridge?: AiDocumentBridge;
 }
 
 /**
@@ -41,7 +67,7 @@ export interface UseAiChatOptions {
  * Mount it under a component keyed by the project id so switching projects starts clean —
  * sessions of project A are never visible in project B.
  */
-export function useAiChat({ project, documents, activeDocument, isMobile, onConfigChange }: UseAiChatOptions) {
+export function useAiChat({ project, documents, activeDocument, isMobile, onConfigChange, bridge }: UseAiChatOptions) {
   const config = resolveConfig(project.ai, isMobile);
   const provider = getProvider(config.provider);
 
@@ -53,6 +79,9 @@ export function useAiChat({ project, documents, activeDocument, isMobile, onConf
   const [keys, setKeys] = useState<KeyStatus | null>(null);
   const [cli, setCli] = useState<CliStatus | null>(null);
   const [checking, setChecking] = useState(false);
+  const [conflict, setConflict] = useState<UndoConflict | null>(null);
+  const [undoing, setUndoing] = useState(false);
+  const documentIds = useMemo(() => new Set(documents.map((d) => d.id)), [documents]);
 
   // Latest values for async callbacks (never read during render).
   const docsRef = useRef(documents);
@@ -60,10 +89,20 @@ export function useAiChat({ project, documents, activeDocument, isMobile, onConf
   const turnRef = useRef<RunningTurn | null>(null);
   const frameRef = useRef<number | null>(null);
   const pendingRef = useRef<AiSession | null>(null);
+  const bridgeRef = useRef(bridge);
+  /** Ask mode: proposals waiting for Apply / Reject, by tool call id. */
+  const approvalsRef = useRef(new Map<string, (approved: boolean) => void>());
   useEffect(() => {
     docsRef.current = documents;
     activeRef.current = activeDocument;
+    bridgeRef.current = bridge;
   });
+
+  const rejectAllPending = useCallback(() => {
+    const waiting = [...approvalsRef.current.values()];
+    approvalsRef.current.clear();
+    waiting.forEach((resolve) => resolve(false));
+  }, []);
 
   const refreshSessions = useCallback(() => {
     api.listAiSessions(project.id).then(setSessions).catch(() => setSessions([]));
@@ -103,10 +142,11 @@ export function useAiChat({ project, documents, activeDocument, isMobile, onConf
   // Stop a running turn if the panel/screen goes away.
   useEffect(
     () => () => {
+      rejectAllPending();
       turnRef.current?.cancel();
       if (frameRef.current != null) cancelAnimationFrame(frameRef.current);
     },
-    [],
+    [rejectAllPending],
   );
 
   const ready =
@@ -129,6 +169,15 @@ export function useAiChat({ project, documents, activeDocument, isMobile, onConf
       if (!trimmed || turnRef.current) return;
       if (!project.ai) onConfigChange(config); // record the connection the first time it's used
       const base = session ?? newSession(config.provider);
+      const access: ProjectAccess = {
+        listDocuments: () => bridgeRef.current?.getDocuments() ?? docsRef.current,
+        listFolderIds: bridge ? () => bridgeRef.current?.listFolderIds() ?? [] : undefined,
+        flush: () => bridgeRef.current?.flush(),
+        applyContent: bridge ? (id, content) => bridgeRef.current!.applyContent(id, content) : undefined,
+        createDocument: bridge ? (t, k, c, f) => bridgeRef.current!.createDocument(t, k, c, f) : undefined,
+        requestApproval: (callId) => new Promise<boolean>((resolve) => approvalsRef.current.set(callId, resolve)),
+      };
+      setConflict(null);
       setBusy(true);
       setView('chat');
       let savedStart = false;
@@ -140,7 +189,7 @@ export function useAiChat({ project, documents, activeDocument, isMobile, onConf
         mode: config.mode,
         projectName: project.name,
         activeDocument: activeRef.current ? { id: activeRef.current.id, title: activeRef.current.title } : null,
-        access: { listDocuments: () => docsRef.current },
+        access,
         onRateLimit: setRateLimit,
         onUpdate: (s) => {
           if (!savedStart) {
@@ -172,13 +221,78 @@ export function useAiChat({ project, documents, activeDocument, isMobile, onConf
         if (err?.kind === 'auth' || err?.kind === 'unavailable') refreshStatus();
       });
     },
-    [config, onConfigChange, persist, project.ai, project.name, refreshStatus, session],
+    [bridge, config, onConfigChange, persist, project.ai, project.name, refreshStatus, session],
   );
 
-  const stop = useCallback(() => turnRef.current?.cancel(), []);
+  const stop = useCallback(() => {
+    rejectAllPending();
+    turnRef.current?.cancel();
+  }, [rejectAllPending]);
+
+  /** Ask mode: the writer's answer to one proposal (or all of a reply's proposals). */
+  const decide = useCallback((callIds: string[], approved: boolean) => {
+    for (const id of callIds) {
+      const resolve = approvalsRef.current.get(id);
+      if (resolve) {
+        approvalsRef.current.delete(id);
+        resolve(approved);
+      }
+    }
+  }, []);
+
+  /**
+   * Undo applied changes in the given order (newest first for "Undo all"). Stops at a change
+   * whose document was edited afterwards and asks first, unless `force`.
+   */
+  const undo = useCallback(
+    async (messageId: string, callIds: string[], force = false) => {
+      const b = bridgeRef.current;
+      if (!b || !session || turnRef.current) return;
+      setUndoing(true);
+      setConflict(null);
+      let s = session;
+      try {
+        for (let i = 0; i < callIds.length; i++) {
+          const callId = callIds[i];
+          const ch = s.messages.find((m) => m.id === messageId)?.toolCalls?.find((c) => c.callId === callId)?.change;
+          if (!ch || ch.status !== 'applied') continue;
+          b.flush();
+          const doc = b.getDocuments().find((d) => d.id === ch.docId);
+          if (!doc) {
+            s = patchChange(s, messageId, callId, { status: 'failed', error: 'The document no longer exists.', before: undefined });
+            continue;
+          }
+          if (!(force && i === 0) && ch.afterHash && textHash(documentToText(doc)) !== ch.afterHash) {
+            setConflict({ messageId, callIds: callIds.slice(i), docTitle: doc.title });
+            break;
+          }
+          try {
+            if (ch.created) await b.deleteDocument(ch.docId);
+            else if (ch.before != null) await b.applyContent(ch.docId, ch.before);
+            else continue;
+            s = patchChange(s, messageId, callId, { status: 'undone', before: undefined, error: undefined });
+          } catch (e) {
+            s = patchChange(s, messageId, callId, { error: e instanceof Error ? e.message : String(e) });
+            break;
+          }
+        }
+      } finally {
+        setUndoing(false);
+      }
+      if (s !== session) {
+        setSession(s);
+        persist(s);
+      }
+    },
+    [persist, session],
+  );
+
+  const dismissConflict = useCallback(() => setConflict(null), []);
+  const openDocument = useCallback((docId: string) => bridgeRef.current?.openDocument(docId), []);
 
   const startNew = useCallback(() => {
     if (turnRef.current) return;
+    setConflict(null);
     setSession(null);
     setView('chat');
   }, []);
@@ -189,6 +303,7 @@ export function useAiChat({ project, documents, activeDocument, isMobile, onConf
       api
         .loadAiSession(project.id, id)
         .then((s) => {
+          setConflict(null);
           setSession(s);
           setView('chat');
         })
@@ -254,6 +369,16 @@ export function useAiChat({ project, documents, activeDocument, isMobile, onConf
     clearKey,
     refreshStatus,
     activeDocument,
+    canEdit: !!bridge,
+    documentIds,
+    decide,
+    undo,
+    undoing,
+    conflict,
+    dismissConflict,
+    openDocument,
+    /** A proposal is waiting for Apply / Reject (badges the AI button while the panel is closed). */
+    awaitingApproval: !!session?.messages.some((m) => m.pending && m.toolCalls?.some((c) => c.change?.status === 'pending')),
   };
 }
 

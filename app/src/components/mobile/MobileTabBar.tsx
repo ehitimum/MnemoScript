@@ -11,10 +11,12 @@ interface Props {
   canWrite: boolean;
   canTools: boolean;
   canAi: boolean;
+  /** An AI change is waiting for Apply / Reject. */
+  aiAttention?: boolean;
 }
 
 /** Bottom navigation — the spine of the mobile UX. 56px thumb targets. */
-function MobileTabBar({ tab, onTab, onTools, toolsActive, canWrite, canTools, canAi }: Props) {
+function MobileTabBar({ tab, onTab, onTools, toolsActive, canWrite, canTools, canAi, aiAttention = false }: Props) {
   return (
     <nav className="mn-tabbar">
       <button className={`mn-tab ${tab === 'library' ? 'is-active' : ''}`} onClick={() => onTab('library')}>
@@ -30,11 +32,14 @@ function MobileTabBar({ tab, onTab, onTools, toolsActive, canWrite, canTools, ca
         Write
       </button>
       <button
-        className={`mn-tab ${tab === 'ai' ? 'is-active' : ''} ${!canAi ? 'opacity-40' : ''}`}
+        className={`mn-tab relative ${tab === 'ai' ? 'is-active' : ''} ${!canAi ? 'opacity-40' : ''}`}
         onClick={() => onTab('ai')}
         disabled={!canAi}
       >
         <Sparkles className="w-5 h-5" />
+        {aiAttention && (
+          <span className="absolute top-1.5 left-1/2 ml-2 w-2 h-2 rounded-full bg-primary ring-2 ring-background" aria-label="Waiting for approval" />
+        )}
         AI
       </button>
       <button

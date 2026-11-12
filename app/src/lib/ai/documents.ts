@@ -5,7 +5,7 @@ import type { Document } from '../../types';
  * token use down and is what the edit tools will match against (Phase 3).
  */
 
-const BLOCK_TAGS = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI', 'BLOCKQUOTE', 'PRE', 'DIV', 'TR']);
+export const BLOCK_TAGS = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI', 'BLOCKQUOTE', 'PRE', 'DIV', 'TR']);
 
 export function htmlToText(html: string): string {
   if (!html) return '';
@@ -90,15 +90,19 @@ export function fantasyMapToText(content: string): string {
   ].join('\n');
 }
 
-export function documentToText(doc: Document): string {
-  switch (doc.docType) {
+export function contentToText(docType: Document['docType'], content: string): string {
+  switch (docType) {
     case 'mindmap':
-      return mindMapToText(doc.content);
+      return mindMapToText(content);
     case 'fantasymap':
-      return fantasyMapToText(doc.content);
+      return fantasyMapToText(content);
     default:
-      return htmlToText(doc.content);
+      return htmlToText(content);
   }
+}
+
+export function documentToText(doc: Document): string {
+  return contentToText(doc.docType, doc.content);
 }
 
 export const DOC_KIND_LABEL: Record<Document['docType'], string> = {

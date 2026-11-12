@@ -383,7 +383,7 @@ async function browserBackend<T>(cmd: string, args: Record<string, unknown>): Pr
     case 'ai_start_turn':
       throw new Error('The AI assistant needs the MnemoScript desktop or Android app.');
     case 'ai_tool_result':
-      mockToolResult(String(args.callId));
+      mockToolResult(String(args.callId), String(args.content ?? ""));
       return undefined as T;
     case 'ai_cancel_turn':
       return false as T;

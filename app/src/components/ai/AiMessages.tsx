@@ -1,8 +1,9 @@
 import { useEffect, useRef } from 'react';
-import { AlertTriangle, BookOpenText, Check, KeyRound, ListTree, Sparkles, Terminal } from 'lucide-react';
+import { AlertTriangle, BookOpenText, Check, KeyRound, ListTree, PencilLine, Sparkles, Terminal, Undo2 } from 'lucide-react';
 import type { Document } from '../../types';
 import type { AiChat } from '../../lib/ai/useAiChat';
-import type { AiMessage } from '../../lib/ai/types';
+import type { AiChange, AiMessage, AiToolCallRecord } from '../../lib/ai/types';
+import AiChangeCard from './AiChangeCard';
 import { describeToolCall } from '../../lib/ai/format';
 import { modelLabel } from '../../lib/ai/providers';
 import Markdown from './Markdown';
@@ -49,7 +50,7 @@ export default function AiMessages({ chat, documents, size }: Props) {
               {m.text}
             </div>
           ) : (
-            <AssistantMessage key={m.id} m={m} chat={chat} documents={documents} />
+            <AssistantMessage key={m.id} m={m} chat={chat} documents={documents} size={size} />
           ),
         )}
       </div>
@@ -57,25 +58,64 @@ export default function AiMessages({ chat, documents, size }: Props) {
   );
 }
 
-function AssistantMessage({ m, chat, documents }: { m: AiMessage; chat: AiChat; documents: Document[] }) {
-  const thinking = m.pending && !m.text;
+type ChangeCall = AiToolCallRecord & { change: AiChange };
+
+function AssistantMessage({ m, chat, documents, size }: { m: AiMessage; chat: AiChat; documents: Document[]; size: Size }) {
+  const calls = m.toolCalls ?? [];
+  const chips = calls.filter((c) => !c.change);
+  const changes = calls.filter((c): c is ChangeCall => !!c.change);
+  const pending = changes.filter((c) => c.change.status === 'pending');
+  const applied = changes.filter((c) => c.change.status === 'applied');
+  const awaiting = !!m.pending && pending.length > 0;
+  const thinking = m.pending && !m.text && !awaiting;
+  const link = 'inline-flex items-center gap-1.5 text-3xs font-medium text-muted-foreground hover:text-foreground cursor-pointer disabled:opacity-40 disabled:cursor-default';
   return (
     <div className="flex flex-col gap-2 min-w-0">
-      {!!m.toolCalls?.length && (
+      {!!chips.length && (
         <div className="flex flex-wrap gap-1.5">
-          {m.toolCalls.map((c) => (
+          {chips.map((c) => (
             <span
               key={c.callId}
               className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-3xs font-medium ${
                 c.isError ? 'border-destructive/30 text-destructive/90 bg-destructive/5' : 'border-border/40 text-muted-foreground bg-secondary/30'
               }`}
             >
-              {c.name === 'list_documents' ? <ListTree className="w-3 h-3" /> : <BookOpenText className="w-3 h-3" />}
+              {c.name === 'list_documents' ? (
+                <ListTree className="w-3 h-3" />
+              ) : c.name === 'read_document' ? (
+                <BookOpenText className="w-3 h-3" />
+              ) : (
+                <PencilLine className="w-3 h-3" />
+              )}
               {describeToolCall(c, documents)}
               {c.result != null && !c.isError && <Check className="w-3 h-3 text-primary/80" />}
             </span>
           ))}
         </div>
+      )}
+
+      {changes.map((c) => (
+        <AiChangeCard key={c.callId} call={c} messageId={m.id} live={!!m.pending} chat={chat} size={size} />
+      ))}
+
+      {awaiting && pending.length > 1 && (
+        <div className="flex items-center justify-end gap-3">
+          <button className={link} onClick={() => chat.decide(pending.map((c) => c.callId), false)}>
+            Reject all
+          </button>
+          <button
+            className="inline-flex items-center gap-1.5 text-3xs font-medium text-primary hover:underline cursor-pointer"
+            onClick={() => chat.decide(pending.map((c) => c.callId), true)}
+          >
+            <Check className="w-3 h-3" /> Apply all {pending.length}
+          </button>
+        </div>
+      )}
+
+      {awaiting && (
+        <p className="flex items-center gap-1.5 text-3xs text-primary/90" role="status">
+          <span className="mn-ai-dot" /> Waiting for you to apply or reject
+        </p>
       )}
 
       {m.text && <Markdown text={m.text} className="text-foreground/90 break-words" />}
@@ -91,11 +131,20 @@ function AssistantMessage({ m, chat, documents }: { m: AiMessage; chat: AiChat; 
       {m.error && m.error.kind !== 'cancelled' && <ErrorCard m={m} chat={chat} />}
       {m.error?.kind === 'cancelled' && <span className="text-3xs text-muted-foreground/70 italic">Stopped</span>}
 
-      {!m.pending && (m.model || m.usage) && (
+      {!m.pending && (m.model || m.usage || applied.length > 1) && (
         <div className="flex items-center gap-1.5 text-3xs text-muted-foreground/60">
           {m.model && <ModelBadge model={m.model} size="xs" />}
           {m.model && <span>{modelLabel(m.model)}</span>}
           {m.usage?.costUsd != null && m.usage.costUsd > 0 && <span>· ${m.usage.costUsd.toFixed(3)}</span>}
+          {applied.length > 1 && (
+            <button
+              className={`${link} ml-auto`}
+              onClick={() => void chat.undo(m.id, applied.map((c) => c.callId).reverse())}
+              disabled={chat.busy || chat.undoing}
+            >
+              <Undo2 className="w-3 h-3" /> Undo all {applied.length}
+            </button>
+          )}
         </div>
       )}
     </div>

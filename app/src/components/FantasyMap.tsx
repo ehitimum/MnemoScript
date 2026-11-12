@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import type { Document } from '../types';
 import type { ThemeType } from '../App';
+import { registerCanvasFlush } from '../lib/canvasFlush';
 import { api } from '../lib/api';
 import { toAssetUrl } from '../lib/assets';
 import { toItemUrl } from '../lib/mapAssets';
@@ -180,6 +181,10 @@ export default function FantasyMap({ document: docProp, projectId, onUpdateConte
   useEffect(() => () => {
     if (pendingRef.current) { pendingRef.current = false; onUpdateContent(JSON.stringify(docRef.current), docId); }
   }, [docId, onUpdateContent]);
+  // The AI flushes pending edits before it reads or rewrites a document.
+  useEffect(() => registerCanvasFlush(() => {
+    if (pendingRef.current) { pendingRef.current = false; onUpdateContent(JSON.stringify(docRef.current), docId); }
+  }), [docId, onUpdateContent]);
   const flushAndSave = () => {
     if (pendingRef.current) { pendingRef.current = false; onUpdateContent(JSON.stringify(docRef.current), docId); }
     onRequestSave();

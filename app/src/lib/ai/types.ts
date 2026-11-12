@@ -25,6 +25,31 @@ export interface AiToolCallRecord {
   input: Record<string, unknown>;
   result?: string;
   isError?: boolean;
+  /** Set for write tools: what the AI changed (or proposed), for the change card and undo. */
+  change?: AiChange;
+}
+
+export type AiChangeStatus = 'pending' | 'applied' | 'rejected' | 'undone' | 'failed';
+
+export type AiChangePreview =
+  | { kind: 'text'; hunks: { before: string; after: string }[] }
+  | { kind: 'list'; lines: { op: 'add' | 'remove' | 'change'; text: string }[] };
+
+export interface AiChange {
+  docId: string;
+  docTitle: string;
+  docType: 'text' | 'mindmap' | 'fantasymap';
+  /** One line, e.g. "3 edits" or "New chapter". */
+  summary: string;
+  preview: AiChangePreview;
+  /** create_document: undo deletes the document instead of restoring content. */
+  created?: boolean;
+  status: AiChangeStatus;
+  /** Content before the change (kept while it can still be undone). */
+  before?: string;
+  /** Fingerprint of the text right after the change, to warn when undo would discard later edits. */
+  afterHash?: string;
+  error?: string;
 }
 
 export interface AiUsage {

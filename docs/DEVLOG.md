@@ -5,6 +5,32 @@ Newest entries first. Dates are absolute.
 
 ---
 
+## 2026-11-12 — AI assistant, Phase 3: the AI can edit (Ask approvals, Auto + undo)
+
+- **Write tools:** `edit_text`, `write_document`, `create_document`, `edit_mind_map`,
+  `edit_fantasy_map` (design: ARCHITECTURE.md → "Edits"). Plan mode still offers none.
+- **Ask:** each change appears as a card with a diff and Apply/Reject; the turn waits. Applying re-reads
+  the document, so edits the writer made while deciding are kept. Stop rejects what's pending.
+- **Auto:** changes apply at once; each card has Undo, a reply with several has Undo all. Undo warns
+  first if the document changed after the AI's edit.
+- **Open documents update live:** chapters in place; mind maps / maps remount with the new content.
+  Canvases' debounced edits are flushed before the AI reads or writes (`lib/canvasFlush.ts`).
+- **Text edits keep formatting:** only changed words are replaced inside a paragraph; matching
+  tolerates curly quotes, spacing and list/heading markers; ambiguous or missing text is refused
+  with a message the model can act on.
+- **Session replay** tells the next model what happened to each change ("edit_text on “Ch 1”
+  (rejected by the writer)"). A proposal is never stored as pending.
+- **Backend:** Claude Code runs with `MCP_TOOL_TIMEOUT` = 24 h so an approval can't time out.
+- **Fixed:** status-bar word count didn't update when content was applied from outside the editor
+  (now counts on every doc-changing transaction); mind map node ids could collide after deletions
+  (`nextMindNodeIndex`).
+- **Tests:** `lib/ai/edits.test.ts` (16) + 2 regression tests (Ask → Apply → Undo on an open chapter
+  incl. word count; Plan mode makes no edits). 99/99 Vitest, 27 `cargo test ai::`, lint 0, clippy
+  clean, build OK. Checked in the browser preview: desktop Ask/Apply/Undo, Auto + "Undo anyway",
+  Auto edit of an open mind map (node + link appear), phone card at 375×812, AI-tab badge.
+
+---
+
 ## 2026-11-12 — AI assistant, Phase 2: chat UI (desktop panel + phone AI tab)
 
 - **Desktop:** right-edge `AiPanel` (same chrome as Format; the two are mutually exclusive), opened

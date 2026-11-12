@@ -1,4 +1,4 @@
-import type { AiEvent, AiMessage, AiMode, AiProviderId, AiSession } from './types';
+import type { AiChange, AiEvent, AiMessage, AiMode, AiProviderId, AiSession } from './types';
 
 /** Pure session helpers (no I/O), so the chat UI and tests share one source of truth. */
 
@@ -55,10 +55,35 @@ export function applyEvent(msg: AiMessage, ev: AiEvent): AiMessage {
   }
 }
 
-export function recordToolResult(msg: AiMessage, callId: string, result: string, isError: boolean): AiMessage {
+export function recordToolResult(msg: AiMessage, callId: string, result: string, isError: boolean, change?: AiChange): AiMessage {
   return {
     ...msg,
-    toolCalls: (msg.toolCalls ?? []).map((c) => (c.callId === callId ? { ...c, result, isError } : c)),
+    toolCalls: (msg.toolCalls ?? []).map((c) =>
+      c.callId === callId ? { ...c, result, isError, ...(change ? { change } : {}) } : c,
+    ),
+  };
+}
+
+/** Ask mode: show the proposal on its tool call while the writer decides. */
+export function recordProposal(msg: AiMessage, callId: string, change: AiChange): AiMessage {
+  return { ...msg, toolCalls: (msg.toolCalls ?? []).map((c) => (c.callId === callId ? { ...c, change } : c)) };
+}
+
+/** Update one change card after the turn (undo). */
+export function patchChange(session: AiSession, messageId: string, callId: string, patch: Partial<AiChange>): AiSession {
+  return {
+    ...session,
+    updatedAt: now(),
+    messages: session.messages.map((m) =>
+      m.id !== messageId
+        ? m
+        : {
+            ...m,
+            toolCalls: (m.toolCalls ?? []).map((c) =>
+              c.callId === callId && c.change ? { ...c, change: { ...c.change, ...patch } } : c,
+            ),
+          },
+    ),
   };
 }
 
@@ -74,8 +99,18 @@ export function withAssistantMessage(session: AiSession, msg: AiMessage): AiSess
 export function forStorage(session: AiSession): AiSession {
   return {
     ...session,
-    messages: session.messages.map((m) =>
-      m.pending ? { ...m, pending: false, error: m.error ?? { kind: 'cancelled', message: 'Interrupted' } } : m,
-    ),
+    messages: session.messages.map((m) => {
+      const settled = m.toolCalls?.some((c) => c.change?.status === 'pending')
+        ? {
+            ...m,
+            toolCalls: m.toolCalls!.map((c) =>
+              c.change?.status === 'pending' ? { ...c, change: { ...c.change, status: 'rejected' as const } } : c,
+            ),
+          }
+        : m;
+      return settled.pending
+        ? { ...settled, pending: false, error: settled.error ?? { kind: 'cancelled', message: 'Interrupted' } }
+        : settled;
+    }),
   };
 }

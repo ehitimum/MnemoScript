@@ -58,6 +58,9 @@ pub fn find_cli() -> Option<PathBuf> {
 fn command(cli: &Path) -> tokio::process::Command {
     let mut cmd = tokio::process::Command::new(cli);
     cmd.env_clear().envs(clean_env()).kill_on_drop(true);
+    // Ask mode: a write tool waits for the writer's Apply / Reject, which can take a while.
+    // Give MnemoScript's MCP tools a day before the CLI gives up on them.
+    cmd.env("MCP_TOOL_TIMEOUT", "86400000");
     #[cfg(windows)]
     cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW: no console flashes up
     cmd

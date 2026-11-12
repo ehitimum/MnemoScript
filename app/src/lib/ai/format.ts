@@ -24,6 +24,13 @@ export function describeToolCall(call: AiToolCallRecord, docs: Document[]): stri
       return 'Looked through the project';
     case 'read_document':
       return title ? `Read “${title}”` : 'Read a document';
+    case 'edit_text':
+    case 'write_document':
+    case 'edit_mind_map':
+    case 'edit_fantasy_map':
+      return title ? `Tried to edit “${title}”` : 'Tried to edit a document';
+    case 'create_document':
+      return 'Tried to create a document';
     default:
       return call.name.replace(/_/g, ' ');
   }

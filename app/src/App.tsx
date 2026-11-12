@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, lazy, Suspense, type ReactNode } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense, type ReactNode } from 'react';
 import Sidebar from './components/Sidebar';
 import Editor from './components/Editor';
 import MindMap from './components/MindMap';
@@ -15,6 +15,8 @@ import MobileShell from './components/mobile/MobileShell';
 import ProjectCreationModal from './components/ProjectCreationModal';
 import BookCompiler from './components/BookCompiler';
 import AiScope from './components/ai/AiScope';
+import type { AiDocumentBridge } from './lib/ai/useAiChat';
+import { flushCanvases } from './lib/canvasFlush';
 import AiPanel from './components/ai/AiPanel';
 import type { ProjectAiConfig } from './lib/ai/types';
 import { api } from './lib/api';
@@ -139,6 +141,11 @@ function App() {
     if (open) setFormatOpen(false);
   }, []);
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
+  // An AI proposal is waiting for Apply / Reject (dot on the AI button).
+  const [aiAttention, setAiAttention] = useState(false);
+  // Bumped when the AI rewrites an open canvas, which then remounts with the new content
+  // (canvases read their document once, on mount).
+  const [docRevisions, setDocRevisions] = useState<Record<string, number>>({});
 
   // When crossing the breakpoint, show the explorer on wide windows and collapse
   // the panels on narrow ones (adjusting state during render, per React docs).
@@ -263,11 +270,16 @@ function App() {
       window.clearTimeout(timer);
       timer = window.setTimeout(compute, 180);
     };
+    // Any document change, including content applied from outside the editor (an AI edit or
+    // undo uses setContent without an update event).
+    const onTransaction = ({ transaction }: { transaction: { docChanged: boolean } }) => {
+      if (transaction.docChanged) schedule();
+    };
     schedule();
-    activeEditor.on('update', schedule);
+    activeEditor.on('transaction', onTransaction);
     return () => {
       window.clearTimeout(timer);
-      activeEditor.off('update', schedule);
+      activeEditor.off('transaction', onTransaction);
     };
   }, [activeEditor]);
 
@@ -555,6 +567,72 @@ function App() {
     api.saveDocument(proj.id, stamped).catch((e) => console.error('Save failed:', e));
   }, []);
 
+  const foldersRef = useRef(folders);
+  useEffect(() => {
+    foldersRef.current = folders;
+  }, [folders]);
+
+  /** The AI assistant's read/write access to the open project (all through refs: always current). */
+  const aiBridge = useMemo<AiDocumentBridge>(() => {
+    const getDocuments = () => {
+      const sel = selectedDocumentRef.current;
+      return documentsRef.current.map((d) => (sel && d.id === sel.id ? sel : d));
+    };
+    return {
+      getDocuments,
+      listFolderIds: () => foldersRef.current.map((f) => f.id),
+      flush: flushCanvases,
+      applyContent: async (docId, content) => {
+        const proj = selectedProjectRef.current;
+        const doc = getDocuments().find((d) => d.id === docId);
+        if (!proj || !doc) throw new Error('That document is not in the open project.');
+        const stamped = { ...doc, content, updated_at: new Date().toISOString() };
+        documentsRef.current = documentsRef.current.map((d) => (d.id === docId ? stamped : d));
+        setDocuments((prev) => prev.map((d) => (d.id === docId ? stamped : d)));
+        const isOpen = selectedDocumentRef.current?.id === docId;
+        if (isOpen) {
+          selectedDocumentRef.current = stamped;
+          setSelectedDocument(stamped); // the editor applies external content in place
+          if (doc.docType !== 'text') setDocRevisions((r) => ({ ...r, [docId]: (r[docId] ?? 0) + 1 }));
+        }
+        await api.saveDocument(proj.id, stamped);
+        if (isOpen && selectedDocumentRef.current === stamped) {
+          isSavedRef.current = true;
+          setIsSaved(true);
+        }
+      },
+      createDocument: async (title, docType, content, folderId) => {
+        const proj = selectedProjectRef.current;
+        if (!proj) throw new Error('No project is open.');
+        let doc = await api.createDocument(proj.id, title, content, docType, documentsRef.current.length);
+        if (folderId) {
+          doc = { ...doc, folderId };
+          await api.saveDocument(proj.id, doc);
+        }
+        documentsRef.current = [...documentsRef.current, doc];
+        setDocuments((prev) => [...prev, doc]);
+        return doc;
+      },
+      deleteDocument: async (docId) => {
+        const proj = selectedProjectRef.current;
+        if (!proj) throw new Error('No project is open.');
+        documentsRef.current = documentsRef.current.filter((d) => d.id !== docId);
+        setDocuments((prev) => prev.filter((d) => d.id !== docId));
+        if (selectedDocumentRef.current?.id === docId) {
+          selectedDocumentRef.current = null;
+          setSelectedDocument(null);
+          isSavedRef.current = true;
+          setIsSaved(true);
+        }
+        await api.deleteDocument(proj.id, docId);
+      },
+      openDocument: (docId) => {
+        const doc = getDocuments().find((d) => d.id === docId);
+        if (doc) void selectDocument(doc);
+      },
+    };
+  }, [selectDocument]);
+
   const handleCloseProject = async () => {
     await flushIfDirty();
     setSelectedProject(null);
@@ -707,6 +785,8 @@ function App() {
           theme={theme}
           setTheme={setTheme}
           onUpdateProjectAi={handleUpdateProjectAi}
+          aiBridge={aiBridge}
+          docRevision={selectedDocument ? (docRevisions[selectedDocument.id] ?? 0) : 0}
         />
       ) : (
         <>
@@ -726,6 +806,7 @@ function App() {
             setIsRightSidebarOpen={setIsRightSidebarOpen}
             canFormat={isTextDoc}
             isAiOpen={isAiOpen}
+            aiAttention={aiAttention}
             setIsAiOpen={setIsAiOpen}
           />
 
@@ -830,6 +911,8 @@ function App() {
               activeDocument={selectedDocument}
               isMobile={false}
               onConfigChange={handleUpdateProjectAi}
+              bridge={aiBridge}
+              onAttentionChange={setAiAttention}
             >
             {(chat) => (
             <div className="flex-1 flex overflow-hidden relative">
@@ -871,7 +954,7 @@ function App() {
                 <EmptyEditorState onNew={() => handleCreateDocument(nextTitle('Chapter'))} />
               ) : isMindMap ? (
                 <MindMap
-                  key={selectedDocument.id}
+                  key={`${selectedDocument.id}:${docRevisions[selectedDocument.id] ?? 0}`}
                   document={selectedDocument}
                   onUpdateContent={handleUpdateDocumentContent}
                   onRequestSave={persistCurrent}
@@ -880,7 +963,7 @@ function App() {
               ) : isFantasyMap ? (
                 <Suspense fallback={<div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">Loading map studio…</div>}>
                   <FantasyMap
-                    key={selectedDocument.id}
+                    key={`${selectedDocument.id}:${docRevisions[selectedDocument.id] ?? 0}`}
                     document={selectedDocument}
                     projectId={selectedProject.id}
                     onUpdateContent={handleUpdateDocumentContent}
