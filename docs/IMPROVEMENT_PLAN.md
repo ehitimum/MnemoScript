@@ -104,6 +104,20 @@ phone shell.
 | 6a | Phone ↔ PC pairing (phone uses the PC's Claude Code) | ✅ done (device test pending) |
 | 6b | Gemini CLI bridge (Codex not installed; Antigravity has no headless CLI), OpenAI partner sign-in | later |
 
+**Future AI connections (noted 2026-11-12, after v2.1.0):**
+- **Gemini CLI** — uses the writer's Google AI Pro subscription (Google One) the allowed way: Google's
+  own CLI signs in ("Login with Google"), MnemoScript drives it like Claude Code (locked down, MCP
+  tools only). Needs Gemini CLI installed to build and test against the real tool. Antigravity is an
+  IDE with no headless CLI, so it can't be used.
+- **OpenCode** (already installed on the dev PC via winget) — open-source agent CLI with a headless
+  mode (`opencode run`), machine-readable output and MCP support; gives access to free models
+  (OpenCode's free selection, OpenRouter free models) and the writer's own API keys. Caveats to show
+  in the UI: some free models may log or train on prompts (manuscript privacy), rate limits, varying
+  quality. Never use OpenCode's Claude-subscription sign-in plug-ins (forbidden by Anthropic).
+- **Ollama** — local open models on the PC: free and fully private; with phone pairing the phone
+  could use it too (pairing currently allows Claude Code turns only).
+- **Codex CLI** — ChatGPT plan via OpenAI's own CLI, if the writer installs it.
+
 ### P1 — next sprint
 - **Grammar without the network.** `grammar-service.ts` posts every document to api.languagetool.org
   (privacy + offline). Options: bundle LanguageTool locally (desktop only, JVM), or switch to a WASM
