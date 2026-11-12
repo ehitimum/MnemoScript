@@ -3,6 +3,15 @@
 A running log of substantive changes, so future work needs less re-discovery.
 Newest entries first. Dates are absolute.
 
+## 2026-11-12 — Isolate AI revisions from nearby typing in undo history
+
+- After fixing the CI runtime, Linux exposed a real timing bug: a fast accepted AI rewrite
+  could join the preceding edit's history group, so Undo removed both. Explicit history
+  boundaries now separate word rewrites, structural rewrites and continuations from typing
+  on either side. Preview, formatting and stale-text behavior stay the same.
+- Three fixed-clock editor regressions verify undo/redo across the writer's prior edit,
+  the AI change and following typing; existing full-App slash/Accept/Undo coverage remains.
+
 ## 2026-11-12 — Match CI and release Node runtime to locked DOM dependencies
 
 - Remote CI failed before test collection: Node 20 lacks APIs needed by locked jsdom 30 /
