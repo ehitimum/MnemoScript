@@ -722,8 +722,33 @@ function App() {
     return `${kind} ${max + 1}`;
   }
 
+  const backupActions = {
+    projectName: selectedProject?.name,
+    onBackup: async () => {
+      flushCanvases();
+      const project = selectedProjectRef.current;
+      if (!project) throw new Error('Open a project before creating a backup.');
+      // Save directly: persistCurrent handles errors for the editor, but backup must abort on failure.
+      const doc = selectedDocumentRef.current;
+      if (doc && !isSavedRef.current) {
+        await api.saveDocument(project.id, doc);
+        if (selectedDocumentRef.current === doc) {
+          isSavedRef.current = true;
+          setIsSaved(true);
+          setSaveError(null);
+        }
+      }
+      return api.backupProject(project.id);
+    },
+    onRestore: async (bytes: Uint8Array) => {
+      const restored = await api.restoreProjectBackup(bytes);
+      setProjects((previous) => [restored, ...previous.filter((p) => p.id !== restored.id)]);
+    },
+  };
+
   const settingsPanel = (
     <SettingsPanel
+      backup={backupActions}
       theme={theme}
       setTheme={setTheme}
       editorFont={editorFont}
@@ -750,6 +775,7 @@ function App() {
     <div className="h-screen flex flex-col bg-background text-foreground transition-colors duration-300 safe-area-insets">
       {isMobileShell ? (
         <MobileShell
+          backup={backupActions}
           selectedProject={selectedProject}
           selectedDocument={selectedDocument}
           documents={documents}

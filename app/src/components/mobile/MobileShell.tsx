@@ -15,6 +15,7 @@ import MobileAiScreen from '../ai/MobileAiScreen';
 import type { ProjectAiConfig } from '../../lib/ai/types';
 import type { AiChat, AiDocumentBridge } from '../../lib/ai/useAiChat';
 import { inlineHostFor } from '../../lib/ai/inlineHost';
+import type { BackupActions } from '../sync/BackupSettings';
 
 const FantasyMap = lazy(() => import('../FantasyMap'));
 
@@ -62,6 +63,7 @@ interface Props {
   aiBridge?: AiDocumentBridge;
   /** Bumped when the AI rewrites the open canvas, so it remounts with the new content. */
   docRevision?: number;
+  backup?: BackupActions;
 }
 
 /**
@@ -258,6 +260,7 @@ function MobileShell(props: Props) {
 
         {activeTab === 'settings' && (
           <MobileSettings
+            backup={props.backup}
             theme={theme}
             setTheme={setTheme}
             editorFont={props.editorFont}
