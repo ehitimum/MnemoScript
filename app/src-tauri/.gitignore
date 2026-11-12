@@ -2,3 +2,6 @@
 # will have compiled files and executables
 /target/
 /gen/schemas
+
+# Google OAuth client for Drive sync (never commit; see .env.local.example)
+/.env.local

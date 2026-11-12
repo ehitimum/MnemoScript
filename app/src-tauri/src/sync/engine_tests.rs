@@ -256,6 +256,25 @@ fn the_open_chapter_is_never_overwritten_under_the_editor() {
 }
 
 #[test]
+fn a_remote_delete_of_the_open_chapter_waits_and_typing_keeps_it() {
+    let (r, a, b) = seeded();
+    fs::remove_file(a.path().join("documents").join("ch2.json")).unwrap();
+    a.sync(&r);
+    let report = b.sync_with(&r, Some("ch2"));
+    assert!(report.staged.contains(&"doc:ch2".to_string()), "{report:?}");
+    assert!(b.doc("ch2").is_some(), "the open chapter's file is not removed under the editor");
+    // The writer kept typing, then left the chapter: their words win over the delete.
+    b.edit("ch2", |d| d["content"] = json!("<p>Still writing.</p>"));
+    let mut rep = SyncReport::default();
+    b.engine().apply_staged(PID, b.path(), "ch2", &mut rep).unwrap();
+    assert_eq!(b.content("ch2"), "<p>Still writing.</p>");
+    b.sync(&r);
+    a.sync(&r);
+    assert_eq!(a.content("ch2"), "<p>Still writing.</p>");
+    assert_eq!(a.snapshot(), b.snapshot());
+}
+
+#[test]
 fn a_batch_waits_for_content_that_is_not_visible_yet() {
     let (r, a, b) = seeded();
     a.edit("ch1", |d| d["content"] = json!("<p>Slow upload.</p>"));

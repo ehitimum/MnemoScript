@@ -442,8 +442,10 @@ impl<'a> Engine<'a> {
             }
             return Ok(());
         }
-        // Never write under the editor: the open chapter's text waits for the writer.
-        if kind == Kind::Text && active_doc == Some(id) {
+        // Never write under the editor: the open chapter's text (or its removal) waits for the
+        // writer. Title, folder and order changes still apply; the app merges them in place.
+        let removes = kind == Kind::Doc && self.payload(project_id, &target)?.is_none();
+        if (kind == Kind::Text || removes) && active_doc == Some(id) {
             self.store.set_staged(project_id, entity, Some(&target))?;
             report.staged.push(entity.to_string());
             return Ok(());
@@ -641,12 +643,22 @@ impl<'a> Engine<'a> {
     /// Apply a staged remote update for a chapter once the writer allows it (or leaves it).
     /// Local edits made in the meantime are captured first and become a conflict, never lost.
     pub fn apply_staged(&self, project_id: &str, dir: &Path, doc_id: &str, report: &mut SyncReport) -> Result<(), String> {
-        let entity = format!("text:{doc_id}");
-        let Some(staged) = self.store.staged(project_id, &entity)? else { return Ok(()) };
+        let mut staged = Vec::new();
+        for entity in [format!("doc:{doc_id}"), format!("text:{doc_id}")] {
+            if let Some(rev) = self.store.staged(project_id, &entity)? {
+                staged.push((entity, rev));
+            }
+        }
+        if staged.is_empty() {
+            return Ok(());
+        }
         let transports = self.store.project_transports(project_id)?;
         self.scan(project_id, dir, &transports)?;
-        self.reconcile(project_id, dir, &entity, &[staged], None, report)?;
-        self.store.set_staged(project_id, &entity, None)
+        for (entity, rev) in staged {
+            self.reconcile(project_id, dir, &entity, &[rev], None, report)?;
+            self.store.set_staged(project_id, &entity, None)?;
+        }
+        self.repair(project_id, dir, report)
     }
 
     // ---- publishing ----------------------------------------------------------------------------

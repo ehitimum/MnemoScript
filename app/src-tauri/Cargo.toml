@@ -38,7 +38,7 @@ dirs = "5"
 # AI assistant: async runtime pieces (process spawn, channels), HTTPS streaming to the
 # provider APIs (rustls/ring — no OpenSSL or CMake needed on Windows/Android).
 tokio = { version = "1", features = ["process", "io-util", "sync", "time", "macros", "rt"] }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json", "blocking"] }
 futures-util = "0.3"
 # Phone ↔ PC pairing: SPAKE2 turns the short pairing code into a strong shared key (no offline
 # guessing), XChaCha20-Poly1305 encrypts and authenticates every message, base64 for the wire.
