@@ -1,5 +1,6 @@
 mod ai;
 mod backup;
+mod sync;
 mod project;
 
 use project::{Document, Project, Registry};

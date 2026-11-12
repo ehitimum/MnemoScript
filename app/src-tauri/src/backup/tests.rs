@@ -379,3 +379,44 @@ fn image_attributes_decode_source_entities_and_escape_restored_paths() {
     assert!(chapter.content.contains("Restore &amp;quot; &amp; notes"));
     assert!(restored.get_dir().join("assets/image.png").is_file());
 }
+
+/// Regression (2026-11-13): restore relocated item/background/terrain paths but left the map's
+/// "My Imports" library pointing at the original project, so those images broke once the
+/// original was gone or the backup was restored on another device.
+#[test]
+fn restore_relocates_fantasy_map_import_library_paths() {
+    let source = fixture();
+    let path = source.path().join("documents/map-1.json");
+    let mut doc: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    let mut graph: Value = serde_json::from_str(doc["content"].as_str().unwrap()).unwrap();
+    graph["imports"] = serde_json::json!([
+        { "id": "imp-1", "name": "Tower", "path": source.path().join("assets/image.png") },
+        { "id": "imp-2", "name": "Unrelated", "note": { "path": "kept as written" } }
+    ]);
+    doc["content"] = Value::String(graph.to_string());
+    fs::write(&path, doc.to_string()).unwrap();
+
+    let destination = tempdir().unwrap();
+    let restored = restore_in(Cursor::new(archive(source.path())), destination.path()).unwrap();
+    let map = restored.documents.iter().find(|d| d.id == "map-1").unwrap();
+    let graph: Value = serde_json::from_str(&map.content).unwrap();
+    assert_eq!(
+        graph["imports"][0]["path"],
+        restored.get_dir().join("assets/image.png").to_string_lossy().to_string()
+    );
+    assert_eq!(graph["imports"][1]["note"]["path"], "kept as written");
+}
+
+#[test]
+fn backup_rejects_a_map_import_outside_the_project() {
+    let source = fixture();
+    let path = source.path().join("documents/map-1.json");
+    let mut doc: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    let mut graph: Value = serde_json::from_str(doc["content"].as_str().unwrap()).unwrap();
+    graph["imports"] = serde_json::json!([{ "id": "imp-1", "name": "Elsewhere", "path": "C:/Other/assets/x.png" }]);
+    doc["content"] = Value::String(graph.to_string());
+    fs::write(&path, doc.to_string()).unwrap();
+    let dir = tempdir().unwrap();
+    let error = export_in(source.path(), &dir.path().join("b.zip")).unwrap_err();
+    assert!(error.contains("external local asset"), "{error}");
+}
