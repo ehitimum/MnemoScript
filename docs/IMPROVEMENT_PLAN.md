@@ -99,8 +99,8 @@ phone shell.
 | 1 | Backend engine (Claude Code bridge + Anthropic/OpenAI/Gemini API keys), per-project sessions, key storage, `lib/ai/` | ✅ done (no UI) |
 | 2 | Chat UI: desktop side panel + mobile AI tab, session list with model icons, model picker | ✅ done |
 | 3 | Write tools (text / mind map / map edits), Ask approval cards, Auto with snapshots + undo | ✅ done |
-| 4 | Inline commands (`/polish`, `/proofread`, `/grammar`, `/shorten`, `/expand`, `/tone`) | next |
-| 5 | Settings → AI: account, plan, usage bars, API keys, default mode | |
+| 4 | Inline commands (`/polish`, `/proofread`, `/grammar`, `/shorten`, `/expand`, `/tone`, continue) | ✅ done |
+| 5 | Settings → AI: account, plan, usage bars, API keys, default mode | next |
 | 6 | Gemini CLI + Codex bridges, OpenAI partner sign-in, phone ↔ desktop pairing | later |
 
 ### P1 — next sprint

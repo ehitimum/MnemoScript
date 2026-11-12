@@ -5,6 +5,29 @@ Newest entries first. Dates are absolute.
 
 ---
 
+## 2026-11-12 — AI assistant, Phase 4: inline commands in the writing area
+
+- **Commands:** Polish, Proofread, Fix grammar, Shorten, Expand, Change tone (Darker, Lighter, Tenser,
+  Lyrical, Formal, Casual), Continue writing. One tool-less request each to the project's AI; never
+  stored in chat sessions; always previewed, whatever the chat mode.
+- **Triggers:** slash menu ("AI" group: `/polish`, `/proofread`, …); desktop Ctrl/⌘+J or the ✦ button
+  beside a selection; Format panel and phone Tools sheet → AI section.
+- **Card:** streams the result under the passage (docked above the tab bar on phones), highlights the
+  passage, word diff ("Show changes"), tone chips, Accept (Ctrl/⌘+Enter) / Retry / Discard (Esc). No
+  AI connected → "Connect an AI" jumps to the Connect screen.
+- **Accept keeps formatting:** only changed words are written (`lib/ai/rewrite.ts`), as one undo step.
+  Structural changes (new/merged paragraphs) or text edited meanwhile fall back to plain paragraphs.
+- **Design note:** the inline runner lives outside `useAiChat` (`client.ts#runInlineTurn`,
+  `inlineHost.ts`): returning it from the hook made the React Compiler skip the whole hook
+  (`preserve-manual-memoization`).
+- **Tests:** `lib/ai/inline.test.ts` (9: prompts, output cleanup, runner, flatten/rewrite with a real
+  TipTap editor incl. undo, target mapping) + 1 regression (`/polish` → card → Accept keeps bold →
+  Ctrl+Z; not saved as a chat). Test setup polyfills `Range.getClientRects`. 109/109 Vitest, lint 0,
+  build OK. Checked in the browser preview: slash menu, card + diff, Accept/undo, selection button →
+  menu → tones via keyboard, Esc, Continue, no-AI state, phone Tools sheet + docked card at 375×812.
+
+---
+
 ## 2026-11-12 — AI assistant, Phase 3: the AI can edit (Ask approvals, Auto + undo)
 
 - **Write tools:** `edit_text`, `write_document`, `create_document`, `edit_mind_map`,

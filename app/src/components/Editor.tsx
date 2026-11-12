@@ -15,6 +15,9 @@ import { ReadAloudHighlight } from './extensions/ReadAloudHighlight';
 import { SlashCommand } from './extensions/SlashCommand';
 import { ImageWithAsset } from './extensions/ImageWithAsset';
 import SmoothCaret from './SmoothCaret';
+import { AiTarget } from './extensions/AiTarget';
+import InlineAi from './ai/InlineAi';
+import type { InlineAiHost } from '../lib/ai/inlineHost';
 import { api } from '../lib/api';
 import { useReadAloud } from '../lib/speech/useReadAloud';
 import { useDictation } from '../lib/speech/useDictation';
@@ -42,6 +45,8 @@ export interface EditorProps {
   smoothCaret: boolean;
   /** 'mobile' hides the desktop toolbar; the mobile shell provides its own chrome. */
   chrome?: 'desktop' | 'mobile';
+  /** The project's AI for inline commands (/polish …). Without it the AI items are hidden. */
+  ai?: InlineAiHost;
 }
 
 /** A fresh document: an (empty) title heading followed by a paragraph. */
@@ -71,6 +76,7 @@ function Editor({
   spellcheckActive,
   smoothCaret,
   chrome = 'desktop',
+  ai,
 }: EditorProps) {
   const isMobileChrome = chrome === 'mobile';
   const [grammarError, setGrammarError] = useState<GrammarErrorData | null>(null);
@@ -134,6 +140,7 @@ function Editor({
       ReadAloudHighlight,
       ImageWithAsset,
       SlashCommand.configure({ onImage: handleSlashImage }),
+      AiTarget,
     ],
     content: doc.content || EMPTY_DOC,
     editorProps: {
@@ -318,6 +325,8 @@ function Editor({
           </div>
         )}
       </div>
+
+      {ai && <InlineAi editor={editor ?? null} host={ai} mobile={isMobileChrome} scrollRef={scrollRef} />}
     </div>
   );
 }

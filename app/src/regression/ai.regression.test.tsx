@@ -143,6 +143,47 @@ describe('AI assistant — edits (regression)', () => {
   }, 20000);
 });
 
+describe('AI assistant — inline commands (regression)', () => {
+  it('/polish from the slash menu previews the revision, Accept applies it (formatting kept), Ctrl+Z restores', async () => {
+    localStorage.setItem('mnemoscript:aimock', '1');
+    const App = await loadApp();
+    render(<App />);
+    await createProject('Inline');
+    await screen.findByText(/no documents yet/i);
+    fireEvent.click(screen.getByRole('button', { name: /new chapter/i }));
+    await waitFor(() => expect(document.querySelector('.ProseMirror')).toBeTruthy());
+    const ed = liveEditor();
+    ed.commands.setContent('<p>The tavern was very loud and <strong>Mara</strong> slipped through the crowd.</p>', { emitUpdate: true });
+    ed.chain().focus().setTextSelection(ed.state.doc.content.size - 1).insertContent(' /polish').run();
+
+    // The slash menu lists the AI commands under their own label.
+    const popup = await waitFor(() => {
+      const el = document.querySelector('.slash-popup') as HTMLElement | null;
+      if (!el) throw new Error('slash menu not open');
+      return el;
+    });
+    expect(within(popup).getByText('AI')).toBeInTheDocument();
+    expect(within(popup).getByText('Polish')).toBeInTheDocument();
+    fireEvent.keyDown(document.querySelector('.ProseMirror')!, { key: 'Enter' });
+
+    const card = await screen.findByRole('dialog', { name: /ai polish/i }, { timeout: 6000 });
+    const accept = await within(card).findByRole('button', { name: /accept/i }, { timeout: 6000 });
+    expect(document.querySelector('.mn-ai-target')).toBeTruthy(); // the passage is highlighted
+    expect(ed.getText()).toContain('very loud'); // nothing changed yet
+    fireEvent.click(accept);
+
+    await waitFor(() => expect(ed.getText()).toBe('The tavern was loud, and Mara slipped through the crowd.'));
+    expect(ed.getHTML()).toContain('<strong>Mara</strong>');
+    expect(screen.queryByRole('dialog', { name: /ai polish/i })).toBeNull();
+    expect(document.querySelector('.mn-ai-target')).toBeNull();
+    ed.commands.undo();
+    expect(ed.getText()).toBe('The tavern was very loud and Mara slipped through the crowd. ');
+    // Inline commands are not chat messages.
+    const [project] = projectIds();
+    expect(sessionsOf(project.id)).toEqual([]);
+  }, 20000);
+});
+
 describe('AI assistant — phone shell (regression)', () => {
   it('adds an AI tab that needs a project, and hides the tab bar while typing', async () => {
     localStorage.setItem('mnemoscript:aimock', '1');

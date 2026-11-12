@@ -1141,3 +1141,39 @@ textarea,
 @media (prefers-reduced-motion: reduce) {
   .mn-ai-dot { animation: none; opacity: 0.6; }
 }
+
+/* Inline AI: the passage a command is working on, and the ✦ button beside a selection. */
+.ProseMirror .mn-ai-target {
+  background: color-mix(in oklab, var(--primary) 16%, transparent);
+  box-shadow: 0 1px 0 color-mix(in oklab, var(--primary) 55%, transparent);
+  border-radius: 2px;
+  transition: background-color 0.2s ease;
+}
+.ProseMirror .mn-ai-target.is-running {
+  animation: mn-ai-target-breathe 1.6s ease-in-out infinite;
+}
+@keyframes mn-ai-target-breathe {
+  0%, 100% { background: color-mix(in oklab, var(--primary) 10%, transparent); }
+  50% { background: color-mix(in oklab, var(--primary) 22%, transparent); }
+}
+.mn-ai-bubble {
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: var(--primary);
+  background: var(--popover);
+  border: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+  box-shadow: 0 6px 20px -6px rgb(0 0 0 / 0.35);
+  cursor: pointer;
+  transition: transform 0.12s ease, background-color 0.12s ease;
+}
+.mn-ai-bubble:hover {
+  transform: scale(1.08);
+  background: color-mix(in oklab, var(--primary) 12%, var(--popover));
+}
+@media (prefers-reduced-motion: reduce) {
+  .ProseMirror .mn-ai-target.is-running { animation: none; }
+}

@@ -99,3 +99,65 @@ export function runTurn(opts: RunTurnOptions): RunningTurn {
     },
   };
 }
+
+export interface InlineResult {
+  text: string;
+  model?: string;
+  error?: { kind: string; message: string };
+}
+
+export interface InlineTurnOptions {
+  provider: AiTurnRequest['provider'];
+  model: string;
+  prompt: { system: string; user: string; effort?: string };
+  onText: (text: string) => void;
+  onRateLimit?: (e: Extract<AiEvent, { type: 'rateLimit' }>) => void;
+  transport?: AiTransport;
+}
+
+/** One tool-less request for an inline command (/polish …); not part of any chat session. */
+export function runInlineTurn(opts: InlineTurnOptions): { done: Promise<InlineResult>; cancel: () => void } {
+  const transport = opts.transport ?? defaultTransport;
+  const turnId = uid();
+  const acc: InlineResult = { text: '' };
+  const done = new Promise<InlineResult>((resolve) => {
+    let settled = false;
+    const finish = (error?: InlineResult['error']) => {
+      if (settled) return;
+      settled = true;
+      resolve({ ...acc, error });
+    };
+    const onEvent = (ev: AiEvent) => {
+      if (settled) return;
+      switch (ev.type) {
+        case 'started':
+          acc.model = ev.model;
+          break;
+        case 'textDelta':
+          acc.text += ev.text;
+          opts.onText(acc.text);
+          break;
+        case 'rateLimit':
+          opts.onRateLimit?.(ev);
+          break;
+        case 'done':
+          finish();
+          break;
+        case 'error':
+          finish({ kind: ev.kind, message: ev.message });
+          break;
+      }
+    };
+    const request: AiTurnRequest = {
+      turnId,
+      provider: opts.provider,
+      model: opts.model,
+      system: opts.prompt.system,
+      messages: [{ role: 'user', content: opts.prompt.user }],
+      tools: [],
+      effort: opts.prompt.effort,
+    };
+    transport.startTurn(request, onEvent).catch((e: unknown) => finish({ kind: 'unavailable', message: e instanceof Error ? e.message : String(e) }));
+  });
+  return { done, cancel: () => void transport.cancelTurn(turnId).catch(() => false) };
+}

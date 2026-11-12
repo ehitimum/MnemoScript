@@ -17,6 +17,7 @@ import BookCompiler from './components/BookCompiler';
 import AiScope from './components/ai/AiScope';
 import type { AiDocumentBridge } from './lib/ai/useAiChat';
 import { flushCanvases } from './lib/canvasFlush';
+import { inlineHostFor } from './lib/ai/inlineHost';
 import AiPanel from './components/ai/AiPanel';
 import type { ProjectAiConfig } from './lib/ai/types';
 import { api } from './lib/api';
@@ -984,6 +985,10 @@ function App() {
                   editorPadding={editorPadding}
                   spellcheckActive={spellcheckActive}
                   smoothCaret={smoothCaret}
+                  ai={inlineHostFor(chat, () => {
+                    setIsAiOpen(true);
+                    chat.setView('connect');
+                  })}
                 />
               )}
 

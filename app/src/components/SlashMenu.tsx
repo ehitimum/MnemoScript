@@ -1,4 +1,5 @@
-import { forwardRef, useEffect, useImperativeHandle, useState } from 'react';
+import { forwardRef, Fragment, useEffect, useImperativeHandle, useState } from 'react';
+import { Sparkles } from 'lucide-react';
 import type { SlashItem } from './extensions/slashItems';
 
 interface SlashMenuProps {
@@ -48,9 +49,15 @@ const SlashMenu = forwardRef<SlashMenuRef, SlashMenuProps>(({ items, command }, 
       {items.map((item, i) => {
         const Icon = item.icon;
         const active = i === selected;
+        const firstAi = item.group === 'ai' && items[i - 1]?.group !== 'ai';
         return (
+          <Fragment key={item.title}>
+          {firstAi && (
+            <div className={`flex items-center gap-1.5 px-2.5 pb-1 text-3xs font-medium uppercase tracking-wider text-muted-foreground/70 ${i > 0 ? 'mt-1 pt-2 border-t border-border/30' : 'pt-1'}`}>
+              <Sparkles className="w-3 h-3 text-primary" /> AI
+            </div>
+          )}
           <button
-            key={item.title}
             type="button"
             onMouseEnter={() => setSelected(i)}
             onMouseDown={(e) => {
@@ -75,6 +82,7 @@ const SlashMenu = forwardRef<SlashMenuRef, SlashMenuProps>(({ items, command }, 
               </span>
             </span>
           </button>
+          </Fragment>
         );
       })}
     </div>

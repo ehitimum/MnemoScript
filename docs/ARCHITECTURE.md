@@ -225,6 +225,29 @@ Feasibility and the reasoning behind the design: [AI_PHASE0.md](./AI_PHASE0.md).
     on mount) are remounted via a per-document revision key. Before any read or write,
     `lib/canvasFlush.ts` pushes the canvases' debounced (400 ms) edits through, so nothing is read stale.
   - A pending proposal badges the ✦ AI button (desktop, via `AiScope#onAttentionChange`) and the AI tab.
+- **Inline commands (Phase 4).** Polish, Proofread, Fix grammar, Shorten, Expand, Change tone (6
+  tones), Continue writing — catalogue and prompts in `lib/ai/inline.ts`. Each is **one tool-less
+  request** to the project's AI (`client.ts#runInlineTurn`; not stored in any chat session); the
+  result is always a preview the writer accepts, whatever the chat mode.
+  - **Where:** `/polish` etc. in the slash menu (an "AI" group, shown only when the project has an
+    AI); desktop: Ctrl/⌘+J or the ✦ button beside a selection opens a command menu; the Format panel
+    and the phone Tools sheet have an AI section (`controls/AiInlineControls.tsx`).
+  - **Scope:** the selection, else the paragraph at the cursor (or the nearest non-empty one above);
+    Continue writes after the cursor's paragraph. Up to ~1,500 chars before the passage go along as
+    context (4,000 for Continue).
+  - **Editor side:** `extensions/AiTarget.ts` highlights the passage (`.mn-ai-target`, breathing while
+    running), keeps that range mapped through edits made meanwhile (never in undo history), binds
+    Mod-J, and holds the controller `InlineAi` registers (`inlineAi(editor)` is how the slash menu,
+    Format panel and Tools sheet start commands). `components/ai/InlineAi.tsx` = the card (streams,
+    word diff for Proofread/Grammar by default, "Show changes" toggle, tone chips, Accept = Ctrl/⌘+Enter,
+    Esc discards, Retry), the menu and the selection button. Desktop: card floats under the passage;
+    phone: docks to the bottom of the editor and pads the page so the passage scrolls above it.
+  - **Accept** (`lib/ai/rewrite.ts`): `flatten` maps the passage to text with a document position per
+    character; `applyRewrite` word-diffs old → new and applies only the changed words in one
+    transaction (marks on kept words survive; one Ctrl+Z). If the paragraph count changes, or the
+    writer edited the passage meanwhile, it replaces the range with plain paragraphs instead.
+  - The editor gets the AI as `ai: InlineAiHost` (`lib/ai/inlineHost.ts#inlineHostFor`, built in App
+    and MobileShell from the chat state, with `openConnect` = AI panel / AI tab on the Connect screen).
 
 ## Styling
 Theme tokens (6 themes) live in `src/index.css` (`body.theme-*` CSS variables + Tailwind v4

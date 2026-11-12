@@ -14,6 +14,7 @@ import AiScope from '../ai/AiScope';
 import MobileAiScreen from '../ai/MobileAiScreen';
 import type { ProjectAiConfig } from '../../lib/ai/types';
 import type { AiChat, AiDocumentBridge } from '../../lib/ai/useAiChat';
+import { inlineHostFor } from '../../lib/ai/inlineHost';
 
 const FantasyMap = lazy(() => import('../FantasyMap'));
 
@@ -116,7 +117,7 @@ function MobileShell(props: Props) {
     goTab('write');
   };
 
-  const renderWrite = () => {
+  const renderWrite = (chat: AiChat | null) => {
     if (!selectedDocument) {
       return (
         <div className="flex-1 flex flex-col items-center justify-center gap-4 px-8 text-center">
@@ -171,6 +172,15 @@ function MobileShell(props: Props) {
         spellcheckActive={props.spellcheckActive}
         smoothCaret={props.smoothCaret}
         chrome="mobile"
+        ai={
+          chat
+            ? inlineHostFor(chat, () => {
+                setTab('ai');
+                setToolsOpen(false);
+                chat.setView('connect');
+              })
+            : undefined
+        }
       />
     );
   };
@@ -240,7 +250,7 @@ function MobileShell(props: Props) {
           />
         )}
 
-        {activeTab === 'write' && renderWrite()}
+        {activeTab === 'write' && renderWrite(chat)}
 
         {activeTab === 'ai' && chat && selectedProject && (
           <MobileAiScreen chat={chat} documents={documents} projectName={selectedProject.name} onComposerFocus={setAiTyping} />

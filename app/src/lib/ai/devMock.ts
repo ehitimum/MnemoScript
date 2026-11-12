@@ -41,6 +41,32 @@ export async function mockTurn(req: AiTurnRequest, onEvent: (e: AiEvent) => void
     }
   };
 
+  // Inline commands (/polish …) are tool-less: rewrite the passage, or continue the story.
+  if (!req.tools.length) {
+    void (async () => {
+      await sleep(200);
+      onEvent({ type: 'started', model });
+      const user = req.messages[0]?.content ?? '';
+      const passage = /<passage>\n([\s\S]*)\n<\/passage>/.exec(user)?.[1];
+      let out: string;
+      if (!passage) {
+        out = 'Rain hammered the shutters while Mara counted the coins a second time.\n\nSomewhere below, a door slammed.';
+      } else {
+        out = passage.replace(/\bvery\s+/gi, '').replace(/ and /, ', and ');
+        if (/two thirds/.test(user)) out = out.split(/(?<=[.!?])\s+/).slice(0, 1).join(' ');
+        if (/one and a half/.test(user)) out = `${out} The air smelled of wet stone.`;
+        if (out === passage) out = `${passage.replace(/\.$/, '')}, quietly.`;
+      }
+      for (const word of out.split(/(\s+)/)) {
+        onEvent({ type: 'textDelta', text: word });
+        await sleep(10);
+      }
+      onEvent({ type: 'usage', inputTokens: 600, outputTokens: 80, costUsd: 0.002 });
+      onEvent({ type: 'done', stopReason: 'end_turn' });
+    })();
+    return;
+  }
+
   void (async () => {
     await sleep(250);
     onEvent({ type: 'started', model });

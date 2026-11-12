@@ -4,6 +4,7 @@ import { Sliders, Type, Baseline } from 'lucide-react';
 import FormatControls from './controls/FormatControls';
 import ReadAloudControls from './controls/ReadAloudControls';
 import DictationControls from './controls/DictationControls';
+import AiInlineControls from './controls/AiInlineControls';
 
 interface RightSidebarProps {
   editor: TiptapEditor | null;
@@ -50,6 +51,7 @@ function RightSidebar({
         <FormatControls editor={editor} size="sm" />
         <ReadAloudControls editor={editor} size="sm" />
         <DictationControls editor={editor} size="sm" />
+        <AiInlineControls editor={editor} size="sm" />
 
         {/* Typography */}
         <div className="flex flex-col gap-4">

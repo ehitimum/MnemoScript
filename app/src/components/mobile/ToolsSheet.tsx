@@ -3,6 +3,7 @@ import BottomSheet from './BottomSheet';
 import FormatControls from '../controls/FormatControls';
 import ReadAloudControls from '../controls/ReadAloudControls';
 import DictationControls from '../controls/DictationControls';
+import AiInlineControls from '../controls/AiInlineControls';
 
 interface Props {
   open: boolean;
@@ -17,6 +18,7 @@ function ToolsSheet({ open, onClose, editor }: Props) {
   return (
     <BottomSheet onClose={onClose} title="Tools">
       <div className="flex flex-col gap-7 pt-1">
+        <AiInlineControls editor={editor} size="lg" onStart={onClose} />
         <FormatControls editor={editor} size="lg" />
         <ReadAloudControls editor={editor} size="lg" />
         <DictationControls editor={editor} size="lg" />

@@ -1,5 +1,8 @@
 import type { Editor, Range } from '@tiptap/core';
 import type { LucideIcon } from 'lucide-react';
+import { INLINE_COMMANDS } from '../../lib/ai/inline';
+import { INLINE_ICONS } from '../ai/inlineIcons';
+import { inlineAi } from './AiTarget';
 import {
   Type,
   Heading1,
@@ -16,6 +19,8 @@ import {
 
 export interface SlashItem {
   title: string;
+  /** 'ai' items are listed under an "AI" label (only when the project has an AI). */
+  group?: 'ai';
   description: string;
   icon: LucideIcon;
   keywords: string[];
@@ -24,6 +29,23 @@ export interface SlashItem {
 
 export interface SlashOptions {
   onImage: (editor: Editor, range: Range) => void;
+}
+
+/** Inline AI commands (/polish, /proofread …). They act on the paragraph the slash was typed in. */
+export function getAiSlashItems(): SlashItem[] {
+  return INLINE_COMMANDS.map((c) => ({
+    title: c.label,
+    description: c.description,
+    icon: INLINE_ICONS[c.id],
+    keywords: [c.id, ...c.keywords],
+    group: 'ai' as const,
+    action: (e: Editor, r: Range) => {
+      e.chain().focus().deleteRange(r).run();
+      const ai = inlineAi(e);
+      if (c.id === 'tone') ai?.openMenu({ tone: true });
+      else ai?.start(c.id);
+    },
+  }));
 }
 
 /** The Notion-style command palette items, mapped to TipTap StarterKit nodes. */

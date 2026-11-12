@@ -49,6 +49,11 @@ beforeEach(() => {
   // plugin don't exist. Returning "nothing here" keeps the editor mountable.
   document.elementFromPoint = () => null;
   document.elementsFromPoint = () => [];
+  // ProseMirror measures Ranges when it scrolls the selection into view (e.g. after undo).
+  if (!Range.prototype.getClientRects) {
+    Range.prototype.getClientRects = () => ({ length: 0, item: () => null, [Symbol.iterator]: [][Symbol.iterator] }) as unknown as DOMRectList;
+    Range.prototype.getBoundingClientRect = () => new DOMRect(0, 0, 0, 0);
+  }
 });
 
 afterEach(() => {
