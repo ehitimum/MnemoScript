@@ -4,7 +4,11 @@
 //!
 //! Plays two devices against the real Drive of the account signed in to the *debug* app
 //! (keychain service `MnemoScript-dev`), under a throwaway project id, and deletes every file it
-//! created afterwards. Synthetic text only; no real project is touched.
+//! created afterwards. Synthetic text only; no real project is touched. Windows and macOS only:
+//! the grant lives in the OS keychain, and Drive sync is off on Linux (no keyring backend).
+//!
+//! The throwaway project is named `zz-live-test-…` and its id is printed first, so a leftover
+//! is easy to recognise. A cleanup that fails makes the test fail.
 use super::api::{self as drive_api, query, Drive, DriveTransport};
 use super::auth;
 use crate::sync::engine::Engine;
@@ -40,6 +44,7 @@ fn live_drive_round_trip() {
     println!("Drive account reachable (id length {})", account.id.len());
 
     let pid = uuid::Uuid::new_v4().to_string();
+    println!("throwaway project id: {pid}");
     let (a_dir, b_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
     let (a_store, b_store) = (Store::memory(), Store::memory());
     for s in [&a_store, &b_store] {
@@ -50,7 +55,7 @@ fn live_drive_round_trip() {
 
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         // Device A: a small project with a folder, two chapters and an image.
-        write(&a_dir.path().join("project.json"), &json!({"id": pid, "name": "Live sync test", "description": null,
+        write(&a_dir.path().join("project.json"), &json!({"id": pid, "name": "zz-live-test-sync", "description": null,
             "created_at": "2026-11-15T00:00:00Z", "folders": [{"id": "vol1", "name": "Volume 1", "order": 0, "parentId": null}]}));
         fs::create_dir_all(a_dir.path().join("assets")).unwrap();
         fs::write(a_dir.path().join("assets").join("map.png"), b"\x89PNG live test bytes").unwrap();
@@ -76,7 +81,7 @@ fn live_drive_round_trip() {
             println!("device B: waiting for Drive (attempt {attempt})");
             std::thread::sleep(std::time::Duration::from_secs(3));
         }
-        assert_eq!(read(&b_dir.path().join("project.json"))["name"], "Live sync test");
+        assert_eq!(read(&b_dir.path().join("project.json"))["name"], "zz-live-test-sync");
         assert_eq!(read(&b_dir.path().join("documents").join("ch2.json"))["content"], "<p>Ash fell like snow.</p>");
         assert_eq!(fs::read(b_dir.path().join("assets").join("map.png")).unwrap(), b"\x89PNG live test bytes");
         let ch1 = read(&b_dir.path().join("documents").join("ch1.json"));
@@ -102,13 +107,27 @@ fn live_drive_round_trip() {
         println!("device A received device B's edit through the change feed");
     }));
 
-    // Clean up every file this run created in the app folder, pass or fail.
-    let files = drive.list(&query(&[("m", "1"), ("p", &pid)])).unwrap_or_default();
-    for f in &files {
-        let _ = drive.delete(&f.id);
-    }
-    println!("cleaned up {} test files from the app folder", files.len());
-    if let Err(e) = result {
-        std::panic::resume_unwind(e);
+    // Clean up every file this run created in the app folder, pass or fail. Leftovers would
+    // be invisible in the Drive UI, so any failure here fails the test (after the original one).
+    let cleanup = (|| -> Result<usize, String> {
+        let files = drive.list(&query(&[("m", "1"), ("p", &pid)])).map_err(|e| format!("listing test files failed: {e}"))?;
+        for f in &files {
+            drive.delete(&f.id).map_err(|e| format!("deleting a test file failed: {e}"))?;
+        }
+        let left = drive.list(&query(&[("m", "1"), ("p", &pid)])).map_err(|e| format!("re-listing failed: {e}"))?;
+        if !left.is_empty() {
+            return Err(format!("{} test files are still in the app folder", left.len()));
+        }
+        Ok(files.len())
+    })();
+    match (&cleanup, result) {
+        (_, Err(e)) => {
+            if let Err(c) = &cleanup {
+                eprintln!("cleanup also failed for project {pid}: {c}");
+            }
+            std::panic::resume_unwind(e);
+        }
+        (Ok(n), Ok(())) => println!("cleaned up {n} test files from the app folder"),
+        (Err(c), Ok(())) => panic!("cleanup failed for project {pid}: {c}"),
     }
 }

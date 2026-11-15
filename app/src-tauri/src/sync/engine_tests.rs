@@ -412,3 +412,134 @@ fn damaged_remote_data_is_rejected_without_touching_disk() {
     assert_eq!(b.content("ch1"), "<p>The bells rang at dawn.</p>");
     assert!(b.store.notices(PID, 10).unwrap().iter().any(|n| n.2 == "rejected"));
 }
+
+/// Regression (PR #4 review, finding 1): a chapter file that one device cannot read was
+/// recorded as a delete and removed from every other device.
+#[test]
+fn a_chapter_damaged_on_one_device_is_never_deleted_elsewhere() {
+    let (r, a, b) = seeded();
+    fs::write(a.path().join("documents").join("ch2.json"), "{ half a file").unwrap();
+    a.sync(&r);
+    b.sync(&r);
+    assert_eq!(b.content("ch2"), "<p>Ash fell like snow.</p>", "the phone keeps its healthy copy");
+    assert!(a.store.notices(PID, 10).unwrap().iter().any(|n| n.2 == "unreadable" && n.3.contains("Chapter 2")));
+    // Reported once, not every round.
+    a.sync(&r);
+    assert_eq!(a.store.notices(PID, 10).unwrap().iter().filter(|n| n.2 == "unreadable").count(), 1);
+
+    // A later edit elsewhere repairs the damaged copy; the damaged file is set aside, not lost.
+    b.edit("ch2", |d| d["content"] = json!("<p>Ash fell, and kept falling.</p>"));
+    b.sync(&r);
+    a.sync(&r);
+    assert_eq!(a.content("ch2"), "<p>Ash fell, and kept falling.</p>");
+    let trash: Vec<_> = fs::read_dir(a.path().join(TRASH_DIR)).unwrap().flatten().collect();
+    assert_eq!(trash.len(), 1);
+    assert_eq!(fs::read_to_string(trash[0].path()).unwrap(), "{ half a file");
+    assert!(a.store.notices(PID, 10).unwrap().iter().any(|n| n.2 == "replaced"));
+    assert_eq!(a.snapshot(), b.snapshot());
+}
+
+/// Regression (PR #4 review, finding 1): with the documents folder briefly gone (moved by
+/// hand, a sync client mid-copy) every chapter was deleted everywhere.
+#[test]
+fn a_missing_documents_folder_deletes_nothing() {
+    let (r, a, b) = seeded();
+    fs::rename(a.path().join("documents"), a.path().join("documents-moved")).unwrap();
+    a.sync(&r);
+    b.sync(&r);
+    for id in ["ch1", "ch2", "ch3"] {
+        assert!(b.doc(id).is_some(), "{id} must survive");
+    }
+    assert!(a.store.notices(PID, 10).unwrap().iter().any(|n| n.2 == "unreadable"));
+    fs::rename(a.path().join("documents-moved"), a.path().join("documents")).unwrap();
+    a.sync(&r);
+    assert_eq!(a.snapshot(), b.snapshot());
+}
+
+/// Regression (PR #4 review, finding 1): a remote delete removed the file outright.
+#[test]
+fn a_remote_delete_moves_the_chapter_to_the_sync_trash() {
+    let (r, a, b) = seeded();
+    fs::remove_file(a.path().join("documents").join("ch3.json")).unwrap();
+    a.sync(&r);
+    b.sync(&r);
+    assert!(b.doc("ch3").is_none());
+    let trash: Vec<_> = fs::read_dir(b.path().join(TRASH_DIR)).unwrap().flatten().collect();
+    assert_eq!(trash.len(), 1);
+    assert!(fs::read_to_string(trash[0].path()).unwrap().contains("The crown was cold."));
+    assert!(b.store.notices(PID, 10).unwrap().iter().any(|n| n.2 == "deleted" && n.3.contains(TRASH_DIR)));
+    // The trash is not part of the project: syncing again changes nothing.
+    assert!(b.sync(&r).changed.is_empty());
+    assert_eq!(a.snapshot(), b.snapshot());
+}
+
+/// Regression (PR #4 review, finding 2): a save that landed between a round's scan and its
+/// write (the assistant editing a closed chapter, a late map flush) was overwritten.
+#[test]
+fn a_save_after_the_scan_is_never_overwritten_by_a_remote_update() {
+    let (r, a, b) = seeded();
+    a.edit("ch1", |d| d["content"] = json!("<p>Desktop rewrite.</p>"));
+    a.edit("ch2", |d| d["title"] = json!("Chapter Two"));
+    a.sync(&r);
+    let e = b.engine();
+    e.scan(PID, b.path(), &["drive"]).unwrap();
+    // Saved on the phone after the scan, before the pull writes.
+    b.edit("ch1", |d| d["content"] = json!("<p>Phone save after the scan.</p>"));
+    b.edit("ch2", |d| d["content"] = json!("<p>Ash fell, unscanned.</p>"));
+    let mut t = MemoryTransport::new(&r);
+    let mut report = SyncReport::default();
+    e.pull(PID, b.path(), &mut t, None, &mut report).unwrap();
+    assert_eq!(b.content("ch1"), "<p>Phone save after the scan.</p>");
+    assert_eq!(b.store.conflicted_entities(PID).unwrap(), vec!["text:ch1".to_string()]);
+    let versions: BTreeSet<String> = e.conflict_versions(PID, b.path(), "ch1").unwrap().into_iter().map(|v| v.content).collect();
+    assert!(versions.contains("<p>Desktop rewrite.</p>"));
+    // The remote rename still applied, and the unscanned text in the same file survived it.
+    assert_eq!(b.doc("ch2").unwrap()["title"], "Chapter Two");
+    assert_eq!(b.content("ch2"), "<p>Ash fell, unscanned.</p>");
+}
+
+/// Regression (PR #4 review, finding 3): the conflict review offered, and resolving kept, the
+/// text from the last round instead of what the writer had typed since.
+#[test]
+fn resolving_a_conflict_keeps_typing_saved_since_the_last_round() {
+    let (r, a, b) = seeded();
+    a.edit("ch3", |d| d["content"] = json!("<p>Desktop draft.</p>"));
+    b.edit("ch3", |d| d["content"] = json!("<p>Phone draft.</p>"));
+    a.sync(&r);
+    b.sync(&r);
+    // The review was opened, then the writer typed more and the app saved it.
+    let before = b.engine().conflict_versions(PID, b.path(), "ch3").unwrap();
+    let old_local = before.iter().find(|v| v.local).unwrap().rev.clone();
+    b.edit("ch3", |d| d["content"] = json!("<p>Phone draft, with a new ending.</p>"));
+    let versions = b.engine().conflict_versions(PID, b.path(), "ch3").unwrap();
+    assert!(versions.iter().any(|v| v.local && v.content == "<p>Phone draft, with a new ending.</p>"));
+    // Choosing "this device" from the earlier screen keeps the latest typing.
+    b.engine().resolve(PID, b.path(), "ch3", &old_local, false).unwrap();
+    assert_eq!(b.content("ch3"), "<p>Phone draft, with a new ending.</p>");
+    b.sync(&r);
+    a.sync(&r);
+    assert_eq!(a.content("ch3"), "<p>Phone draft, with a new ending.</p>");
+    assert!(a.store.conflicted_entities(PID).unwrap().is_empty());
+}
+
+/// Regression (PR #4 review, finding 4): deleted on one device and edited differently on two
+/// others, one of the two edits was dropped with only a "kept" notice.
+#[test]
+fn a_delete_and_two_different_edits_keep_both_edits() {
+    let (r, a, b) = seeded();
+    let c = joiner("Tablet");
+    c.sync(&r);
+    fs::remove_file(a.path().join("documents").join("ch1.json")).unwrap();
+    b.edit("ch1", |d| d["content"] = json!("<p>Phone ending.</p>"));
+    c.edit("ch1", |d| d["content"] = json!("<p>Tablet ending.</p>"));
+    for d in [&a, &b, &c, &a, &b, &c] {
+        d.sync(&r);
+    }
+    let both = BTreeSet::from(["<p>Phone ending.</p>".to_string(), "<p>Tablet ending.</p>".to_string()]);
+    for d in [&a, &b, &c] {
+        assert!(d.doc("ch1").is_some(), "{}: the edits beat the delete", d.name);
+        assert_eq!(d.store.conflicted_entities(PID).unwrap(), vec!["text:ch1".to_string()], "{}", d.name);
+        let texts: BTreeSet<String> = d.engine().conflict_versions(PID, d.path(), "ch1").unwrap().into_iter().map(|v| v.content).collect();
+        assert_eq!(texts, both, "{}: neither edit is dropped", d.name);
+    }
+}

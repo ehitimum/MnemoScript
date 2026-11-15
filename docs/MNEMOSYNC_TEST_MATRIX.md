@@ -37,11 +37,12 @@ fixed-clock regressions exercise the timing window. The combined frontend checks
 | Layer | Evidence | Status |
 |---|---|---|
 | Engine simulations | `cargo test sync::engine` — 2–3 devices, reorder/duplicate/offline/held blobs, conflicts, deletes, cycles, forged data | ✅ automated |
+| No-lost-save rules (2026-11-15) | Damaged chapter / missing documents folder never deleted elsewhere; save after scan never overwritten; review and resolve include the latest typing; delete + two edits keeps both; remote delete goes to `sync-trash/` | ✅ automated (engine regressions) |
 | Drive client units | PKCE, scope, redirect state, error classes, gzip, duplicate files | ✅ automated |
 | Mounted UI + App boundary | `sync.regression`, `sync-app.regression` | ✅ automated |
 | Android compile | `npx tauri android build --apk --debug --target aarch64` | ✅ builds 2026-11-13 (not run on a device) |
-| Live Google OAuth (desktop) | Real consent in the browser, loopback + PKCE, keychain grant, account check | ✅ 2026-11-15 (writer's own Cloud project, Testing mode) |
-| Live Drive round trip | `cargo test live_drive -- --ignored`: two engines on the real appDataFolder; upload with image, download, edit back through the changes feed, cleanup | ✅ 2026-11-15 (29 s) |
+| Live Google OAuth (desktop) | Real consent in the browser, loopback + PKCE, keychain grant, account check | ✅ 2026-11-15 on Windows (writer's own Cloud project, Testing mode); Linux is off by design |
+| Live Drive round trip | `cargo test live_drive -- --ignored`: two engines on the real appDataFolder; upload with image, download, edit back through the changes feed, cleanup | ✅ 2026-11-15 (29 s), happy path only: runs the engine directly, so not the worker (`service.rs`), account binding, open-chapter staging or conflicts |
 | Live Google OAuth (Android) | Native AuthorizationClient prompt, silent refresh | ⏳ pending Android OAuth client + device |
 | Real cross-device sync | Same account, desktop ↔ Android, shared appDataFolder across clients | ⏳ pending |
 | 7-day Testing expiry, revoke | Reconnect flow after expiry | ⏳ pending |

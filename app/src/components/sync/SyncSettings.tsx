@@ -1,5 +1,5 @@
-import { useRef, useState, type ReactNode } from 'react';
-import { Cloud, CloudOff, Download, Loader2, LogOut, RefreshCw, ShieldCheck, X } from 'lucide-react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Archive, Cloud, CloudOff, Download, Loader2, LogOut, RefreshCw, ShieldCheck, X } from 'lucide-react';
 import { api } from '../../lib/api';
 import { describe, projectSync } from '../../lib/sync/useSync';
 import type { RemoteProject, SyncStatus } from '../../lib/sync/types';
@@ -27,6 +27,12 @@ function when(iso: string | null): string {
   return new Date(iso).toLocaleDateString();
 }
 
+function size(bytes: number): string {
+  if (bytes < 1_000_000) return `${Math.max(1, Math.round(bytes / 1000))} KB`;
+  if (bytes < 1_000_000_000) return `${(bytes / 1_000_000).toFixed(bytes < 10_000_000 ? 1 : 0)} MB`;
+  return `${(bytes / 1_000_000_000).toFixed(1)} GB`;
+}
+
 /**
  * Google Drive sync settings. Same component for both shells; `variant` only changes density.
  * Sync is optional and per project: nothing leaves the device until the writer turns it on.
@@ -37,8 +43,26 @@ export default function SyncSettings({ variant, status, setStatus, projects, cur
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [remote, setRemote] = useState<RemoteProject[] | null>(null);
+  /** Project waiting for the writer's "back up first?" answer before its first sync. */
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const [note, setNote] = useState('');
+  const [usage, setUsage] = useState<number | null>(null);
   const inFlight = useRef(false);
   const desktop = variant === 'desktop';
+  const accountId = status.account?.id;
+
+  // Drive space used by MnemoScript. Old versions are not pruned yet, so the writer sees it grow.
+  useEffect(() => {
+    if (!accountId) return;
+    let live = true;
+    void (async () => {
+      try {
+        const bytes = await api.driveUsage();
+        if (live && typeof bytes === 'number') setUsage(bytes);
+      } catch { /* offline or signed out: the line stays hidden */ }
+    })();
+    return () => { live = false; };
+  }, [accountId]);
 
   async function run(key: string, action: () => Promise<void>) {
     if (inFlight.current) return;
@@ -81,7 +105,9 @@ export default function SyncSettings({ variant, status, setStatus, projects, cur
     body = (
       <>
         {intro}
-        <p className="text-xs text-muted-foreground">This build has no Google sign-in set up yet. Add an OAuth client to <code className="font-mono">app/src-tauri/.env.local</code> and rebuild.</p>
+        {status.message
+          ? <p className="text-xs text-muted-foreground">{status.message}</p>
+          : <p className="text-xs text-muted-foreground">This build has no Google sign-in set up yet. Add an OAuth client to <code className="font-mono">app/src-tauri/.env.local</code> and rebuild.</p>}
       </>
     );
   } else if (!status.account) {
@@ -131,6 +157,12 @@ export default function SyncSettings({ variant, status, setStatus, projects, cur
           </button>
         </div>
 
+        {usage !== null && (
+          <p className="text-3xs text-muted-foreground/80 -mt-1">
+            Uses about {size(usage)} of your Google Drive. Every saved version is kept there for now.
+          </p>
+        )}
+
         <div className="flex items-center gap-2 text-xs text-muted-foreground" role="status">
           {status.state === 'syncing' ? <RefreshCw className="w-3.5 h-3.5 animate-spin text-primary" />
             : status.state === 'offline' ? <CloudOff className="w-3.5 h-3.5" />
@@ -150,7 +182,8 @@ export default function SyncSettings({ variant, status, setStatus, projects, cur
               const d = describe(status, ps);
               const on = synced.has(p.id);
               return (
-                <li key={p.id} className="flex items-center gap-3 px-3 py-2.5 bg-card/30">
+                <li key={p.id} className="bg-card/30">
+                  <div className="flex items-center gap-3 px-3 py-2.5">
                   <div className="flex-1 min-w-0">
                     <div className="text-sm text-foreground truncate">{p.name}</div>
                     <div className="text-3xs text-muted-foreground flex items-center gap-1.5">
@@ -160,14 +193,48 @@ export default function SyncSettings({ variant, status, setStatus, projects, cur
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer shrink-0" title={on ? 'Stop syncing this project' : 'Sync this project with Google Drive'}>
                     <input type="checkbox" className="sr-only peer" checked={on} disabled={!!busy} aria-label={`Sync ${p.name}`}
-                      onChange={() => run(`p:${p.id}`, async () => setStatus(on ? await api.syncDisableProject(p.id) : await api.syncEnableProject(p.id)))} />
+                      onChange={() => {
+                        if (on) void run(`p:${p.id}`, async () => setStatus(await api.syncDisableProject(p.id)));
+                        else { setNote(''); setConfirming(confirming === p.id ? null : p.id); }
+                      }} />
                     <span className="w-9 h-5 rounded-full bg-secondary border border-border/50 peer-checked:bg-primary/80 peer-checked:border-primary transition-colors" />
                     <span className="absolute left-0.5 top-0.5 w-4 h-4 rounded-full bg-background shadow-sm transition-transform peer-checked:translate-x-4" />
                   </label>
+                  </div>
+                  {confirming === p.id && !on && (
+                    <div className="px-3 pb-3 flex flex-col gap-2" role="group" aria-label={`Start syncing ${p.name}`}>
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        Sync is not a backup. Save a backup of this project first, so you can always return to today's version.
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        <button className={primary} disabled={!!busy}
+                          onClick={() => run(`p:${p.id}`, async () => {
+                            await api.backupProject(p.id);
+                            setStatus(await api.syncEnableProject(p.id));
+                            setConfirming(null);
+                            setNote(`Backup saved. ${p.name} now syncs with Google Drive.`);
+                          })}>
+                          {busy === `p:${p.id}` ? <Loader2 className="w-4 h-4 animate-spin" /> : <Archive className="w-4 h-4" />}Back up, then sync
+                        </button>
+                        <button className={button} disabled={!!busy}
+                          onClick={() => run(`p:${p.id}`, async () => {
+                            setStatus(await api.syncEnableProject(p.id));
+                            setConfirming(null);
+                          })}>
+                          Sync without a backup
+                        </button>
+                        <button className="text-xs text-muted-foreground hover:text-foreground px-2 cursor-pointer disabled:opacity-50" disabled={!!busy}
+                          onClick={() => setConfirming(null)}>
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </li>
               );
             })}
           </ul>
+          {note && <p role="status" className="text-xs text-primary/90">{note}</p>}
           <p className="text-3xs text-muted-foreground/80">Turning sync off keeps every file here and on Drive; turning it back on resumes without duplicates.</p>
         </div>
 
@@ -234,6 +301,7 @@ export default function SyncSettings({ variant, status, setStatus, projects, cur
       : 'flex flex-col gap-3'} aria-label="Google Drive sync">
       <h3 className={`${label} flex items-center gap-1.5`}>
         <Cloud className="w-3.5 h-3.5 text-primary" />Sync with Google Drive
+        <span className="ml-1 px-1.5 rounded-full border border-primary/30 text-primary/90 tracking-normal normal-case font-medium">Beta</span>
       </h3>
       {body}
       {error && <p role="alert" className="text-sm text-destructive break-words">{error}</p>}

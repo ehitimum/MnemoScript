@@ -82,6 +82,8 @@ export function mockSync(cmd: string, args: Record<string, unknown>, projects: {
     case 'sync_resolve_conflict':
       state.conflictDoc = null;
       return [];
+    case 'drive_usage':
+      return 18_400_000;
     case 'sync_dismiss_notice':
     case 'sync_now':
     case 'sync_set_active':

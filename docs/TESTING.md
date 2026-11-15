@@ -96,7 +96,7 @@ delete, legacy `project.json` without new fields, missing-document errors.
   the 15 s test timeout and cascade into duplicate-render failures.
 
 **MnemoSync / Google Drive** (added 2026-11-13)
-- Backend `cargo test sync::` (30 tests) — canonical JSON and content-derived revision ids, entity-key
+- Backend `cargo test sync::` (42 tests) — canonical JSON and content-derived revision ids, entity-key
   validation, symmetric field merge and edit-beats-delete, portable `mnemo-asset:` round trips
   (Windows paths, map JSON incl. "My Imports", untouched bytes, hostile names), PKCE (RFC 7636 vector),
   authorize URL scope, redirect state check, Drive error classification, gzip, duplicate batch files.
@@ -104,14 +104,20 @@ delete, legacy `project.json` without new fields, missing-document errors.
   edit, concurrent edits → preserved conflict → resolve with copy, delete vs edit, offline delete
   without resurrection, duplicated/reordered deliveries, staged open chapter (accept / typing → conflict
   / remote delete), missing blobs held then applied, frozen batch retry, folder cycles, shuffled
-  three-device convergence, forged revisions rejected.
+  three-device convergence, forged revisions rejected. Review regressions (2026-11-15): a damaged
+  chapter or missing documents folder is never deleted elsewhere, a save made after the scan is
+  never overwritten, conflict review/resolve include the latest typing, delete + two edits keeps
+  both, remote deletes go to `sync-trash/`; stray loopback requests, the newer Google error shape,
+  cursor expiry by status, Linux off, id validation in sync commands.
 - Live (ignored, needs the dev app signed in to Drive): `cargo test live_drive -- --ignored --nocapture`
-  runs two engines against the real `appDataFolder` under a throwaway project and deletes its files.
+  runs two engines against the real `appDataFolder` under a throwaway `zz-live-test-…` project and
+  deletes its files (a failed cleanup fails the test). Windows/macOS only.
 - Backend `cargo test backup::` adds the restore regression for fantasy-map "My Imports" paths and
   rejection of imports outside the project.
 - Regression `sync.regression.test.tsx` — settings states (browser, unconfigured, signed out with
   privacy notes, sign-in with cancel and no double submit, Android token hand-off, per-project toggles,
-  download with same-name notice, reconnect + errors), open-chapter banner, pill hidden for local-only
+  download with same-name notice, reconnect + errors, Linux reason, Drive space used, "Back up,
+  then sync" with cancel and a failed backup), open-chapter banner, pill hidden for local-only
   projects, conflict review (inert plain-text preview, differences marked, keep with/without copy).
 - Regression `sync-app.regression.test.tsx` — App reports the open chapter, merges a remote rename into
   the open chapter without losing unsaved typing (and the next save keeps both), and saves before

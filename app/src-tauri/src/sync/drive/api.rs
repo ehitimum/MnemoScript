@@ -80,16 +80,29 @@ pub struct RemoteProject {
 
 /// Map an HTTP failure to the engine's error classes. Pure, so it is unit tested.
 pub fn classify(status: u16, body: &str) -> TransportError {
-    let reason = serde_json::from_str::<Value>(body)
-        .ok()
-        .and_then(|v| v.pointer("/error/errors/0/reason").and_then(Value::as_str).map(String::from))
+    // Google uses two error shapes: the classic `error.errors[].reason` and the newer
+    // `error.details[].reason` (google.rpc.ErrorInfo, e.g. SERVICE_DISABLED). Read both.
+    let parsed = serde_json::from_str::<Value>(body).ok();
+    let reason = parsed
+        .as_ref()
+        .and_then(|v| {
+            v.pointer("/error/errors/0/reason").and_then(Value::as_str).or_else(|| {
+                v.pointer("/error/details")
+                    .and_then(Value::as_array)
+                    .and_then(|d| d.iter().find_map(|e| e.get("reason").and_then(Value::as_str)))
+            })
+        })
+        .map(String::from)
         .unwrap_or_default();
     match (status, reason.as_str()) {
         (401, _) => TransportError::Auth("Google Drive sign-in expired".into()),
         // Seen on first setup: the OAuth client works but its Cloud project lacks the Drive API.
-        (403, "accessNotConfigured" | "SERVICE_DISABLED") => TransportError::Other(
-            "The Google Drive API isn't enabled in this app's Google Cloud project. Enable it in the Cloud console, wait a minute, then connect again.".into(),
-        ),
+        // Only whoever built the app can fix it, so a release build says less.
+        (403, "accessNotConfigured" | "SERVICE_DISABLED") => TransportError::Other(if cfg!(debug_assertions) {
+            "The Google Drive API isn't enabled in this app's Google Cloud project. Enable it in the Cloud console, wait a minute, then connect again.".into()
+        } else {
+            "Drive sync isn't set up correctly in this build of MnemoScript. Your projects are safe on this device.".into()
+        }),
         (403, "storageQuotaExceeded") => TransportError::Quota("Your Google Drive storage is full".into()),
         (403, "rateLimitExceeded" | "userRateLimitExceeded" | "backendError") | (429, _) => TransportError::Busy("Google Drive asked MnemoScript to slow down".into()),
         (403, "insufficientPermissions" | "insufficientScopes" | "appNotAuthorizedToFile") => {
@@ -98,6 +111,12 @@ pub fn classify(status: u16, body: &str) -> TransportError {
         (500..=599, _) => TransportError::Busy(format!("Google Drive is temporarily unavailable ({status})")),
         _ => TransportError::Other(format!("Google Drive request failed ({status}{})", if reason.is_empty() { String::new() } else { format!(": {reason}") })),
     }
+}
+
+/// The change feed answers an old or unknown cursor with 400/404/410; the caller then falls
+/// back to a full listing. Decided by status, never by message wording.
+pub fn cursor_expired(status: u16) -> bool {
+    matches!(status, 400 | 404 | 410)
 }
 
 fn net(e: reqwest::Error) -> TransportError {
@@ -165,26 +184,29 @@ impl Drive {
         }
     }
 
-    /// Send with a bearer token; on 401 refresh once and retry.
-    fn send(&self, build: &dyn Fn(&Client) -> RequestBuilder) -> Result<Response, TransportError> {
+    /// Send with a bearer token; on 401 refresh once and retry. Any other status is returned.
+    fn send_raw(&self, build: &dyn Fn(&Client) -> RequestBuilder) -> Result<Response, TransportError> {
         for attempt in 0..2 {
             let token = auth::access_token(attempt > 0).map_err(auth_err)?;
             let response = build(&self.http).bearer_auth(token).send().map_err(net)?;
-            let status = response.status().as_u16();
-            if status == 401 && attempt == 0 {
+            if response.status().as_u16() == 401 && attempt == 0 {
                 auth::forget_access();
                 continue;
             }
-            if response.status().is_success() {
-                return Ok(response);
-            }
-            if status == 404 {
-                return Ok(response);
-            }
-            let body = response.text().unwrap_or_default();
-            return Err(classify(status, &body));
+            return Ok(response);
         }
         Err(TransportError::Auth("Google Drive sign-in expired".into()))
+    }
+
+    /// `send_raw`, with failures (other than 404) classified.
+    fn send(&self, build: &dyn Fn(&Client) -> RequestBuilder) -> Result<Response, TransportError> {
+        let response = self.send_raw(build)?;
+        let status = response.status().as_u16();
+        if response.status().is_success() || status == 404 {
+            return Ok(response);
+        }
+        let body = response.text().unwrap_or_default();
+        Err(classify(status, &body))
     }
 
     fn json<T: for<'de> Deserialize<'de>>(&self, build: &dyn Fn(&Client) -> RequestBuilder) -> Result<Option<T>, TransportError> {
@@ -306,20 +328,22 @@ impl Drive {
         let mut page = token.to_string();
         loop {
             let current = page.clone();
-            let r = self.send(&|c| {
+            let r = self.send_raw(&|c| {
                 c.get(CHANGES).query(&[
                     ("pageToken", current.as_str()),
                     ("spaces", "appDataFolder"),
                     ("pageSize", "1000"),
                     ("fields", "nextPageToken,newStartPageToken,changes(removed,file(id,appProperties))"),
                 ])
-            });
-            let list: ChangeList = match r {
-                Ok(r) if r.status().as_u16() == 404 => return Ok(None),
-                Ok(r) => r.json().map_err(|e| TransportError::Other(e.to_string()))?,
-                Err(TransportError::Other(m)) if m.contains("(400") || m.contains("(410") => return Ok(None),
-                Err(e) => return Err(e),
-            };
+            })?;
+            let status = r.status().as_u16();
+            if cursor_expired(status) {
+                return Ok(None);
+            }
+            if !r.status().is_success() {
+                return Err(classify(status, &r.text().unwrap_or_default()));
+            }
+            let list: ChangeList = r.json().map_err(|e| TransportError::Other(e.to_string()))?;
             files.extend(list.changes.into_iter().filter(|c| !c.removed).filter_map(|c| c.file));
             if let Some(next) = list.next_page_token {
                 page = next;
@@ -347,23 +371,37 @@ impl Drive {
         Ok(by_project.into_values().collect())
     }
 
-    /// Create or refresh this device's catalogue entry for a project.
-    pub fn publish_info(&self, store: &Store, project_id: &str, name: &str, device_id: &str, device_name: &str) -> Result<(), TransportError> {
+    /// Create or refresh this device's catalogue entry for a project. `published` = this round
+    /// sent changes; the entry's date then moves forward (at most hourly, to spare requests), so
+    /// "last synced from" in the download list is current, not the first sync.
+    pub fn publish_info(&self, store: &Store, project_id: &str, name: &str, device_id: &str, device_name: &str, published: bool) -> Result<(), TransportError> {
+        let now = chrono::Utc::now();
         let entry = RemoteProject {
             project_id: project_id.into(),
             name: name.into(),
             device_name: device_name.into(),
-            updated_at: chrono::Utc::now().to_rfc3339(),
+            updated_at: now.to_rfc3339(),
         };
         let bytes = serde_json::to_vec(&entry).map_err(|e| TransportError::Other(e.to_string()))?;
         let key = format!("drive.info.{project_id}");
-        if store.get_meta(&format!("{key}.name"))?.as_deref() == Some(name) {
+        let recent = store
+            .get_meta(&format!("{key}.at"))?
+            .and_then(|at| chrono::DateTime::parse_from_rfc3339(&at).ok())
+            .is_some_and(|at| now.signed_duration_since(at) < chrono::Duration::hours(1));
+        if store.get_meta(&format!("{key}.name"))?.as_deref() == Some(name) && (!published || recent) {
             return Ok(());
         }
+        let done = |id: Option<&str>| -> Result<(), TransportError> {
+            if let Some(id) = id {
+                store.set_meta(&key, id)?;
+            }
+            store.set_meta(&format!("{key}.name"), name)?;
+            store.set_meta(&format!("{key}.at"), &now.to_rfc3339())?;
+            Ok(())
+        };
         if let Some(id) = store.get_meta(&key)? {
             if self.update(&id, &bytes, "application/json")? {
-                store.set_meta(&format!("{key}.name"), name)?;
-                return Ok(());
+                return done(None);
             }
         }
         let id = self.create(
@@ -372,9 +410,37 @@ impl Drive {
             &bytes,
             "application/json",
         )?;
-        store.set_meta(&key, &id)?;
-        store.set_meta(&format!("{key}.name"), name)?;
-        Ok(())
+        done(Some(&id))
+    }
+
+    /// Bytes MnemoScript keeps in the writer's Drive (its hidden app folder, every device and
+    /// project together). Old revisions are not pruned yet, so this only grows; the settings
+    /// card shows it so a full Drive is never a surprise.
+    pub fn usage(&self) -> Result<u64, TransportError> {
+        let mut total = 0u64;
+        let mut page: Option<String> = None;
+        loop {
+            let token = page.clone();
+            let v: Value = self
+                .json(&|c| {
+                    let mut r = c.get(FILES).query(&[("spaces", "appDataFolder"), ("pageSize", "1000"), ("fields", "nextPageToken,files(size)")]);
+                    if let Some(t) = &token {
+                        r = r.query(&[("pageToken", t.as_str())]);
+                    }
+                    r
+                })?
+                .ok_or_else(|| TransportError::Other("Drive listing failed".into()))?;
+            total += v["files"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|f| f["size"].as_str().and_then(|s| s.parse::<u64>().ok()))
+                .sum::<u64>();
+            match v["nextPageToken"].as_str() {
+                Some(t) => page = Some(t.to_string()),
+                None => return Ok(total),
+            }
+        }
     }
 }
 
@@ -571,6 +637,24 @@ mod tests {
         // Regression (2026-11-13, first live setup): a disabled Drive API showed a raw reason code.
         let disabled = r#"{"error":{"errors":[{"reason":"accessNotConfigured"}],"code":403}}"#;
         assert!(classify(403, disabled).to_string().contains("Google Drive API isn't enabled"));
+        // Regression (PR #4 review): the newer error shape carries the reason in `details`.
+        let newer = r#"{"error":{"code":403,"status":"PERMISSION_DENIED","message":"Drive API has not been used",
+            "details":[{"@type":"type.googleapis.com/google.rpc.Help"},{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"SERVICE_DISABLED","domain":"googleapis.com"}]}}"#;
+        assert!(classify(403, newer).to_string().contains("Google Drive API isn't enabled"));
+        let full = r#"{"error":{"code":403,"details":[{"reason":"storageQuotaExceeded"}]}}"#;
+        assert!(matches!(classify(403, full), TransportError::Quota(_)));
+    }
+
+    /// Regression (PR #4 review): an expired change cursor was recognised by matching "(400" in
+    /// an error message, so a wording change would have disabled the listing fallback.
+    #[test]
+    fn an_expired_change_cursor_is_recognised_by_status() {
+        for status in [400, 404, 410] {
+            assert!(cursor_expired(status));
+        }
+        for status in [200, 401, 403, 429, 500] {
+            assert!(!cursor_expired(status));
+        }
     }
 
     #[test]

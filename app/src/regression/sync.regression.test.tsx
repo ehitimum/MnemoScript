@@ -22,6 +22,8 @@ const api = vi.hoisted(() => ({
   syncDismissNotice: vi.fn(),
   syncConflict: vi.fn(),
   syncResolveConflict: vi.fn(),
+  driveUsage: vi.fn(),
+  backupProject: vi.fn(),
 }));
 vi.mock('../lib/api', () => ({ api }));
 
@@ -63,6 +65,15 @@ describe('Google Drive sync settings (regression)', () => {
     expect(screen.getByText(/no Google sign-in set up/)).toBeVisible();
   });
 
+  // Regression (PR #4 review): on Linux the sign-in could not be stored, and sync asked to sign
+  // in again every hour. The backend now reports why sync is off there; the card says so.
+  it('explains why sync is unavailable on this platform instead of build instructions', () => {
+    settings(status({ state: 'unconfigured', configured: false, account: null, projects: [],
+      message: "Google Drive sync isn't available on Linux yet: MnemoScript can't keep your Google sign-in securely there." }));
+    expect(screen.getByText(/isn't available on Linux yet/)).toBeVisible();
+    expect(screen.queryByText(/\.env\.local/)).toBeNull();
+  });
+
   it('signs in through the browser with a cancel option, and states the privacy limits first', async () => {
     let finish!: (s: SyncStatus) => void;
     api.driveSignIn.mockReturnValue(new Promise<SyncStatus>((r) => { finish = r; }));
@@ -96,9 +107,46 @@ describe('Google Drive sync settings (regression)', () => {
     expect(screen.getByText('Waiting to sync')).toBeVisible();
     expect(screen.getByText('Only on this device')).toBeVisible();
     fireEvent.click(screen.getByLabelText('Sync Salt Notes'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Sync without a backup' }));
     await waitFor(() => expect(api.syncEnableProject).toHaveBeenCalledWith('p2'));
+    expect(api.backupProject).not.toHaveBeenCalled();
     fireEvent.click(screen.getByLabelText('Sync The Ashen Crown'));
     await waitFor(() => expect(api.syncDisableProject).toHaveBeenCalledWith('p1'));
+  });
+
+  // PR #4 review: sync is not a backup, so turning it on offers one first.
+  it('offers a backup before a project starts syncing, and can be cancelled', async () => {
+    const order: string[] = [];
+    api.backupProject.mockImplementation(async () => { order.push('backup'); return '/backups/salt.zip'; });
+    api.syncEnableProject.mockImplementation(async () => { order.push('enable'); return status(); });
+    settings(status());
+    fireEvent.click(screen.getByLabelText('Sync Salt Notes'));
+    const offer = await screen.findByRole('group', { name: 'Start syncing Salt Notes' });
+    expect(within(offer).getByText(/Sync is not a backup/)).toBeVisible();
+    fireEvent.click(within(offer).getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('group', { name: 'Start syncing Salt Notes' })).toBeNull();
+    expect(api.syncEnableProject).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByLabelText('Sync Salt Notes'));
+    fireEvent.click(await screen.findByRole('button', { name: /Back up, then sync/ }));
+    expect(await screen.findByText(/Backup saved\. Salt Notes now syncs/)).toBeVisible();
+    expect(order).toEqual(['backup', 'enable']);
+    expect(api.backupProject).toHaveBeenCalledWith('p2');
+  });
+
+  it('does not start syncing when the backup fails', async () => {
+    api.backupProject.mockRejectedValue(new Error('Disk full'));
+    settings(status());
+    fireEvent.click(screen.getByLabelText('Sync Salt Notes'));
+    fireEvent.click(await screen.findByRole('button', { name: /Back up, then sync/ }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Disk full');
+    expect(api.syncEnableProject).not.toHaveBeenCalled();
+  });
+
+  // PR #4 review: old versions are not pruned yet, so the card shows the Drive space used.
+  it('shows how much Google Drive space MnemoScript uses', async () => {
+    api.driveUsage.mockResolvedValue(18_400_000);
+    settings(status());
+    expect(await screen.findByText(/Uses about 18 MB of your Google Drive/)).toBeVisible();
   });
 
   it('downloads a project from another device and never merges same-name projects silently', async () => {

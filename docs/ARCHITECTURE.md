@@ -85,8 +85,10 @@ All return an `ApiResponse<T>` = `{ success, data, error }` envelope.
 Sync (`sync::service`): `sync_status` · `drive_sign_in` / `drive_cancel_sign_in` /
 `drive_set_access_token` (Android) / `drive_sign_out` · `sync_enable_project` / `sync_disable_project` ·
 `drive_remote_projects` · `sync_download_project` · `sync_now` · `sync_set_active` · `sync_apply_staged` ·
-`sync_conflict` / `sync_resolve_conflict` · `sync_dismiss_notice`. Forgetting/deleting a project stops
-syncing it on this device.
+`sync_conflict` / `sync_resolve_conflict` · `sync_dismiss_notice` · `drive_usage`. Forgetting/deleting a
+project stops syncing it on this device. `project::files_lock` serialises project file writes between
+the save commands and the sync engine (the engine re-checks a file under it before replacing it).
+Chapters removed by sync go to `<project>/sync-trash/` (30 days; not synced or backed up).
 **Webview limits:** the `fs` plugin may read/write only paths the writer picked in a dialog (no
 `**` scope), and `tauri.conf.json` sets a CSP (self, `wasm-unsafe-eval`, blob workers, asset/IPC
 hosts, LanguageTool). Add a host there before the webview may contact it.

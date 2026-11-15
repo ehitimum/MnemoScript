@@ -33,8 +33,22 @@ fn client_secret() -> Option<&'static str> {
     option_env!("MNEMO_GOOGLE_CLIENT_SECRET").filter(|v| !v.is_empty())
 }
 
+/// Why Drive sync cannot be offered on this platform at all, whatever the build's client id.
+/// Linux: `keyring` is built without a Linux backend, so the refresh token would not persist
+/// and the writer would have to sign in again every hour. Off until a secret store is wired up.
+pub fn unavailable_reason() -> Option<&'static str> {
+    if cfg!(target_os = "linux") {
+        Some("Google Drive sync isn't available on Linux yet: MnemoScript can't keep your Google sign-in securely there.")
+    } else {
+        None
+    }
+}
+
 /// Whether this build can sign in to Google at all.
 pub fn configured() -> bool {
+    if unavailable_reason().is_some() {
+        return false;
+    }
     if cfg!(any(target_os = "android", target_os = "ios")) {
         // Android authorizes by package name + signing certificate; no client id is compiled in.
         cfg!(target_os = "android")
@@ -172,20 +186,32 @@ pub fn authorize_url(client_id: &str, redirect: &str, challenge: &str, state: &s
     url.into()
 }
 
-/// Parse the loopback redirect. Returns the code only when `state` matches.
-pub fn parse_redirect(path: &str, state: &str) -> Result<Option<String>, String> {
-    let url = url::Url::parse(&format!("http://127.0.0.1{path}")).map_err(|e| e.to_string())?;
+/// What one request to the loopback port means for the sign-in in progress.
+#[derive(Debug, PartialEq)]
+pub enum Redirect {
+    /// Not the redirect path (a favicon, a probe): answer 404 and keep waiting.
+    Ignore,
+    /// The redirect path without this sign-in's `state` (a browser preconnect, an old tab,
+    /// another program): refuse it, but keep waiting for the real one.
+    Foreign,
+    /// Google's answer to this sign-in: the code, or why there is none.
+    Finished(Result<String, String>),
+}
+
+/// Parse a loopback request. A code is accepted only with this sign-in's `state`.
+pub fn parse_redirect(path: &str, state: &str) -> Redirect {
+    let Ok(url) = url::Url::parse(&format!("http://127.0.0.1{path}")) else { return Redirect::Ignore };
     if url.path() != "/" {
-        return Ok(None);
+        return Redirect::Ignore;
     }
     let get = |k: &str| url.query_pairs().find(|(key, _)| key == k).map(|(_, v)| v.into_owned());
     if get("state").as_deref() != Some(state) {
-        return Err("Sign-in response did not match this request; please try again".into());
+        return Redirect::Foreign;
     }
     if let Some(e) = get("error") {
-        return Err(if e == "access_denied" { "Google sign-in was cancelled".into() } else { format!("Google sign-in failed: {e}") });
+        return Redirect::Finished(Err(if e == "access_denied" { "Google sign-in was cancelled".into() } else { format!("Google sign-in failed: {e}") }));
     }
-    get("code").map(Some).ok_or_else(|| "Google did not return an authorization code".into())
+    Redirect::Finished(get("code").ok_or_else(|| "Google did not return an authorization code".into()))
 }
 
 const DONE_PAGE: &str = r#"<!doctype html><html><head><meta charset="utf-8"><title>MnemoScript</title>
@@ -224,14 +250,18 @@ pub fn sign_in() -> Result<(), AuthError> {
         let Ok(Some(request)) = server.recv_timeout(Duration::from_millis(400)) else { continue };
         let html = tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"text/html; charset=utf-8"[..]).expect("static header");
         match parse_redirect(request.url(), &state) {
-            Ok(None) => {
+            Redirect::Ignore => {
                 let _ = request.respond(tiny_http::Response::empty(404));
             }
-            Ok(Some(code)) => {
+            Redirect::Foreign => {
+                let body = page("This isn't the current sign-in", "Use the Google page MnemoScript just opened, or press Connect again in MnemoScript.");
+                let _ = request.respond(tiny_http::Response::from_string(body).with_status_code(400).with_header(html));
+            }
+            Redirect::Finished(Ok(code)) => {
                 let _ = request.respond(tiny_http::Response::from_string(page("You're connected", "Google Drive sync is ready. You can close this tab and return to MnemoScript.")).with_header(html));
                 break code;
             }
-            Err(e) => {
+            Redirect::Finished(Err(e)) => {
                 let _ = request.respond(tiny_http::Response::from_string(page("Sign-in didn't finish", &html_escape::encode_text(&e))).with_header(html));
                 return Err(AuthError::Other(e));
             }
@@ -344,9 +374,32 @@ mod tests {
 
     #[test]
     fn redirect_requires_matching_state() {
-        assert_eq!(parse_redirect("/?state=abc&code=4%2F0xyz", "abc").unwrap(), Some("4/0xyz".into()));
-        assert!(parse_redirect("/?state=evil&code=x", "abc").is_err());
-        assert!(parse_redirect("/?state=abc&error=access_denied", "abc").unwrap_err().contains("cancelled"));
-        assert_eq!(parse_redirect("/favicon.ico", "abc").unwrap(), None);
+        assert_eq!(parse_redirect("/?state=abc&code=4%2F0xyz", "abc"), Redirect::Finished(Ok("4/0xyz".into())));
+        assert!(matches!(parse_redirect("/?state=abc&error=access_denied", "abc"), Redirect::Finished(Err(e)) if e.contains("cancelled")));
+        assert_eq!(parse_redirect("/favicon.ico", "abc"), Redirect::Ignore);
+    }
+
+    /// Regression (PR #4 review): any request to `/` without the right `state` (a preconnect,
+    /// a port scanner, an old tab) ended the whole sign-in, and the real redirect then found the
+    /// server closed. Such requests are refused without accepting their code, and waiting goes on.
+    #[test]
+    fn a_stray_request_never_ends_the_sign_in() {
+        assert_eq!(parse_redirect("/?state=evil&code=x", "abc"), Redirect::Foreign);
+        assert_eq!(parse_redirect("/", "abc"), Redirect::Foreign);
+        assert_eq!(parse_redirect("/?code=stolen", "abc"), Redirect::Foreign);
+        // The real redirect afterwards still completes.
+        assert_eq!(parse_redirect("/?code=real&state=abc", "abc"), Redirect::Finished(Ok("real".into())));
+    }
+
+    /// Regression (PR #4 review): on Linux the keyring crate has no backend in this build, so a
+    /// stored grant vanished and sync asked to sign in again every hour.
+    #[test]
+    fn drive_sync_is_offered_only_where_the_sign_in_can_be_kept() {
+        if cfg!(target_os = "linux") {
+            assert!(!configured());
+            assert!(unavailable_reason().is_some());
+        } else {
+            assert!(unavailable_reason().is_none());
+        }
     }
 }

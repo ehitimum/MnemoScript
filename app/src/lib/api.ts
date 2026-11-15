@@ -194,6 +194,8 @@ export const api = {
   syncResolveConflict: (projectId: string, documentId: string, keep: string, keepCopies: boolean) =>
     call<string[]>('sync_resolve_conflict', { projectId, documentId, keep, keepCopies }),
   syncDismissNotice: (id: number) => call<void>('sync_dismiss_notice', { id }),
+  /** Bytes MnemoScript keeps in the writer's Google Drive (all devices and projects). */
+  driveUsage: () => call<number>('drive_usage'),
 
   /* ---------------------------- AI assistant ---------------------------- */
   // Sessions are stored per project (`<project>/ai/sessions/`), so one project never sees another's.
@@ -519,6 +521,7 @@ async function browserBackend<T>(cmd: string, args: Record<string, unknown>): Pr
     case 'sync_resolve_conflict':
     case 'sync_dismiss_notice':
     case 'drive_cancel_sign_in':
+    case 'drive_usage':
       throw new Error('Google Drive sync is available in the MnemoScript desktop and Android apps.');
 
     default:

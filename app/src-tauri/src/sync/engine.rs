@@ -73,6 +73,61 @@ pub trait Transport {
 struct Disk {
     entities: BTreeMap<String, Value>,
     texts: BTreeMap<String, Vec<u8>>,
+    /// Chapter files that exist but cannot be read (damaged, locked, wrong id). Their last
+    /// known state is kept: "unreadable here" must never become "deleted everywhere".
+    unreadable: BTreeSet<String>,
+    /// The documents folder itself is there. Without it no chapter absence means a delete.
+    docs_present: bool,
+}
+
+/// Chapters removed by another device (or damaged copies replaced from another device) are
+/// moved here instead of deleted, and kept this long.
+const TRASH_DIR: &str = "sync-trash";
+const TRASH_DAYS: u64 = 30;
+
+/// The sync entities of one chapter file: `(id, doc metadata, text payload, portable body)`.
+/// `None` when the file is not a valid chapter (bad JSON, no or unsafe id, id ≠ file name).
+fn doc_entities(path: &Path, roots: &[String]) -> Option<(String, Value, Value, Vec<u8>)> {
+    let doc = read_json(path).ok()?;
+    let id = doc.get("id").and_then(Value::as_str).filter(|id| model::safe_id(id))?.to_string();
+    if path.file_stem().and_then(|s| s.to_str()) != Some(id.as_str()) {
+        return None;
+    }
+    let doc_type = doc.get("docType").and_then(Value::as_str).unwrap_or("text");
+    let meta = json!({"title": opt_str(&doc, "title"), "docType": doc_type, "order": int(&doc, "order"), "folderId": opt_str(&doc, "folderId")});
+    let content = doc.get("content").and_then(Value::as_str).unwrap_or("");
+    let body = portable::to_portable(content, doc_type, roots).into_bytes();
+    let text = json!({"sha256": model::sha256_hex(&body)});
+    Some((id, meta, text, body))
+}
+
+/// Drop trash files older than `TRASH_DAYS`. Best effort: a failure only keeps them longer.
+fn prune_trash(trash: &Path) {
+    let Ok(entries) = fs::read_dir(trash) else { return };
+    let limit = std::time::Duration::from_secs(TRASH_DAYS * 24 * 3600);
+    for entry in entries.flatten() {
+        let old = entry.metadata().ok().and_then(|m| m.modified().ok()).and_then(|t| t.elapsed().ok()).is_some_and(|age| age > limit);
+        if old && entry.path().extension().and_then(|e| e.to_str()) == Some("json") {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
+}
+
+/// Project-level entities in project.json: the project itself and its folders.
+fn project_entities(meta: &Value) -> BTreeMap<String, Value> {
+    let mut out = BTreeMap::new();
+    out.insert(
+        "project".to_string(),
+        json!({"name": opt_str(meta, "name"), "description": opt_str(meta, "description"), "author": opt_str(meta, "author")}),
+    );
+    for folder in meta.get("folders").and_then(Value::as_array).into_iter().flatten() {
+        let Some(id) = folder.get("id").and_then(Value::as_str).filter(|id| model::safe_id(id)) else { continue };
+        out.insert(
+            format!("folder:{id}"),
+            json!({"name": opt_str(folder, "name"), "order": int(folder, "order"), "parentId": opt_str(folder, "parentId")}),
+        );
+    }
+    out
 }
 
 #[derive(Default, Debug, Serialize, Clone)]
@@ -117,42 +172,29 @@ impl<'a> Engine<'a> {
         if meta.get("id").and_then(Value::as_str) != Some(project_id) {
             return Err("Project folder does not match the synced project".into());
         }
-        let mut entities = BTreeMap::new();
+        let mut entities = project_entities(&meta);
         let mut texts = BTreeMap::new();
-        entities.insert(
-            "project".to_string(),
-            json!({"name": opt_str(&meta, "name"), "description": opt_str(&meta, "description"), "author": opt_str(&meta, "author")}),
-        );
-        for folder in meta.get("folders").and_then(Value::as_array).into_iter().flatten() {
-            let Some(id) = folder.get("id").and_then(Value::as_str).filter(|id| model::safe_id(id)) else { continue };
-            entities.insert(
-                format!("folder:{id}"),
-                json!({"name": opt_str(folder, "name"), "order": int(folder, "order"), "parentId": opt_str(folder, "parentId")}),
-            );
-        }
+        let mut unreadable = BTreeSet::new();
         let roots = portable::roots_for(dir);
         let docs = dir.join("documents");
-        if docs.is_dir() {
+        let docs_present = docs.is_dir();
+        if docs_present {
             for entry in fs::read_dir(&docs).map_err(err)? {
                 let path = entry.map_err(err)?.path();
                 if path.extension().and_then(|e| e.to_str()) != Some("json") || !path.is_file() {
                     continue;
                 }
-                // Same tolerance as Project::load: one damaged chapter never blocks sync.
-                let Ok(doc) = read_json(&path) else { continue };
-                let Some(id) = doc.get("id").and_then(Value::as_str).filter(|id| model::safe_id(id)) else { continue };
-                if path.file_stem().and_then(|s| s.to_str()) != Some(id) {
+                // Same tolerance as Project::load: one damaged chapter never blocks sync. It is
+                // remembered, so scan keeps its last good state instead of recording a delete.
+                let Some((id, meta, text, body)) = doc_entities(&path, &roots) else {
+                    if let Some(stem) = path.file_stem().and_then(|s| s.to_str()).filter(|s| model::safe_id(s)) {
+                        unreadable.insert(stem.to_string());
+                    }
                     continue;
-                }
-                let doc_type = doc.get("docType").and_then(Value::as_str).unwrap_or("text");
-                entities.insert(
-                    format!("doc:{id}"),
-                    json!({"title": opt_str(&doc, "title"), "docType": doc_type, "order": int(&doc, "order"), "folderId": opt_str(&doc, "folderId")}),
-                );
-                let content = doc.get("content").and_then(Value::as_str).unwrap_or("");
-                let body = portable::to_portable(content, doc_type, &roots).into_bytes();
-                let sha = model::sha256_hex(&body);
-                entities.insert(format!("text:{id}"), json!({"sha256": sha}));
+                };
+                let sha = text["sha256"].as_str().unwrap_or_default().to_string();
+                entities.insert(format!("doc:{id}"), meta);
+                entities.insert(format!("text:{id}"), text);
                 texts.insert(sha, body);
             }
         }
@@ -179,7 +221,112 @@ impl<'a> Engine<'a> {
                 entities.insert(key, json!({"sha256": model::sha256_hex(&bytes), "size": bytes.len()}));
             }
         }
-        Ok(Disk { entities, texts })
+        Ok(Disk { entities, texts, unreadable, docs_present })
+    }
+
+    /// What is on disk for one entity right now. `Err` when its file exists but is unreadable.
+    fn current(&self, dir: &Path, entity: &str) -> Result<Option<Value>, String> {
+        let (kind, id) = parse_entity(entity).ok_or("bad entity")?;
+        match kind {
+            Kind::Project | Kind::Folder => Ok(project_entities(&read_json(&dir.join("project.json"))?).remove(entity)),
+            Kind::Doc | Kind::Text => {
+                let path = dir.join("documents").join(format!("{id}.json"));
+                if !path.exists() {
+                    return Ok(None);
+                }
+                let (_, meta, text, _) = doc_entities(&path, &portable::roots_for(dir)).ok_or("Damaged chapter file")?;
+                Ok(Some(if kind == Kind::Doc { meta } else { text }))
+            }
+            Kind::Asset => Ok(None),
+        }
+    }
+
+    fn known_hash(&self, project_id: &str, entity: &str) -> Result<String, String> {
+        Ok(self.store.disk_state(project_id, entity)?.map(|(_, h)| h).unwrap_or_else(|| state_hash(None)))
+    }
+
+    /// Write `rev` only if the files still hold what the engine last scanned. Holds the files
+    /// lock (shared with the app's saves) from the check to the end of the write. `Ok(false)`:
+    /// something was saved since the scan, so the caller captures it first and decides again.
+    fn write_checked(&self, project_id: &str, dir: &Path, entity: &str, rev: &str) -> Result<bool, String> {
+        let (kind, id) = parse_entity(entity).ok_or("bad entity")?;
+        if kind == Kind::Asset {
+            return Ok(true);
+        }
+        let _files = crate::project::files_lock();
+        let mut check = vec![entity.to_string()];
+        if kind == Kind::Doc && self.payload(project_id, rev)?.is_none() {
+            // Removing the file also removes its text: unsaved-to-sync typing must be captured.
+            check.push(format!("text:{id}"));
+        }
+        for e in &check {
+            match self.current(dir, e) {
+                Ok(now) => {
+                    if state_hash(now.as_ref()) != self.known_hash(project_id, e)? && !self.engine_made(project_id, e, now.as_ref())? {
+                        return Ok(false);
+                    }
+                }
+                Err(_) if matches!(kind, Kind::Doc | Kind::Text) => {
+                    // A damaged local copy is replaced by the good version, but never destroyed.
+                    self.set_aside(project_id, dir, id, "damaged")?;
+                    break;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        self.write(project_id, dir, entity, rev)?;
+        Ok(true)
+    }
+
+    /// A difference from the last scan that sync itself made, not the writer: the downloaded
+    /// project's placeholder `project.json` (never scanned), a chapter file built from its
+    /// metadata before its text arrived (empty), or a chapter file sync just removed.
+    fn engine_made(&self, project_id: &str, entity: &str, now: Option<&Value>) -> Result<bool, String> {
+        if entity == "project" {
+            return Ok(self.store.disk_state(project_id, entity)?.is_none());
+        }
+        let Some(id) = entity.strip_prefix("text:") else { return Ok(false) };
+        Ok(match now {
+            Some(v) => self.known_text(project_id, id)?.is_none() && v["sha256"].as_str() == Some(model::sha256_hex(b"").as_str()),
+            None => match self.store.disk_state(project_id, &format!("doc:{id}"))? {
+                Some((doc_rev, _)) => self.payload(project_id, &doc_rev)?.is_none(),
+                None => false,
+            },
+        })
+    }
+
+    /// Move a chapter file into the project's sync trash (kept `TRASH_DAYS`), with a notice.
+    fn set_aside(&self, project_id: &str, dir: &Path, id: &str, why: &str) -> Result<(), String> {
+        let path = dir.join("documents").join(format!("{id}.json"));
+        if !path.exists() {
+            return Ok(());
+        }
+        let title = read_json(&path).ok().and_then(|d| d.get("title").and_then(Value::as_str).map(String::from)).unwrap_or_else(|| {
+            self.store
+                .disk_state(project_id, &format!("doc:{id}"))
+                .ok()
+                .flatten()
+                .and_then(|(r, _)| self.payload(project_id, &r).ok().flatten())
+                .and_then(|p| p["title"].as_str().map(String::from))
+                .unwrap_or_else(|| "Untitled".into())
+        });
+        let trash = dir.join(TRASH_DIR);
+        fs::create_dir_all(&trash).map_err(err)?;
+        prune_trash(&trash);
+        let stamp = chrono::Utc::now().format("%Y%m%d-%H%M%S");
+        fs::rename(&path, trash.join(format!("{id}-{stamp}.json"))).map_err(err)?;
+        let detail = match why {
+            "damaged" => format!("\"{title}\" could not be read on this device and was replaced by the version from another device. The damaged copy is in the project's {TRASH_DIR} folder for {TRASH_DAYS} days."),
+            _ => format!("\"{title}\" was deleted on another device. A copy is in the project's {TRASH_DIR} folder for {TRASH_DAYS} days."),
+        };
+        self.store.add_notice(project_id, &format!("doc:{id}"), if why == "damaged" { "replaced" } else { "deleted" }, &detail)
+    }
+
+    /// The last synced text of a chapter, for rebuilding a chapter file that went missing.
+    fn known_text(&self, project_id: &str, id: &str) -> Result<Option<String>, String> {
+        let Some((rev, _)) = self.store.disk_state(project_id, &format!("text:{id}"))? else { return Ok(None) };
+        let Some(sha) = self.payload(project_id, &rev)?.and_then(|p| p["sha256"].as_str().map(String::from)) else { return Ok(None) };
+        Ok(self.store.blob(&sha)?.and_then(|b| String::from_utf8(b).ok()))
     }
 
     /// Record local edits as revisions. Returns the new revisions (already queued).
@@ -196,6 +343,23 @@ impl<'a> Engine<'a> {
             // A missing asset file is not a delete: it may simply not be downloaded yet.
             if current.is_none() && entity.starts_with("asset:") {
                 continue;
+            }
+            // A chapter that is there but unreadable, or a missing documents folder, is not a
+            // delete either: keep the last good state (and say so once) until it reads again.
+            if current.is_none() {
+                if let Some((Kind::Doc | Kind::Text, id)) = parse_entity(entity) {
+                    if !disk.docs_present {
+                        self.store.add_notice_once(project_id, "project", "unreadable", "The project's documents folder is missing on this device. Sync will not remove any chapter until it is back.")?;
+                        continue;
+                    }
+                    if disk.unreadable.contains(id) {
+                        if entity.starts_with("doc:") {
+                            let title = known.get(entity).and_then(|(r, _)| self.payload(project_id, r).ok().flatten()).and_then(|p| p["title"].as_str().map(String::from)).unwrap_or_else(|| "A chapter".into());
+                            self.store.add_notice_once(project_id, entity, "unreadable", &format!("\"{title}\" could not be read on this device. Its last synced version is kept on your other devices."))?;
+                        }
+                        continue;
+                    }
+                }
             }
             let hash = state_hash(current);
             let parents = match known.get(entity) {
@@ -371,37 +535,91 @@ impl<'a> Engine<'a> {
         report: &mut SyncReport,
     ) -> Result<(), String> {
         let (kind, id) = parse_entity(entity).ok_or("bad entity")?;
-        let disk = self.store.disk_state(project_id, entity)?.map(|(r, _)| r);
-        let staged = self.store.staged(project_id, entity)?;
+        let mut target = String::new();
+        for _ in 0..3 {
+            let disk = self.store.disk_state(project_id, entity)?.map(|(r, _)| r);
+            let staged = self.store.staged(project_id, entity)?;
+            target = self.decide(project_id, entity, kind, disk.as_deref(), staged.as_deref(), incoming)?;
+            if disk.as_deref() == Some(target.as_str()) {
+                if staged.is_some() {
+                    self.store.set_staged(project_id, entity, None)?;
+                }
+                return Ok(());
+            }
+            // Never write under the editor: the open chapter's text (or its removal) waits for the
+            // writer. Title, folder and order changes still apply; the app merges them in place.
+            let removes = kind == Kind::Doc && self.payload(project_id, &target)?.is_none();
+            if (kind == Kind::Text || removes) && active_doc == Some(id) {
+                self.store.set_staged(project_id, entity, Some(&target))?;
+                report.staged.push(entity.to_string());
+                return Ok(());
+            }
+            if self.write_checked(project_id, dir, entity, &target)? {
+                self.store.set_staged(project_id, entity, None)?;
+                report.changed.push(entity.to_string());
+                return Ok(());
+            }
+            // Saved since this round's scan (an autosave, the assistant, a late map flush):
+            // capture it as a local revision first, so it merges or conflicts instead of being
+            // overwritten, then decide again.
+            let transports = self.store.project_transports(project_id)?;
+            self.scan(project_id, dir, &transports)?;
+        }
+        // Still changing under us: keep the remote version waiting; a later round applies it.
+        self.store.set_staged(project_id, entity, Some(&target))?;
+        report.staged.push(entity.to_string());
+        Ok(())
+    }
+
+    /// The revision this device should hold for `entity`, recording any merge it needs.
+    fn decide(&self, project_id: &str, entity: &str, kind: Kind, disk: Option<&str>, staged: Option<&str>, incoming: &[String]) -> Result<String, String> {
         let mut candidates: BTreeSet<String> = self.store.conflicts(project_id, entity)?.into_iter().collect();
-        candidates.extend(disk.iter().cloned());
-        candidates.extend(staged.iter().cloned());
+        candidates.extend(disk.map(String::from));
+        candidates.extend(staged.map(String::from));
         candidates.extend(incoming.iter().cloned());
-        let heads = self.heads(project_id, &candidates)?;
+        let mut heads = self.heads(project_id, &candidates)?;
 
         let target = if heads.len() == 1 {
             self.store.set_conflicts(project_id, entity, &[])?;
             heads[0].clone()
         } else if kind == Kind::Text {
-            let payloads: BTreeSet<String> = heads
-                .iter()
-                .map(|h| self.payload(project_id, h).map(|p| state_hash(p.as_ref())))
-                .collect::<Result<_, _>>()?;
-            let all_same = payloads.len() == 1;
-            let some_deleted = heads.iter().any(|h| self.payload(project_id, h).ok().flatten().is_none());
-            if all_same || some_deleted {
-                // Identical results merge silently; edit beats delete (keep the newest edit set).
+            let mut live = Vec::new();
+            let mut dead = Vec::new();
+            let mut payloads = BTreeSet::new();
+            for h in &heads {
+                match self.payload(project_id, h)? {
+                    Some(p) => {
+                        payloads.insert(state_hash(Some(&p)));
+                        live.push(h.clone());
+                    }
+                    None => dead.push(h.clone()),
+                }
+            }
+            if payloads.len() <= 1 {
+                // Identical results merge silently; edit beats delete.
                 let keep = self.first_live(project_id, &heads)?;
                 let merged = Revision::new(entity, heads.clone(), self.payload(project_id, &keep)?, &self.device_id);
-                if some_deleted && !all_same {
+                if !dead.is_empty() && !live.is_empty() {
                     self.store.add_notice(project_id, entity, "kept", "Kept a chapter that was deleted on another device but edited elsewhere")?;
                 }
                 self.record_local(project_id, &merged)?;
                 self.store.set_conflicts(project_id, entity, &[])?;
                 merged.rev
             } else {
+                if !dead.is_empty() {
+                    // Deleted on one device and edited differently on others: the edits beat the
+                    // delete, and stay a normal conflict between them. Every device absorbs the
+                    // deletes into the same (lowest) live head, so they agree on the result.
+                    let first = live[0].clone();
+                    let mut parents = dead.clone();
+                    parents.push(first.clone());
+                    let absorbed = Revision::new(entity, parents, self.payload(project_id, &first)?, &self.device_id);
+                    self.store.add_notice(project_id, entity, "kept", "Kept a chapter that was deleted on another device but edited elsewhere")?;
+                    self.record_local(project_id, &absorbed)?;
+                    heads = std::iter::once(absorbed.rev).chain(live.into_iter().skip(1)).collect();
+                }
                 // Keep what the writer has on this device; preserve every other version.
-                let local = match &disk {
+                let local = match disk {
                     Some(d) => heads
                         .iter()
                         .find(|h| self.store.is_ancestor(project_id, d, h).unwrap_or(false))
@@ -435,25 +653,7 @@ impl<'a> Engine<'a> {
             self.store.set_conflicts(project_id, entity, &[])?;
             acc
         };
-
-        if disk.as_deref() == Some(target.as_str()) {
-            if staged.is_some() {
-                self.store.set_staged(project_id, entity, None)?;
-            }
-            return Ok(());
-        }
-        // Never write under the editor: the open chapter's text (or its removal) waits for the
-        // writer. Title, folder and order changes still apply; the app merges them in place.
-        let removes = kind == Kind::Doc && self.payload(project_id, &target)?.is_none();
-        if (kind == Kind::Text || removes) && active_doc == Some(id) {
-            self.store.set_staged(project_id, entity, Some(&target))?;
-            report.staged.push(entity.to_string());
-            return Ok(());
-        }
-        self.store.set_staged(project_id, entity, None)?;
-        self.write(project_id, dir, entity, &target)?;
-        report.changed.push(entity.to_string());
-        Ok(())
+        Ok(target)
     }
 
     fn first_live(&self, project_id: &str, heads: &[String]) -> Result<String, String> {
@@ -494,20 +694,19 @@ impl<'a> Engine<'a> {
             Kind::Doc => {
                 let path = dir.join("documents").join(format!("{id}.json"));
                 match &payload {
-                    None => {
-                        if path.exists() {
-                            let title = read_json(&path).ok().and_then(|d| d.get("title").and_then(Value::as_str).map(String::from));
-                            fs::remove_file(&path).map_err(err)?;
-                            self.store.add_notice(
-                                project_id,
-                                entity,
-                                "deleted",
-                                &format!("\"{}\" was deleted on another device", title.unwrap_or_else(|| "Untitled".into())),
-                            )?;
-                        }
-                    }
+                    // Recoverable: the file goes to the project's sync trash, not away.
+                    None => self.set_aside(project_id, dir, id, "deleted")?,
                     Some(p) => {
-                        let mut doc = read_json(&path).unwrap_or_else(|_| json!({"id": id, "content": ""}));
+                        let mut doc = match read_json(&path) {
+                            Ok(doc) => doc,
+                            Err(_) => {
+                                // Rebuilt chapter file: keep its last synced text, so the next scan
+                                // does not mistake the rebuild for the writer emptying it.
+                                let doc_type = p["docType"].as_str().unwrap_or("text");
+                                let content = self.known_text(project_id, id)?.map(|t| portable::to_local(&t, doc_type, dir)).unwrap_or_default();
+                                json!({"id": id, "content": content})
+                            }
+                        };
                         for key in ["title", "docType", "order", "folderId"] {
                             doc[key] = p.get(key).cloned().unwrap_or(Value::Null);
                         }
@@ -588,8 +787,10 @@ impl<'a> Engine<'a> {
             let Some((parent, _)) = self.store.disk_state(project_id, &entity)? else { continue };
             let r = Revision::new(&entity, vec![parent], Some(value), &self.device_id);
             self.record_local(project_id, &r)?;
-            self.write(project_id, dir, &entity, &r.rev)?;
-            report.changed.push(entity);
+            // Saved meanwhile: leave it; the next round scans the save and repairs again.
+            if self.write_checked(project_id, dir, &entity, &r.rev)? {
+                report.changed.push(entity);
+            }
         }
         Ok(())
     }
@@ -746,12 +947,28 @@ impl<'a> Engine<'a> {
         }
         self.scan(project_id, dir, &[tid])?;
         self.pull(project_id, dir, transport, active_doc, &mut report)?;
+        self.retry_waiting(project_id, dir, active_doc, &mut report)?;
         report.published = self.publish(project_id, dir, transport)?;
         report.changed.sort();
         report.changed.dedup();
         report.staged.sort();
         report.staged.dedup();
         Ok(report)
+    }
+
+    /// Updates waiting for a chapter that is not open (left while the app was closed, or held
+    /// because the file kept changing during a round): apply them now, still checked.
+    fn retry_waiting(&self, project_id: &str, dir: &Path, active_doc: Option<&str>, report: &mut SyncReport) -> Result<(), String> {
+        for entity in self.store.staged_entities(project_id)? {
+            let Some((_, id)) = parse_entity(&entity) else { continue };
+            if active_doc == Some(id) {
+                continue;
+            }
+            if let Some(rev) = self.store.staged(project_id, &entity)? {
+                self.reconcile(project_id, dir, &entity, &[rev], active_doc, report)?;
+            }
+        }
+        Ok(())
     }
 
     fn pull(&self, project_id: &str, dir: &Path, transport: &mut dyn Transport, active_doc: Option<&str>, report: &mut SyncReport) -> Result<(), TransportError> {
@@ -794,7 +1011,11 @@ impl<'a> Engine<'a> {
 
     // ---- conflicts -----------------------------------------------------------------------------
 
+    /// The versions in a chapter's conflict. Captures the latest save first, so "this device"
+    /// is what the writer last typed, not what the previous round saw.
     pub fn conflict_versions(&self, project_id: &str, dir: &Path, doc_id: &str) -> Result<Vec<ConflictVersion>, String> {
+        let transports = self.store.project_transports(project_id)?;
+        self.scan(project_id, dir, &transports)?;
         let entity = format!("text:{doc_id}");
         let mut out = Vec::new();
         let doc_type = read_json(&dir.join("documents").join(format!("{doc_id}.json")))
@@ -826,17 +1047,21 @@ impl<'a> Engine<'a> {
     /// every other version becomes its own chapter next to it, so nothing is lost either way.
     pub fn resolve(&self, project_id: &str, dir: &Path, doc_id: &str, keep: &str, keep_copies: bool) -> Result<Vec<String>, String> {
         let entity = format!("text:{doc_id}");
+        // Capture typing saved since the last round, so it is one of the versions (and kept).
+        let versions = self.conflict_versions(project_id, dir, doc_id)?;
         let (disk, _) = self.store.disk_state(project_id, &entity)?.ok_or("Nothing to resolve")?;
         let others = self.store.conflicts(project_id, &entity)?;
         if others.is_empty() {
             return Ok(Vec::new());
         }
+        // "Keep this device's version", chosen before the latest save was captured, means the
+        // latest local text.
+        let keep = if keep != disk && self.store.is_ancestor(project_id, keep, &disk)? { disk.as_str() } else { keep };
         let mut all = vec![disk.clone()];
         all.extend(others.iter().cloned());
         if !all.iter().any(|r| r == keep) {
             return Err("That version is no longer part of the conflict".into());
         }
-        let versions = self.conflict_versions(project_id, dir, doc_id)?;
         let mut created = Vec::new();
         if keep_copies {
             let doc_path = dir.join("documents").join(format!("{doc_id}.json"));
@@ -857,7 +1082,14 @@ impl<'a> Engine<'a> {
         self.record_local(project_id, &merged)?;
         self.store.set_conflicts(project_id, &entity, &[])?;
         self.store.set_staged(project_id, &entity, None)?;
-        self.write(project_id, dir, &entity, &merged.rev)?;
+        if !self.write_checked(project_id, dir, &entity, &merged.rev)? {
+            // Saved again while the writer was choosing: that text stays, as a new conflict
+            // against the chosen version.
+            let transports = self.store.project_transports(project_id)?;
+            self.scan(project_id, dir, &transports)?;
+            self.store.set_conflicts(project_id, &entity, &[merged.rev])?;
+            return Err("The chapter changed while you were choosing. Review it again.".into());
+        }
         Ok(created)
     }
 }

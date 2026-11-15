@@ -49,6 +49,29 @@ Items 1–3 were in the released 2.1.0; each fix has a regression test.
   byte-identical, from `node_modules`, no network).
 - Version 2.1.1 in `package.json`, `Cargo.toml`, `tauri.conf.json` (not tagged).
 
+## 2026-11-15 — Drive sync: review fixes (no lost saves)
+
+Addressed the PR #4 reviews (`50e4beb`, `5444c1c`); each fix has a regression test.
+- **Data loss.** A chapter that one device could not read (or a missing `documents/` folder) was
+  recorded as a delete and removed everywhere: unreadable now keeps the last good state with one
+  note. Remote writes could overwrite a save made after the round's scan: every engine write now
+  re-checks the file under `project::files_lock` (also taken by `Document::save/delete` and
+  `Project::save`) and captures a newer save first. Conflict review and resolve scan first, so the
+  latest typing is a version. Delete + two different edits kept only one edit: both stay, as a
+  conflict. Remote deletes and replaced damaged copies go to `<project>/sync-trash/` (30 days).
+- **Sign-in.** A stray request to the loopback port no longer ends the sign-in (error page, keep
+  waiting). Retrying Connect keeps a valid grant unless Google rejects it, so an early retry does
+  not open Google's pages again. Linux desktop is off for Drive sync until a keyring backend exists.
+- **Drive client.** The newer error shape (`error.details[].reason`, e.g. `SERVICE_DISABLED`) is
+  read; release builds say "isn't set up correctly in this build" instead of Cloud console steps.
+  An expired change cursor is detected by status, not message text. The catalogue entry's date
+  moves forward when a round publishes (at most hourly).
+- **Smaller.** Sync commands validate project and document ids. Android names itself by model
+  (`ro.product.model`). The settings card shows the Drive space used, offers "Back up, then sync"
+  when a project is turned on, and carries a Beta label. The live test names its project
+  `zz-live-test-…`, prints its id, and fails when cleanup fails.
+
+
 ## 2026-11-15 — First live Google Drive run
 
 - Desktop sign-in worked against the writer's own Cloud project (Testing mode, test user added).
@@ -59,8 +82,6 @@ Items 1–3 were in the released 2.1.0; each fix has a regression test.
   real `appDataFolder` under a throwaway project id: upload with an image, download (image and
   portable reference intact), edit back through the changes feed, then deletes its files. Passed
   in 29 s. Android sign-in and real desktop ↔ phone sync are still to be tried.
-- Dev runs: another session held port 1420, so the app was started with `beforeDevCommand =
-  npm run build` (serves `dist/`) and a C: cargo target dir.
 
 
 ## 2026-11-13 — Google Drive sync (MnemoDrive) on the shared sync engine
@@ -93,8 +114,6 @@ Items 1–3 were in the released 2.1.0; each fix has a regression test.
   3 live-AI ignored; 32 sync tests), `cargo clippy -- -D warnings`. `npx tauri android build --apk
   --debug --target aarch64` builds (Kotlin `GoogleAuthPlugin` + play-services-auth 21.3.0); the
   three Android-only dead-code warnings in `ai/pair_crypto.rs` are now marked desktop-only.
-  The first Android build filled drive E: (16 GB worktree `target/`); builds now use a target dir
-  on C:.
   Not verified: live Google OAuth and real desktop ↔ Android sync (needs the writer's own OAuth
   clients; see `MNEMOSYNC_DRIVE.md`). Browser visual preview is still blocked by permission policy.
 

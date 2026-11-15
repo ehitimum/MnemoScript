@@ -46,6 +46,23 @@ The plan's local-sync design (ADR 001–002) is implemented as the shared engine
 - **Conflicts.** The writer compares versions side by side (plain text, parsed inertly) and keeps
   one in place; by default every other version becomes its own chapter named after its device.
   The resolution is a merge revision whose parents are all heads.
+- **Never lose a save (2026-11-15, from the PR #4 review).**
+  - *Unreadable is not deleted.* A chapter file that exists but cannot be parsed (damaged,
+    locked, id ≠ file name), or a missing `documents/` folder, keeps its last synced state; the
+    writer gets one note. Only a file that is really gone, in a readable folder, becomes a delete.
+  - *Check before write.* Every engine write first re-reads the entity and compares it with what
+    the round scanned, under one files lock shared with the app's save commands
+    (`project::files_lock`), so the check and the write are atomic. A save that landed after the
+    scan (an autosave, the assistant editing a closed chapter, a late map flush) is captured as a
+    local revision first and then merges or becomes a conflict. Differences the engine made
+    itself (the downloaded skeleton's `project.json`, an empty chapter file built before its text
+    arrived, a chapter sync just removed) are recognised as such.
+  - *Removed means trashed.* A chapter deleted on another device, or a damaged copy replaced by
+    the good version, moves to `<project>/sync-trash/` for 30 days instead of being deleted. The
+    trash is not part of the project (not synced, not in backups).
+  - *Conflict review is current.* Opening the review and resolving both scan first, so the latest
+    typing is "this device's version"; choosing it from an older screen keeps the latest text.
+  - *Delete + two different edits* stays a conflict between the two edits (both kept).
 - **Portable images.** Synced text replaces `<project>/assets/<file>` references with
   `mnemo-asset:<file>` (`<img src>` in chapters, whole string values in map JSON, including
   "My Imports"), and each device turns them back into its own absolute path. Disk format is
@@ -111,10 +128,24 @@ writer's (or publisher's) own Google Cloud project.
 All clients must belong to one Cloud project: the hidden app folder is shared between them for
 the same Google account. Confirm this on real devices before relying on it.
 
+**Platforms.** Windows and macOS desktop (refresh token in Credential Manager / Keychain) and
+Android. **Linux is off** (`auth::unavailable_reason`): the `keyring` crate is built without a
+Linux backend, so the grant would not persist; the card says so instead of offering Connect.
+
+**Opening it to every Google user.** Keep the *External* audience and publish the app (Audience →
+Publish app). "Internal" is only for one Google Workspace organisation. Creating the project and
+client is free and the Drive API has no charge within its quotas; each writer's sync files count
+against their own Drive storage. The settings card shows how much space MnemoScript uses
+(`drive_usage`), since old versions are not pruned yet.
+
 ## Follow-ups
 
 - Real-device acceptance: desktop ↔ Android with one account, offline catch-up, expiry and
-  quota behaviour, account switch. Nothing here was verified against live Google services.
+  quota behaviour, account switch. Live so far: desktop OAuth and a two-engine round trip on
+  the real `appDataFolder` (`live_drive`, which runs the engine directly, not `service.rs`, open-
+  chapter staging or a conflict).
+- A way to restore from `sync-trash/` in the app (on Android the folder is app-private).
+- Linux secret storage (Secret Service), then enable Drive sync there.
 - Smart Merge (Phase 2) to link projects that were created separately on two devices.
 - LAN transport (Phase 4) reusing `engine::Transport` and the same revision ids.
 - History/blob pruning with per-device acknowledgements (local `blobs` table and Drive files

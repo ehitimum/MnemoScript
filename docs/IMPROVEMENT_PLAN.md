@@ -21,8 +21,10 @@ advancing the Phase 0 gate; the following schemas remain design-only.
 (entity revisions, SQLite state, merge/conflicts, staged open-chapter updates, portable images),
 the Drive `appDataFolder` transport, desktop loopback+PKCE sign-in with keychain storage, Android
 native authorization, and the sync UI for both shells ([MNEMOSYNC_DRIVE.md](./MNEMOSYNC_DRIVE.md)).
-Automated checks pass; **live Google sign-in and real desktop ↔ Android sync are not yet verified**
-(needs the writer's own OAuth clients). Still open: Smart Merge, LAN, web sync, history pruning.
+Automated checks pass. Live desktop sign-in and a real Drive round trip passed 2026-11-15; the PR
+review's data-loss findings are fixed with regressions. **Android sign-in and real desktop ↔ Android
+sync are not yet verified.** Still open: Smart Merge, LAN, web sync, history pruning, restoring from
+`sync-trash/` in the app, Linux secret storage.
 
 | MnemoSync phase | Status |
 |---|---|
@@ -31,7 +33,7 @@ Automated checks pass; **live Google sign-in and real desktop ↔ Android sync a
 | 2 Smart Merge | ⏳ not started (downloads create separate copies; same-name notice only) |
 | 3 Revision engine + transport interface | ✅ with multi-device simulations |
 | 4 LAN (MnemoLink) | ⏳ not started |
-| 5 Google Drive | ✅ code + tests; live OAuth/device proof pending |
+| 5 Google Drive | ✅ code + tests; live desktop OAuth + Drive round trip ✅; Android/device proof pending |
 | 6–8 Hybrid, recovery UX, hardening | ⏳ partial (conflict review, notices) |
 
 **Stack:** Tauri 2 (Rust) · React 19 + TypeScript 6 · Vite 8 · Tailwind v4 · TipTap 3 · React Flow 12 ·

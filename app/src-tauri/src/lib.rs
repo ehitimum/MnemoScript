@@ -463,6 +463,7 @@ pub fn run() {
             sync::service::sync_enable_project,
             sync::service::sync_disable_project,
             sync::service::drive_remote_projects,
+            sync::service::drive_usage,
             sync::service::sync_download_project,
             sync::service::sync_now,
             sync::service::sync_set_active,

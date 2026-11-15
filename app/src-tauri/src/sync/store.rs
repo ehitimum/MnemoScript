@@ -606,6 +606,23 @@ impl Store {
             .map_err(err)
     }
 
+    /// Like `add_notice`, but only while the writer has not already got the same one: for
+    /// conditions found again every round (a damaged chapter file).
+    pub fn add_notice_once(&self, project_id: &str, entity: &str, kind: &str, detail: &str) -> Result<(), String> {
+        let exists: bool = self
+            .conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM notices WHERE project_id = ?1 AND entity = ?2 AND kind = ?3 AND detail = ?4)",
+                params![project_id, entity, kind, detail],
+                |r| r.get(0),
+            )
+            .map_err(err)?;
+        if exists {
+            return Ok(());
+        }
+        self.add_notice(project_id, entity, kind, detail)
+    }
+
     /// Recent notices, newest first: `(id, entity, kind, detail, created_at)`.
     pub fn notices(&self, project_id: &str, limit: usize) -> Result<Vec<NoticeRow>, String> {
         let mut stmt = self

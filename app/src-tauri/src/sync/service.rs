@@ -62,13 +62,29 @@ fn open_store() -> Result<Store, String> {
 
 pub fn device_name() -> String {
     if cfg!(target_os = "android") {
-        return "Android device".into();
+        // The phone's model ("Pixel 8"), so conflict copies from two phones are told apart.
+        return android_model().unwrap_or_else(|| "Android device".into());
     }
     std::env::var("COMPUTERNAME")
         .or_else(|_| std::env::var("HOSTNAME"))
         .ok()
         .filter(|n| !n.trim().is_empty())
         .unwrap_or_else(|| "Desktop".into())
+}
+
+/// `ro.product.model` through Android's `getprop` (readable by apps, no permission needed).
+fn android_model() -> Option<String> {
+    if !cfg!(target_os = "android") {
+        return None;
+    }
+    static MODEL: OnceLock<Option<String>> = OnceLock::new();
+    MODEL
+        .get_or_init(|| {
+            let out = std::process::Command::new("/system/bin/getprop").arg("ro.product.model").output().ok()?;
+            let name = String::from_utf8(out.stdout).ok()?.trim().chars().take(60).collect::<String>();
+            (!name.is_empty()).then_some(name)
+        })
+        .clone()
 }
 
 fn account(store: &Store) -> Result<Option<Account>, String> {
@@ -259,7 +275,7 @@ fn round(only: Option<&str>) -> Round {
                 let _ = store.set_project_result(&project_id, None);
                 after_changes(&project_id, &dir, &report);
                 if let Ok(project) = Project::load_from_path(&dir) {
-                    if let Err(e) = drive.publish_info(&store, &project_id, &project.name, &engine.device_id, &name) {
+                    if let Err(e) = drive.publish_info(&store, &project_id, &project.name, &engine.device_id, &name, report.published > 0) {
                         log::warn!("sync: catalogue update failed: {e}");
                     }
                 }
@@ -451,8 +467,9 @@ pub fn status() -> Result<SyncStatus, String> {
         configured: auth::configured(),
         platform: platform(),
         account: acct,
+        // Why sync is unavailable here (Linux), shown instead of build instructions.
+        message: if state == "unconfigured" { auth::unavailable_reason().map(String::from) } else { g.message },
         state,
-        message: g.message,
         last_round: g.last_round,
         device_name: device_name(),
         projects,
@@ -480,19 +497,33 @@ fn valid_project(project_id: &str) -> Result<(), String> {
     }
 }
 
+/// Every command that turns ids into paths checks them first (`documents/<id>.json`, the
+/// project folder), whoever the caller is.
+fn valid_ids(project_id: &str, document_id: Option<&str>) -> Result<(), String> {
+    valid_project(project_id)?;
+    match document_id {
+        Some(d) if !model::safe_id(d) => Err("Invalid document".into()),
+        _ => Ok(()),
+    }
+}
+
 /// After a grant: identify the Google account and refuse to silently switch accounts.
 fn adopt_account() -> Result<Account, String> {
-    let fresh = Drive::new().about().map_err(|e| e.to_string())?;
+    adopt_account_typed().map_err(|e| e.to_string())
+}
+
+fn adopt_account_typed() -> Result<Account, TransportError> {
+    let fresh = Drive::new().about()?;
     let store = open_store()?;
     if let Some(previous) = account(&store)? {
         if previous.id != fresh.id && !store.enabled_projects()?.is_empty() {
             // Keep the grant out of use: projects stay tied to the account they were synced with.
             let _ = auth::sign_out();
-            return Err(format!(
+            return Err(TransportError::Other(format!(
                 "Signed in as {}, but this device syncs with {}. Sign in with that account, or turn sync off for every project first.",
                 if fresh.email.is_empty() { "another account".to_string() } else { fresh.email.clone() },
                 if previous.email.is_empty() { "another account".to_string() } else { previous.email.clone() },
-            ));
+            )));
         }
     }
     store.set_meta("drive.account", &serde_json::to_string(&fresh).map_err(|e| e.to_string())?)?;
@@ -508,12 +539,21 @@ pub fn sync_status() -> ApiResponse<SyncStatus> {
 pub async fn drive_sign_in() -> ApiResponse<SyncStatus> {
     blocking(|| {
         // A grant from a sign-in whose account check failed (e.g. the Drive API was still off)
-        // is reused, so retrying doesn't send the writer through Google's pages again.
-        let reused = auth::has_grant() && adopt_account().is_ok();
-        if !reused {
-            auth::sign_in().map_err(|e| e.to_string())?;
-            adopt_account()?;
+        // is reused, so retrying doesn't send the writer through Google's pages again. Only a
+        // grant Google no longer accepts leads to a new sign-in; any other failure (API still
+        // off, offline, rate limited, wrong account) is reported and the grant is kept.
+        if auth::has_grant() {
+            match adopt_account_typed() {
+                Ok(_) => {
+                    wake_now();
+                    return status();
+                }
+                Err(TransportError::Auth(_)) => {}
+                Err(e) => return Err(e.to_string()),
+            }
         }
+        auth::sign_in().map_err(|e| e.to_string())?;
+        adopt_account()?;
         wake_now();
         status()
     })
@@ -581,6 +621,7 @@ pub async fn sync_enable_project(project_id: String) -> ApiResponse<SyncStatus> 
 #[tauri::command]
 pub async fn sync_disable_project(project_id: String) -> ApiResponse<SyncStatus> {
     blocking(move || {
+        valid_ids(&project_id, None)?;
         let _guard = lock(&ENGINE);
         open_store()?.disable_project(&project_id)?;
         drop(_guard);
@@ -666,6 +707,9 @@ pub fn sync_now() -> ApiResponse<()> {
 pub async fn sync_set_active(project_id: Option<String>, document_id: Option<String>) -> ApiResponse<()> {
     blocking(move || {
         let next = project_id.zip(document_id);
+        if let Some((p, d)) = &next {
+            valid_ids(p, Some(d))?;
+        }
         let previous = match service() {
             Some(s) => std::mem::replace(&mut *lock(&s.active), next.clone()),
             None => None,
@@ -697,7 +741,7 @@ fn apply_staged_inner(project_id: &str, doc_id: &str) -> Result<SyncReport, Stri
 #[tauri::command]
 pub async fn sync_apply_staged(project_id: String, document_id: String) -> ApiResponse<SyncReport> {
     blocking(move || {
-        valid_project(&project_id)?;
+        valid_ids(&project_id, Some(&document_id))?;
         let report = apply_staged_inner(&project_id, &document_id)?;
         nudge(&project_id);
         Ok(report)
@@ -708,6 +752,7 @@ pub async fn sync_apply_staged(project_id: String, document_id: String) -> ApiRe
 #[tauri::command]
 pub async fn sync_conflict(project_id: String, document_id: String) -> ApiResponse<Vec<ConflictVersion>> {
     blocking(move || {
+        valid_ids(&project_id, Some(&document_id))?;
         let _guard = lock(&ENGINE);
         let store = open_store()?;
         let dir = Project::resolve_dir(&project_id);
@@ -720,6 +765,7 @@ pub async fn sync_conflict(project_id: String, document_id: String) -> ApiRespon
 #[tauri::command]
 pub async fn sync_resolve_conflict(project_id: String, document_id: String, keep: String, keep_copies: bool) -> ApiResponse<Vec<String>> {
     blocking(move || {
+        valid_ids(&project_id, Some(&document_id))?;
         let created = {
             let _guard = lock(&ENGINE);
             let store = open_store()?;
@@ -736,7 +782,33 @@ pub async fn sync_resolve_conflict(project_id: String, document_id: String, keep
     .await
 }
 
+/// Bytes MnemoScript keeps in the writer's Drive (asked for when the settings card opens).
+#[tauri::command]
+pub async fn drive_usage() -> ApiResponse<u64> {
+    blocking(|| {
+        account(&open_store()?)?.ok_or("Sign in to Google Drive first")?;
+        Drive::new().usage().map_err(|e| e.to_string())
+    })
+    .await
+}
+
 #[tauri::command]
 pub fn sync_dismiss_notice(id: i64) -> ApiResponse<()> {
     respond(open_store().and_then(|s| s.dismiss_notice(id)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression (PR #4 review, finding 7): three commands joined unchecked ids into
+    /// `documents/<id>.json` and the project folder path.
+    #[test]
+    fn commands_refuse_ids_that_could_leave_the_project() {
+        assert!(valid_ids("6f0e3a52-1b7c-4f43-9d55-0a1b2c3d4e5f", Some("ch-1")).is_ok());
+        for bad in ["../other", r"..\other", "a/b", "", r"C:\Windows"] {
+            assert!(valid_ids(bad, None).is_err(), "project {bad:?}");
+            assert!(valid_ids("6f0e3a52-1b7c-4f43-9d55-0a1b2c3d4e5f", Some(bad)).is_err(), "document {bad:?}");
+        }
+    }
 }
