@@ -1,8 +1,9 @@
 # Testing MnemoScript
 
-Use Node 24.15.0 from the root `.node-version` (supported range: 24.15+ in 24.x). Both CI and
+Use Node 24.15.0 from the root `.node-version` (supported: `^22.22.2 || ^24.15.0 || >=26`). Both CI and
 release workflows read this file. Locked jsdom 30/undici 8 cannot start under the former Node 20
-CI runtime. `regression/runtime.regression.test.ts` exercises jsdom in a fresh Node worker.
+CI runtime. `regression/runtime.regression.test.ts` checks the running Node satisfies `engines.node`
+(`^22.22.2 || ^24.15.0 || >=26`, the range locked jsdom accepts).
 `regression/ai-history.regression.test.ts` fixes the clock to verify fast AI responses cannot
 merge undo history with preceding or following typing (word rewrite, structural rewrite, continue).
 

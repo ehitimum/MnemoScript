@@ -30,6 +30,15 @@ Items 1–3 were in the released 2.1.0; each fix has a regression test.
   byte-identical, from `node_modules`, no network).
 - Version 2.1.1 in `package.json`, `Cargo.toml`, `tauri.conf.json` (not tagged).
 
+## 2026-11-12 — MnemoSync strategy and initial recovery slice
+
+- Extracted the supplied development plan and MEMORY.md under `docs/mnemosync/`; treated as
+  reference documents. Verified PR #1 is open and feature HEAD is still `0f15939e2f30`.
+- Recorded architecture decisions, threat model, schema/migration contract, phased PR strategy
+  and an honest automated/device/visual acceptance matrix. Preserve current AI work and UI shells.
+- Phase 0 implementation begins with checked native ZIP recovery; transports and Smart Merge
+  remain gated follow-on work. Baseline `npm run check`: 116 tests, lint/types/build pass.
+
 ## 2026-11-12 — Isolate AI revisions from nearby typing in undo history
 
 - After fixing the CI runtime, Linux exposed a real timing bug: a fast accepted AI rewrite
