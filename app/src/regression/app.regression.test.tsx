@@ -151,7 +151,8 @@ describe('Saving never reports lost edits as saved (regression, PR #1 review ite
       const ch1 = storedProjects()[0].documents.find((d) => d.title === 'Chapter 1');
       expect(ch1?.content).toContain('First words and more');
     });
-    expect(screen.getByText(/^saved$/i)).toBeInTheDocument();
+    // The flag flips right after the write resolves, a tick after storage shows the text.
+    expect(await screen.findByText(/^saved$/i)).toBeInTheDocument();
     spy.mockRestore();
   });
 
