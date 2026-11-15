@@ -1,0 +1,7 @@
+# Packaged installers / APKs copied out of the build tree (large binaries)
+release/
+
+# Android release signing key — NEVER commit. Back it up somewhere safe:
+# Android requires the SAME key to publish updates to an installed app.
+app/src-tauri/gen/android/keystore.jks
+app/src-tauri/gen/android/keystore.properties

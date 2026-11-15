@@ -23,6 +23,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import type { Document } from '../types';
 import type { ThemeType } from '../App';
+import { nextMindNodeIndex, registerCanvasFlush } from '../lib/canvasFlush';
 import {
   Save,
   Wand2,
@@ -323,7 +324,9 @@ const nodeTypes: NodeTypes = { editable: EditableNode };
 
 interface MindMapProps {
   document: Document;
-  onUpdateContent: (content: string) => void;
+  /** Debounced content updates; `docId` lets a late flush (unmount while
+   *  switching documents) reach the right document. */
+  onUpdateContent: (content: string, docId: string) => void;
   onRequestSave: () => void;
   theme: ThemeType;
 }
@@ -420,7 +423,7 @@ function MindMapCanvas({ document: doc, onUpdateContent, onRequestSave }: MindMa
   const initial = useMemo(() => parseContent(doc.content), [doc.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const [nodes, setNodes, onNodesChange] = useNodesState<MindNode>(initial.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(initial.edges);
-  const idRef = useRef(initial.nodes.length + 1);
+  const idRef = useRef(nextMindNodeIndex(initial.nodes));
   const didMount = useRef(false);
   const { fitView, screenToFlowPosition } = useReactFlow();
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -429,20 +432,25 @@ function MindMapCanvas({ document: doc, onUpdateContent, onRequestSave }: MindMa
   // re-created on every change.
   const nodesRef = useRef(nodes);
   const edgesRef = useRef(edges);
-  nodesRef.current = nodes;
-  edgesRef.current = edges;
+  useEffect(() => {
+    nodesRef.current = nodes;
+    edgesRef.current = edges;
+  }, [nodes, edges]);
 
   // ── Undo / redo history ────────────────────────────────────────────
   const pastRef = useRef<{ nodes: MindNode[]; edges: Edge[] }[]>([]);
   const futureRef = useRef<{ nodes: MindNode[]; edges: Edge[] }[]>([]);
-  const [, setHistVer] = useState(0);
+  // Stack depths mirrored into state so the toolbar buttons can enable/disable
+  // without reading refs during render.
+  const [hist, setHist] = useState({ past: 0, future: 0 });
+  const setHistVer = () => setHist({ past: pastRef.current.length, future: futureRef.current.length });
 
   // Snapshot the *current* state. Call right before any mutation so undo can
   // step back to it; any new action clears the redo stack.
   const takeSnapshot = useCallback(() => {
     pastRef.current = [...pastRef.current.slice(-49), { nodes: nodesRef.current, edges: edgesRef.current }];
     futureRef.current = [];
-    setHistVer((v) => v + 1);
+    setHistVer();
   }, []);
 
   const undo = useCallback(() => {
@@ -452,7 +460,7 @@ function MindMapCanvas({ document: doc, onUpdateContent, onRequestSave }: MindMa
     futureRef.current = [...futureRef.current, { nodes: nodesRef.current, edges: edgesRef.current }];
     setNodes(past[past.length - 1].nodes);
     setEdges(past[past.length - 1].edges);
-    setHistVer((v) => v + 1);
+    setHistVer();
   }, [setNodes, setEdges]);
 
   const redo = useCallback(() => {
@@ -462,11 +470,11 @@ function MindMapCanvas({ document: doc, onUpdateContent, onRequestSave }: MindMa
     pastRef.current = [...pastRef.current, { nodes: nodesRef.current, edges: edgesRef.current }];
     setNodes(future[future.length - 1].nodes);
     setEdges(future[future.length - 1].edges);
-    setHistVer((v) => v + 1);
+    setHistVer();
   }, [setNodes, setEdges]);
 
-  const canUndo = pastRef.current.length > 0;
-  const canRedo = futureRef.current.length > 0;
+  const canUndo = hist.past > 0;
+  const canRedo = hist.future > 0;
 
   // Ctrl/Cmd+Z to undo, Ctrl+Y or Ctrl/Cmd+Shift+Z to redo. Ignored while typing
   // inside a node so the textarea keeps its own native undo.
@@ -553,6 +561,7 @@ function MindMapCanvas({ document: doc, onUpdateContent, onRequestSave }: MindMa
   // Delete key. `nodeId === null` means it was opened on the empty canvas.
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; nodeId: string | null; edgeId: string | null } | null>(null);
   const clipboardRef = useRef<MindNodeData | null>(null);
+  const [hasClipboard, setHasClipboard] = useState(false);
   const ctxOpenedAtRef = useRef(0);
 
   const onNodeContextMenu = useCallback((e: React.MouseEvent, node: MindNode) => {
@@ -590,7 +599,10 @@ function MindMapCanvas({ document: doc, onUpdateContent, onRequestSave }: MindMa
   };
   const copyNodeById = (id: string) => {
     const n = nodes.find((x) => x.id === id);
-    if (n) clipboardRef.current = { ...n.data };
+    if (n) {
+      clipboardRef.current = { ...n.data };
+      setHasClipboard(true);
+    }
   };
   const duplicateNodeById = (id: string) => {
     const n = nodes.find((x) => x.id === id);
@@ -672,15 +684,50 @@ function MindMapCanvas({ document: doc, onUpdateContent, onRequestSave }: MindMa
     [nodes, edges, setNodes, setEdges, fitView, takeSnapshot],
   );
 
-  // Persist (debounced) on any change after the initial hydration render.
+  // Persist (debounced) on any change after the initial hydration render. A
+  // pending update is flushed on unmount and before an explicit Save so the
+  // last few hundred milliseconds of edits are never lost.
+  const pendingRef = useRef(false);
+  const docId = doc.id;
   useEffect(() => {
     if (!didMount.current) {
       didMount.current = true;
       return;
     }
-    const t = setTimeout(() => onUpdateContent(JSON.stringify({ nodes, edges })), 400);
+    pendingRef.current = true;
+    const t = setTimeout(() => {
+      pendingRef.current = false;
+      onUpdateContent(JSON.stringify({ nodes, edges }), docId);
+    }, 400);
     return () => clearTimeout(t);
-  }, [nodes, edges, onUpdateContent]);
+  }, [nodes, edges, docId, onUpdateContent]);
+  useEffect(
+    () => () => {
+      if (pendingRef.current) {
+        pendingRef.current = false;
+        onUpdateContent(JSON.stringify({ nodes: nodesRef.current, edges: edgesRef.current }), docId);
+      }
+    },
+    [docId, onUpdateContent],
+  );
+  // The AI flushes pending edits before it reads or rewrites a document.
+  useEffect(
+    () =>
+      registerCanvasFlush(() => {
+        if (pendingRef.current) {
+          pendingRef.current = false;
+          onUpdateContent(JSON.stringify({ nodes: nodesRef.current, edges: edgesRef.current }), docId);
+        }
+      }),
+    [docId, onUpdateContent],
+  );
+  const flushAndSave = () => {
+    if (pendingRef.current) {
+      pendingRef.current = false;
+      onUpdateContent(JSON.stringify({ nodes: nodesRef.current, edges: edgesRef.current }), docId);
+    }
+    onRequestSave();
+  };
 
   const btn =
     'flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-md border border-border/30 hover:bg-secondary/60 active:scale-95 cursor-pointer transition-all';
@@ -762,7 +809,7 @@ function MindMapCanvas({ document: doc, onUpdateContent, onRequestSave }: MindMa
         <span className="text-[11px] text-muted-foreground/80 hidden md:block truncate">
           Click a shape to add it · Double-click to edit · drag any side to connect · Del to remove
         </span>
-        <button onClick={onRequestSave} className={`${btn} text-primary`} title="Save mind map">
+        <button onClick={flushAndSave} className={`${btn} text-primary`} title="Save mind map">
           <Save className="w-3.5 h-3.5" /> Save
         </button>
       </div>
@@ -818,13 +865,13 @@ function MindMapCanvas({ document: doc, onUpdateContent, onRequestSave }: MindMa
                   <CtxItem icon={Copy} label="Copy" onSelect={() => runCtx(() => copyNodeById(ctxMenu.nodeId!))} />
                   <CtxItem icon={Scissors} label="Cut" onSelect={() => runCtx(() => { copyNodeById(ctxMenu.nodeId!); deleteNodeById(ctxMenu.nodeId!); })} />
                   <CtxItem icon={CopyPlus} label="Duplicate" onSelect={() => runCtx(() => duplicateNodeById(ctxMenu.nodeId!))} />
-                  {clipboardRef.current && (
+                  {hasClipboard && (
                     <CtxItem icon={ClipboardPaste} label="Paste" onSelect={() => runCtx(() => pasteAt(ctxMenu.x, ctxMenu.y))} />
                   )}
                   <div className="h-px bg-border/40 my-1" />
                   <CtxItem icon={Trash2} label="Delete" danger onSelect={() => runCtx(() => deleteNodeById(ctxMenu.nodeId!))} />
                 </>
-              ) : clipboardRef.current ? (
+              ) : hasClipboard ? (
                 <CtxItem icon={ClipboardPaste} label="Paste here" onSelect={() => runCtx(() => pasteAt(ctxMenu.x, ctxMenu.y))} />
               ) : (
                 <div className="px-2.5 py-2 text-xs text-muted-foreground/70 italic">Long-press a node for actions</div>
