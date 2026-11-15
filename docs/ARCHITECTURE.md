@@ -47,6 +47,9 @@ All return an `ApiResponse<T>` = `{ success, data, error }` envelope.
 `save_document` · `load_document` · `delete_document` · **`save_asset`** (raw binary body + `x-project-id`
 / `x-ext` headers → copies into `assets/`, returns the absolute path) · **`export_file`** (raw body →
 `<project>/exports/<name>`) · `select_directory`.
+**Webview limits:** the `fs` plugin may read/write only paths the writer picked in a dialog (no
+`**` scope), and `tauri.conf.json` sets a CSP (self, `wasm-unsafe-eval`, blob workers, asset/IPC
+hosts, LanguageTool). Add a host there before the webview may contact it.
 All file writes go through `write_atomic` (tmp + rename). `project.json` stores folders + a
 **content-free** document index; document bodies live only in `documents/<id>.json`. Unreadable or
 corrupt document files are skipped with a warning so one bad file never blocks a project.
@@ -135,7 +138,8 @@ controls live in `RightSidebar.tsx`.
   segments; each is transcribed by Whisper (`@huggingface/transformers`, `whisper-tiny.en`, q8) in
   a Web Worker (`transcriber.worker.ts`). `dictationController.ts` orchestrates; `useDictation`
   inserts each segment at the caret. Heavy libs are **dynamically imported** (kept out of the main
-  bundle). **Offline setup (two scripts; outputs gitignored):** `npm run setup:speech`
+  bundle). **Offline setup (two scripts; outputs gitignored; `npm run build` runs the first one
+itself):** `npm run setup:speech`
   (`scripts/setup_speech_assets.mjs`) copies the VAD worklet + Silero ONNX to `public/vad/` and
   onnxruntime-web wasm to `public/ort/`; `npm run fetch:model` (`scripts/fetch_whisper_model.mjs`)
   downloads the Whisper **q8 / `_quantized`** files (~42 MB) to

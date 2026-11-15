@@ -1,13 +1,14 @@
 {
   "name": "mnemoscript",
   "private": true,
-  "version": "2.1.0",
+  "version": "2.1.1",
   "type": "module",
   "engines": {
     "node": "^24.15.0"
   },
   "scripts": {
     "dev": "vite",
+    "prebuild": "npm run setup:speech",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",

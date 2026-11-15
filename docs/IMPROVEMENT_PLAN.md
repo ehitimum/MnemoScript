@@ -101,7 +101,7 @@ phone shell.
 | 3 | Write tools (text / mind map / map edits), Ask approval cards, Auto with snapshots + undo | ✅ done |
 | 4 | Inline commands (`/polish`, `/proofread`, `/grammar`, `/shorten`, `/expand`, `/tone`, continue) | ✅ done |
 | 5 | Settings → AI: account, plan, usage bars, API keys, default mode | ✅ done |
-| 6a | Phone ↔ PC pairing (phone uses the PC's Claude Code) | ✅ done (device test pending) |
+| 6a | Phone ↔ PC pairing (phone uses the PC's Claude Code) | ✅ done (device test pending); 2.1.1 fixed turn-id path traversal |
 | 6b | Gemini CLI bridge (Codex not installed; Antigravity has no headless CLI), OpenAI partner sign-in | later |
 
 **Future AI connections (noted 2026-11-12, after v2.1.0):**

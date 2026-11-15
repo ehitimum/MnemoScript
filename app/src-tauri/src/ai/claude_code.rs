@@ -232,7 +232,32 @@ pub fn parse_line(v: &Value, st: &mut StreamState) -> Vec<AiEvent> {
 }
 
 /// Per-turn scratch folder (empty cwd, prompt + MCP config files). Removed on drop.
+///
+/// Named with a fresh random id, never from the turn id (a paired phone chooses part of that),
+/// and private to the user on Unix: it holds a manuscript excerpt and the live MCP tool URL.
 pub(crate) struct Scratch(pub(crate) PathBuf);
+impl Scratch {
+    pub(crate) fn root() -> PathBuf {
+        std::env::temp_dir().join("mnemoscript-ai").join("turns")
+    }
+
+    pub(crate) fn new() -> std::io::Result<Scratch> {
+        let root = Self::root();
+        std::fs::create_dir_all(&root)?;
+        let dir = root.join(uuid::Uuid::new_v4().simple().to_string());
+        #[cfg(unix)]
+        let builder = {
+            use std::os::unix::fs::DirBuilderExt;
+            let mut b = std::fs::DirBuilder::new();
+            b.mode(0o700);
+            b
+        };
+        #[cfg(not(unix))]
+        let builder = std::fs::DirBuilder::new();
+        builder.create(&dir)?;
+        Ok(Scratch(dir))
+    }
+}
 impl Drop for Scratch {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.0);
@@ -247,7 +272,7 @@ pub async fn run(turn: &Turn, req: &TurnRequest) -> Result<(), AiEvent> {
         return Err(AiEvent::error("provider", format!("\"{}\" is not a Claude model name", req.model)));
     }
     let (earlier, last) = req.messages.split_at(req.messages.len() - 1);
-    let scratch = Scratch(std::env::temp_dir().join("mnemoscript-ai").join(&turn.id));
+    let scratch = Scratch::new().map_err(|e| AiEvent::error("provider", e.to_string()))?;
     let cwd = scratch.0.join("cwd");
     std::fs::create_dir_all(&cwd).map_err(|e| AiEvent::error("provider", e.to_string()))?;
     let system_file = scratch.0.join("system.txt");
@@ -326,6 +351,30 @@ pub async fn run(turn: &Turn, req: &TurnRequest) -> Result<(), AiEvent> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Regression (PR #1 review, item 1): the scratch folder was `temp/mnemoscript-ai/<turn id>`
+    /// and a paired phone chose part of the id, so `../` segments pointed it anywhere, and the
+    /// folder was deleted with its contents when the turn ended.
+    #[test]
+    fn scratch_folders_never_take_their_name_from_the_turn() {
+        let a = Scratch::new().unwrap();
+        let b = Scratch::new().unwrap();
+        assert_ne!(a.0, b.0);
+        for s in [&a, &b] {
+            assert_eq!(s.0.parent().unwrap(), Scratch::root());
+            let name = s.0.file_name().unwrap().to_str().unwrap();
+            assert!(name.len() == 32 && name.chars().all(|c| c.is_ascii_hexdigit()), "{name}");
+            assert!(s.0.is_dir());
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(std::fs::metadata(&a.0).unwrap().permissions().mode() & 0o777, 0o700);
+        }
+        let path = a.0.clone();
+        drop(a);
+        assert!(!path.exists(), "removed when the turn ends");
+    }
 
     /// Live: asks the installed, signed-in Claude Code for its usage report (free: no model call).
     /// `cargo test live_claude_code_usage -- --ignored --nocapture`

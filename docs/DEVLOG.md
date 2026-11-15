@@ -3,6 +3,33 @@
 A running log of substantive changes, so future work needs less re-discovery.
 Newest entries first. Dates are absolute.
 
+## 2026-11-15 — 2.1.1: fixes from the PR #1 review (security and lost edits)
+
+Items 1–3 were in the released 2.1.0; each fix has a regression test.
+- **Paired phone could reach any folder (security).** The per-turn scratch folder was named from
+  the turn id, which a paired phone partly chooses; `../` in it pointed the folder anywhere and it
+  was deleted when the turn ended. Scratch folders now get a fresh random name under
+  `temp/mnemoscript-ai/turns/` (owner-only on Unix), and `Turn::register` refuses any turn id that
+  is not a plain token. The loopback pairing test sends a `../` turn id.
+- **Inline AI inserted words at the top of the document.** A word added at the start of a later
+  paragraph of the selection used the paragraph separator's position (-1) + 1 = 0. It now goes
+  before the next real character (`rewrite.ts`, `insertionPoint`), as plain text.
+- **Edits could be lost while the status bar said "Saved".** `persistCurrent` marked the document
+  saved after the write even if typing landed meanwhile, and swallowed failed saves, so switching
+  document or closing the window went ahead. It now marks saved only if the document object is
+  unchanged, returns success, and `leaveDocument` asks before leaving a chapter whose save failed
+  (native dialog in the app). Closing the window asks too.
+- **Webview hardening.** The file-system scope is no longer the whole disk: read/write are allowed
+  only on paths the writer picks in a dialog (the dialog plugin adds them; Android pickers return
+  content URIs that need no scope). A real CSP replaces `csp: null` (self, wasm, blob workers,
+  asset/IPC hosts, LanguageTool). Checked in a browser against the production build: editor, mind
+  map, map generation, WebAssembly and workers run with no violations. Not yet run in the
+  installed desktop app or on Android.
+- **Repo.** The 29 generated speech files under `app/public/ort` and `app/public/vad` (97 MB) are
+  no longer tracked; `npm run build` regenerates them first (`prebuild` → `setup:speech`,
+  byte-identical, from `node_modules`, no network).
+- Version 2.1.1 in `package.json`, `Cargo.toml`, `tauri.conf.json` (not tagged).
+
 ## 2026-11-12 — Isolate AI revisions from nearby typing in undo history
 
 - After fixing the CI runtime, Linux exposed a real timing bug: a fast accepted AI rewrite

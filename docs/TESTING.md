@@ -56,7 +56,13 @@ delete, legacy `project.json` without new fields, missing-document errors.
   `flatten`/`applyRewrite`/`insertParagraphsAfter` against a real TipTap editor (marks kept, one undo
   step, structural fallback, stale-text refusal), `AiTarget` range mapping.
 - Backend `cargo test pair` — pairing crypto, and an end-to-end loopback test of the PC server + phone
-  client (pairing, relayed turn with a tool call, wrong code, revocation, replay).
+  client (pairing, relayed turn with a tool call, wrong code, revocation, replay, a `../` turn id
+  refused before anything runs).
+- 2.1.1 regressions (PR #1 review): `ai::engine` turn ids must be plain tokens; `ai::claude_code`
+  scratch folders get random names under the scratch root and vanish when the turn ends;
+  `regression/ai-rewrite.regression.test.ts` (a word added at the start of a later paragraph lands
+  there, formatting and one-step undo kept); `regression/app.regression.test.tsx` (typing during a
+  save stays unsaved; a failed save asks before leaving and stays when declined).
 - Unit `lib/ai/usage.test.ts` — `/usage` report parsing (real captured text), local usage totals,
   default mode for unconfigured projects.
 - Regression `regression/ai.regression.test.tsx` — desktop panel (Ctrl+L, connect screen, a full mocked

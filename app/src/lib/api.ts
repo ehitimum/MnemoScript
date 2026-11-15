@@ -121,6 +121,13 @@ export const api = {
    * the dialog/fs plugins so it works on desktop and Android alike; the bytes are
    * then handed to the `save_asset` backend command to persist.
    */
+  /** Ask the writer to confirm losing unsaved work (native dialog in the app). */
+  confirmDiscard: async (message: string): Promise<boolean> => {
+    if (!isTauri) return window.confirm(message);
+    const { ask } = await import('@tauri-apps/plugin-dialog');
+    return ask(message, { title: 'Unsaved changes', kind: 'warning', okLabel: 'Leave without saving', cancelLabel: 'Stay' });
+  },
+
   importImage: async (projectId: string): Promise<string | null> => {
     if (!isTauri) return null;
     const [{ open }, { readFile }] = await Promise.all([

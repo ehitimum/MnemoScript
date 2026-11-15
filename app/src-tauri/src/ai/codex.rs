@@ -150,7 +150,7 @@ pub async fn run(turn: &Turn, req: &TurnRequest) -> Result<(), AiEvent> {
         return Err(AiEvent::error("provider", format!("\"{}\" is not a valid model name", req.model)));
     }
     let (earlier, last) = req.messages.split_at(req.messages.len() - 1);
-    let scratch = Scratch(std::env::temp_dir().join("mnemoscript-ai").join(&turn.id));
+    let scratch = Scratch::new().map_err(|e| AiEvent::error("provider", e.to_string()))?;
     let cwd = scratch.0.join("cwd");
     std::fs::create_dir_all(&cwd).map_err(|e| AiEvent::error("provider", e.to_string()))?;
     let mcp = super::mcp_http::register(turn, req.tools.clone()).map_err(|e| AiEvent::error("provider", e))?;

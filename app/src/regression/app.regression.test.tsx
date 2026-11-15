@@ -114,3 +114,69 @@ describe('App persistence (regression)', () => {
     });
   });
 });
+
+describe('Saving never reports lost edits as saved (regression, PR #1 review item 3)', () => {
+  async function openChapter(name: string) {
+    const App = await loadApp();
+    const { api } = await import('../lib/api');
+    render(<App />);
+    await createProject(name);
+    fireEvent.click(screen.getByRole('button', { name: /new chapter/i }));
+    await waitFor(() => expect(document.querySelector('.ProseMirror')).toBeTruthy());
+    return api;
+  }
+
+  it('keeps typing that lands during a save marked unsaved, and the next save writes it', async () => {
+    const api = await openChapter('Race Novel');
+    const real = api.saveDocument;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const spy = vi.spyOn(api, 'saveDocument').mockImplementationOnce(async (...args) => {
+      await gate;
+      return real(...args);
+    });
+    act(() => {
+      liveEditor().commands.setContent('<p>First words</p>', { emitUpdate: true });
+    });
+    fireEvent.click(screen.getByTitle('Save (Ctrl+S)'));
+    await waitFor(() => expect(spy).toHaveBeenCalledOnce());
+    // The writer keeps typing while the save is on its way to disk.
+    act(() => {
+      liveEditor().commands.setContent('<p>First words and more</p>', { emitUpdate: true });
+    });
+    await act(async () => release());
+    expect(screen.getByText(/unsaved changes/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByTitle('Save (Ctrl+S)'));
+    await waitFor(() => {
+      const ch1 = storedProjects()[0].documents.find((d) => d.title === 'Chapter 1');
+      expect(ch1?.content).toContain('First words and more');
+    });
+    expect(screen.getByText(/^saved$/i)).toBeInTheDocument();
+    spy.mockRestore();
+  });
+
+  it('asks before leaving a chapter whose save failed, and stays when the writer says no', async () => {
+    const api = await openChapter('Failing Novel');
+    act(() => {
+      liveEditor().commands.setContent('<p>Words the disk refused</p>', { emitUpdate: true });
+    });
+    const spy = vi.spyOn(api, 'saveDocument').mockRejectedValue(new Error('Disk full'));
+    const confirm = vi.spyOn(api, 'confirmDiscard').mockResolvedValue(false);
+    fireEvent.click(screen.getByTitle('Add…'));
+    fireEvent.click(within(screen.getByRole('complementary')).getByText('New Chapter'));
+    await waitFor(() => expect(confirm).toHaveBeenCalledOnce());
+    expect(confirm.mock.calls[0][0]).toContain('Chapter 1');
+    // Still on the same chapter, edits on screen, and still flagged as not saved.
+    expect(liveEditor().getHTML()).toContain('Words the disk refused');
+    expect(screen.queryByText(/^saved$/i)).toBeNull();
+
+    // Once the disk works again, the same edits are saved.
+    spy.mockRestore();
+    fireEvent.click(screen.getByTitle('Save (Ctrl+S)'));
+    await waitFor(() => {
+      const ch1 = storedProjects()[0].documents.find((d) => d.title === 'Chapter 1');
+      expect(ch1?.content).toContain('Words the disk refused');
+    });
+    confirm.mockRestore();
+  });
+});

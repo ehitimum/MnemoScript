@@ -621,6 +621,20 @@ mod tests {
             assert!(got.contains(&AiEvent::TextDelta { text: "read: Chapter text".into() }));
             assert!(matches!(got.last(), Some(AiEvent::Done { .. })));
 
+            // Regression (PR #1 review, item 1): a turn id that climbs out of the scratch root is
+            // refused before anything runs, and nothing appears outside it.
+            let outside = std::env::temp_dir().join(format!("mnemo-escape-{}", random_id()));
+            let escape = format!("../../../{}", outside.file_name().unwrap().to_string_lossy());
+            let ev3 = Arc::new(Mutex::new(Vec::<AiEvent>::new()));
+            let e3 = ev3.clone();
+            let t3 = Turn::register("phone-turn-3", Arc::new(move |e| e3.lock().unwrap().push(e))).unwrap();
+            let r = pair_client::run_with(&t3, &TurnRequest { turn_id: escape, ..req.clone() }, &pc).await;
+            t3.finish();
+            let got3 = ev3.lock().unwrap().clone();
+            assert!(r.is_err() || got3.iter().any(|e| matches!(e, AiEvent::Error { .. })), "{r:?} {got3:?}");
+            assert!(!got3.iter().any(|e| matches!(e, AiEvent::Started { .. })), "the turn must not run");
+            assert!(!outside.exists());
+
             // Removing the phone on the PC revokes it immediately.
             server.remove_device(&pc.device_id);
             let t2 = Turn::register("phone-turn-2", Arc::new(|_| {})).unwrap();

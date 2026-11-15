@@ -33,9 +33,20 @@ pub struct Turn {
     cancel: watch::Receiver<bool>,
 }
 
+/// Same character set as session ids (`sessions::valid_id`), longer for the
+/// `remote-<device>-<phone turn>` form.
+pub fn valid_turn_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 200 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
 impl Turn {
-    /// Register a turn. Fails if a turn with the same id is already running.
+    /// Register a turn. Fails if a turn with the same id is already running, or if the id is not
+    /// a plain token: ids come from the webview and from paired phones, so nothing downstream
+    /// may ever treat one as part of a path.
     pub fn register(id: &str, sink: Sink) -> Result<Turn, String> {
+        if !valid_turn_id(id) {
+            return Err("Invalid turn id".into());
+        }
         let mut reg = lock();
         if reg.contains_key(id) {
             return Err("This turn is already running".into());
@@ -167,6 +178,17 @@ mod tests {
         let events = Arc::new(Mutex::new(Vec::new()));
         let e2 = events.clone();
         (Arc::new(move |e| e2.lock().unwrap().push(e)), events)
+    }
+
+    /// Regression (PR #1 review, item 1): turn ids were never validated, so a phone's
+    /// `turnId` could carry `../` into code that builds paths.
+    #[test]
+    fn turn_ids_must_be_plain_tokens() {
+        for bad in ["", "../escape", "remote-dev-../../x", r"a\b", "a/b", "turn.1", &"x".repeat(201)] {
+            assert!(Turn::register(bad, Arc::new(|_| {})).is_err(), "{bad:?}");
+        }
+        let ok = Turn::register("remote-6f0e3a52-1b7c-4f43-9d55-0a1b2c3d4e5f-e1f2", Arc::new(|_| {})).unwrap();
+        ok.finish();
     }
 
     #[tokio::test]

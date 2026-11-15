@@ -61,6 +61,18 @@ const paragraphs = (t: string) =>
 const paragraphNodes = (t: string) =>
   paragraphs(t).map((p) => ({ type: 'paragraph', content: [{ type: 'text', text: p }] }));
 
+/**
+ * Document position for text inserted before flat index `a`: right after the previous real
+ * character, or, when that is the blank line between paragraphs (-1), right before the next real
+ * character. Never `-1 + 1 = 0`, which would put the words at the top of the document.
+ */
+function insertionPoint(pos: number[], a: number): { at: number; follows: boolean } {
+  if (a > 0 && pos[a - 1] >= 0) return { at: pos[a - 1] + 1, follows: true };
+  for (let k = a; k < pos.length; k++) if (pos[k] >= 0) return { at: pos[k], follows: a === 0 };
+  for (let k = a - 1; k >= 0; k--) if (pos[k] >= 0) return { at: pos[k] + 1, follows: true };
+  return { at: pos[0] ?? 0, follows: true };
+}
+
 /** Keep a fast AI response separate from both preceding and subsequent typing. */
 function isolatedEdit(editor: Editor, edit: () => boolean): boolean {
   editor.view.dispatch(closeHistory(editor.state.tr));
@@ -126,8 +138,11 @@ export function applyRewrite(editor: Editor, from: number, to: number, next: str
       if (c.text) tr.insertText(c.text, start, end);
       else tr.delete(start, end);
     } else {
-      const at = c.a > 0 ? flat.pos[c.a - 1] + 1 : flat.pos[c.a];
-      tr.insertText(c.text, at);
+      const { at, follows } = insertionPoint(flat.pos, c.a);
+      // After a character the new words take its formatting (as typing would); before the first
+      // character of a paragraph they stay plain instead of picking up that word's marks.
+      if (follows) tr.insertText(c.text, at);
+      else tr.insert(at, state.schema.text(c.text));
     }
   }
   return isolatedEdit(editor, () => {

@@ -195,27 +195,51 @@ function App() {
     isSavedRef.current = isSaved;
   }, [isSaved]);
 
-  const persistCurrent = useCallback(async () => {
+  /** Save the open document. `true` once what was on screen is on disk. Typing that lands while
+   *  the save is in flight keeps the document unsaved (the next save writes it), and a failed save
+   *  is reported, never treated as saved. */
+  const persistCurrent = useCallback(async (): Promise<boolean> => {
     const proj = selectedProjectRef.current;
     const doc = selectedDocumentRef.current;
-    if (!proj || !doc) return;
+    if (!proj || !doc) return true;
     try {
       await api.saveDocument(proj.id, doc);
-      isSavedRef.current = true;
-      setIsSaved(true);
+      // Every edit replaces the document object, so identity says whether this is still it.
+      if (selectedDocumentRef.current === doc) {
+        isSavedRef.current = true;
+        setIsSaved(true);
+      }
       setSaveError(null);
+      return true;
     } catch (e) {
       console.error('Save failed:', e);
       setSaveError((e as Error).message || 'Save failed');
+      return false;
     }
   }, []);
 
   /** Save the open document right now if it has unsaved edits. Called before
    *  switching documents/projects and when the app is closed or backgrounded,
-   *  so edits can never be stranded in memory. */
-  const flushIfDirty = useCallback(async () => {
-    if (!isSavedRef.current) await persistCurrent();
+   *  so edits can never be stranded in memory. `false` if they could not be saved. */
+  const flushIfDirty = useCallback(async (): Promise<boolean> => {
+    if (isSavedRef.current) return true;
+    return persistCurrent();
   }, [persistCurrent]);
+
+  /** Before leaving the open document (switch, close project, close window): save it, and if
+   *  that fails ask the writer instead of silently dropping the edits. `true` = go ahead. */
+  const leaveDocument = useCallback(async (): Promise<boolean> => {
+    if (await flushIfDirty()) return true;
+    const title = selectedDocumentRef.current?.title || 'this document';
+    const discard = await api.confirmDiscard(
+      `Your latest changes to "${title}" could not be saved. Leave anyway and lose them?`,
+    );
+    if (discard) {
+      isSavedRef.current = true;
+      setIsSaved(true);
+    }
+    return discard;
+  }, [flushIfDirty]);
 
   // Auto-save loop: persists the open document whenever it is dirty.
   useEffect(() => {
@@ -247,8 +271,8 @@ function App() {
           if (closing || isSavedRef.current) return;
           event.preventDefault();
           closing = true;
-          await flushIfDirty();
-          await win.close();
+          if (await leaveDocument()) await win.close();
+          else closing = false;
         });
       })
       .then((u) => {
@@ -256,7 +280,7 @@ function App() {
       })
       .catch(() => {});
     return () => unlisten?.();
-  }, [flushIfDirty]);
+  }, [leaveDocument]);
 
   // Live word/character count (debounced so long documents never stutter).
   useEffect(() => {
@@ -291,14 +315,14 @@ function App() {
         setIsEditingSettings(false);
         return;
       }
-      await flushIfDirty();
+      if (!(await leaveDocument())) return;
       selectedDocumentRef.current = doc;
       setSelectedDocument(doc);
       isSavedRef.current = true;
       setIsSaved(true);
       setIsEditingSettings(false);
     },
-    [flushIfDirty],
+    [leaveDocument],
   );
 
   const handleProjectCreated = (newProj: Project) => {
@@ -312,7 +336,7 @@ function App() {
 
   // Load a project's documents from disk before opening it.
   const handleOpenProject = async (proj: Project) => {
-    await flushIfDirty();
+    if (!(await leaveDocument())) return;
     try {
       const full = await api.loadProject(proj.id);
       setSelectedProject(full);
@@ -635,7 +659,7 @@ function App() {
   }, [selectDocument]);
 
   const handleCloseProject = async () => {
-    await flushIfDirty();
+    if (!(await leaveDocument())) return;
     setSelectedProject(null);
     selectedDocumentRef.current = null;
     setSelectedDocument(null);
