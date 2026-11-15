@@ -40,8 +40,11 @@ fixed-clock regressions exercise the timing window. The combined frontend checks
 | Drive client units | PKCE, scope, redirect state, error classes, gzip, duplicate files | ✅ automated |
 | Mounted UI + App boundary | `sync.regression`, `sync-app.regression` | ✅ automated |
 | Android compile | `npx tauri android build --apk --debug --target aarch64` | ✅ builds 2026-11-13 (not run on a device) |
-| Live Google OAuth (desktop, Android) | Real consent, token refresh, 7-day testing expiry, revoke | ⏳ pending your OAuth clients |
+| Live Google OAuth (desktop) | Real consent in the browser, loopback + PKCE, keychain grant, account check | ✅ 2026-11-15 (writer's own Cloud project, Testing mode) |
+| Live Drive round trip | `cargo test live_drive -- --ignored`: two engines on the real appDataFolder; upload with image, download, edit back through the changes feed, cleanup | ✅ 2026-11-15 (29 s) |
+| Live Google OAuth (Android) | Native AuthorizationClient prompt, silent refresh | ⏳ pending Android OAuth client + device |
 | Real cross-device sync | Same account, desktop ↔ Android, shared appDataFolder across clients | ⏳ pending |
+| 7-day Testing expiry, revoke | Reconnect flow after expiry | ⏳ pending |
 | Quotas / outages | Real 403/429/5xx, Drive full, cursor expiry | ⏳ pending (only classified in unit tests) |
 | Visual layout | Settings card, pill, banner, review on both shells | ⏳ browser preview blocked by permission policy |
 

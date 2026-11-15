@@ -507,8 +507,13 @@ pub fn sync_status() -> ApiResponse<SyncStatus> {
 #[tauri::command]
 pub async fn drive_sign_in() -> ApiResponse<SyncStatus> {
     blocking(|| {
-        auth::sign_in().map_err(|e| e.to_string())?;
-        adopt_account()?;
+        // A grant from a sign-in whose account check failed (e.g. the Drive API was still off)
+        // is reused, so retrying doesn't send the writer through Google's pages again.
+        let reused = auth::has_grant() && adopt_account().is_ok();
+        if !reused {
+            auth::sign_in().map_err(|e| e.to_string())?;
+            adopt_account()?;
+        }
         wake_now();
         status()
     })

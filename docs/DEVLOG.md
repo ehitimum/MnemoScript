@@ -49,6 +49,20 @@ Items 1–3 were in the released 2.1.0; each fix has a regression test.
   byte-identical, from `node_modules`, no network).
 - Version 2.1.1 in `package.json`, `Cargo.toml`, `tauri.conf.json` (not tagged).
 
+## 2026-11-15 — First live Google Drive run
+
+- Desktop sign-in worked against the writer's own Cloud project (Testing mode, test user added).
+  First setup surfaced a raw `403: accessNotConfigured` (Drive API not enabled): it now reads as
+  a plain instruction, and a retry reuses the stored grant instead of sending the writer through
+  Google's pages again.
+- New ignored live test `cargo test live_drive -- --ignored --nocapture` plays two devices on the
+  real `appDataFolder` under a throwaway project id: upload with an image, download (image and
+  portable reference intact), edit back through the changes feed, then deletes its files. Passed
+  in 29 s. Android sign-in and real desktop ↔ phone sync are still to be tried.
+- Dev runs: another session held port 1420, so the app was started with `beforeDevCommand =
+  npm run build` (serves `dist/`) and a C: cargo target dir.
+
+
 ## 2026-11-13 — Google Drive sync (MnemoDrive) on the shared sync engine
 
 - Reviewed PRs #2 (strategy, Node 24 CI, AI undo) and #3 (Phase 0 backup/restore): sound, but

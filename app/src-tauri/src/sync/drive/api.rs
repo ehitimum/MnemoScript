@@ -86,6 +86,10 @@ pub fn classify(status: u16, body: &str) -> TransportError {
         .unwrap_or_default();
     match (status, reason.as_str()) {
         (401, _) => TransportError::Auth("Google Drive sign-in expired".into()),
+        // Seen on first setup: the OAuth client works but its Cloud project lacks the Drive API.
+        (403, "accessNotConfigured" | "SERVICE_DISABLED") => TransportError::Other(
+            "The Google Drive API isn't enabled in this app's Google Cloud project. Enable it in the Cloud console, wait a minute, then connect again.".into(),
+        ),
         (403, "storageQuotaExceeded") => TransportError::Quota("Your Google Drive storage is full".into()),
         (403, "rateLimitExceeded" | "userRateLimitExceeded" | "backendError") | (429, _) => TransportError::Busy("Google Drive asked MnemoScript to slow down".into()),
         (403, "insufficientPermissions" | "insufficientScopes" | "appNotAuthorizedToFile") => {
@@ -279,6 +283,13 @@ impl Drive {
         let url = format!("{UPLOAD}/{id}");
         let r = self.send(&|c| c.patch(&url).query(&[("uploadType", "media")]).header("Content-Type", mime).body(bytes.to_vec()))?;
         Ok(r.status().as_u16() != 404)
+    }
+
+    /// Remove one of MnemoScript's own app-folder files (used by the live test to clean up).
+    #[cfg(test)]
+    pub fn delete(&self, id: &str) -> Result<(), TransportError> {
+        let url = format!("{FILES}/{id}");
+        self.send(&|c| c.delete(&url)).map(|_| ())
     }
 
     pub fn start_page_token(&self) -> Result<String, TransportError> {
@@ -557,6 +568,9 @@ mod tests {
         assert!(matches!(classify(503, ""), TransportError::Busy(_)));
         assert!(matches!(classify(401, ""), TransportError::Auth(_)));
         assert!(matches!(classify(400, "{}"), TransportError::Other(_)));
+        // Regression (2026-11-13, first live setup): a disabled Drive API showed a raw reason code.
+        let disabled = r#"{"error":{"errors":[{"reason":"accessNotConfigured"}],"code":403}}"#;
+        assert!(classify(403, disabled).to_string().contains("Google Drive API isn't enabled"));
     }
 
     #[test]

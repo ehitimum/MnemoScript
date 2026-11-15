@@ -105,6 +105,8 @@ delete, legacy `project.json` without new fields, missing-document errors.
   without resurrection, duplicated/reordered deliveries, staged open chapter (accept / typing → conflict
   / remote delete), missing blobs held then applied, frozen batch retry, folder cycles, shuffled
   three-device convergence, forged revisions rejected.
+- Live (ignored, needs the dev app signed in to Drive): `cargo test live_drive -- --ignored --nocapture`
+  runs two engines against the real `appDataFolder` under a throwaway project and deletes its files.
 - Backend `cargo test backup::` adds the restore regression for fantasy-map "My Imports" paths and
   rejection of imports outside the project.
 - Regression `sync.regression.test.tsx` — settings states (browser, unconfigured, signed out with
