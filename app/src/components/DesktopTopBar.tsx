@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { Project, Document } from '../types';
 import {
   BookOpen,
@@ -31,6 +32,8 @@ interface Props {
   /** An AI change is waiting for Apply / Reject. */
   aiAttention?: boolean;
   setIsAiOpen: (v: boolean) => void;
+  /** Google Drive sync status for the open project (renders nothing when not synced). */
+  sync?: ReactNode;
 }
 
 const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform);
@@ -55,6 +58,7 @@ function DesktopTopBar({
   isAiOpen,
   aiAttention = false,
   setIsAiOpen,
+  sync,
 }: Props) {
   const iconBtn =
     'w-8 h-8 flex items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary/60 hover:text-foreground active:scale-95 transition-all cursor-pointer disabled:opacity-35 disabled:pointer-events-none';
@@ -95,6 +99,8 @@ function DesktopTopBar({
       </button>
 
       <div className="flex-1" />
+
+      {sync}
 
       {/* Primary actions */}
       <button className={iconBtn} onClick={onNew} title="New project">
