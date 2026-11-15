@@ -11,6 +11,19 @@ The serverless sync strategy and dependency gates live in
 and [test matrix](./MNEMOSYNC_TEST_MATRIX.md). Start from current AI feature HEAD, not stale main.
 Phase 0 introduces recovery archives; LAN/Drive and Smart Merge remain later gated phases.
 
+- `src-tauri/src/backup.rs` streams allowlisted files to `<project name>-<yyyy-mm-dd-hhmm>.zip`
+  in app-level `backups/` (the newest 5 per project are kept), records SHA-256/lengths of the
+  archived bytes, validates paths and bounds, and stages restores as independent copies. Image
+  references are archived as portable `mnemo-asset:<file>` (no source folder recorded); damaged
+  chapter files are copied as-is and reported as warnings. Commands: `backup_project` (returns
+  path + warnings), `list_backups`, `delete_backup`, `save_backup_copy` (file to file) and
+  `restore_project_backup({path})`, which opens the dialog-picked file (desktop path in the fs
+  scope, or an Android content URI) in Rust, so the archive never passes through the web view.
+  Restored projects are registered only after activation. `src/components/sync/BackupSettings.tsx`
+  is shared by the two settings shells. `App.tsx` saves through `flushIfDirty` before a backup.
+- Recovery rewrites image attributes and known map asset fields, preserving manuscript/graph
+  identity and the original archive. Browser ZIP recovery remains explicitly native-only.
+
 ## Stack
 - **Shell:** Tauri 2 (Rust backend + system WebView).
 - **Frontend:** React 19 + TypeScript + Vite 8, Tailwind CSS v4.

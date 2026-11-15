@@ -11,6 +11,12 @@ First deliverable is native checked backup/restore with existing desktop/phone s
 then SQLite/IndexedDB and portable assets, Smart Merge, shared replay engine, LAN, Drive, hybrid
 and recovery UX. The Android/installed-app gate remains pending until actual device evidence.
 
+**Implemented Phase 0 slice:** native ZIP backup/restore, corruption/path/size validation, fresh
+recovered copies and asset relocation, with desktop/phone settings controls. Automated checks
+pass (130 frontend, 41 regression, 56 backend tests; lint/types/build/check/Clippy).
+No transport or existing-project linking is enabled. Finish manual device acceptance before
+advancing the Phase 0 gate; the following schemas remain design-only.
+
 **Stack:** Tauri 2 (Rust) · React 19 + TypeScript 6 · Vite 8 · Tailwind v4 · TipTap 3 · React Flow 12 ·
 Konva 10. Three targets share one codebase: Windows desktop (WebView2), Android (Tauri mobile), and the
 web build (browser fallback backend in `lib/api.ts` → localStorage).

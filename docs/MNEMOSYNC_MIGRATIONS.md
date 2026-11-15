@@ -1,5 +1,14 @@
 # MnemoSync schema and migration contract
 
+## Recovery ZIP v2 (2026-11-15)
+
+Schema 2 drops `sourceRoot`: chapters and maps refer to project images as `mnemo-asset:<file in
+assets/>`, so an archive never records where (or under which OS user) the project lived. Restore
+maps those to the new folder; unknown ones stay as harmless references. An optional `damaged`
+list names chapter files that could not be read at backup time; they are archived and restored
+byte for byte. Every other chapter is still validated strictly on restore. Readers accept schema
+1 (below) unchanged.
+
 ## Recovery ZIP v1
 
 File `mnemoscript-backup.json` has `format: "mnemoscript-project-backup"`, `schemaVersion: 1`,
@@ -18,11 +27,12 @@ Restore is a separate local copy, not adoption of the original sync identity. A 
 must explicitly link these identities. No SQLite, IndexedDB, asset-URI or sync-schema migration
 runs in Phase 0. There is no change to existing project save/open APIs or AI pairing permissions.
 
-Native command boundary: `backup_project({projectId}) -> ApiResponse<string>` creates a unique
-archive in the app's sibling `backups/` directory; `restore_project_backup` accepts a raw ZIP body
-and returns the registered Project. Compression/extraction run on a worker. Frontend `lib/api.ts`
-unwraps envelopes and uses plugin filesystem/dialog APIs for an optional user-selected archive
-copy. The restore picker reads a user-selected ZIP as binary, with an early size check.
+Native command boundary (2026-11-15): `backup_project({projectId}) -> {path, fileName,
+warnings}` writes a named archive in the app's sibling `backups/` directory and keeps the newest
+5 per project; `list_backups` / `delete_backup({path})` only name files directly in that folder;
+`save_backup_copy({source, destination})` copies file to file; `restore_project_backup({path})`
+opens the dialog-picked ZIP in Rust (bounded reads, no whole-archive copy in memory) and returns
+the registered Project. Compression/extraction run on a worker.
 
 Backend tooling now requires Rust 1.88 or newer for ZIP 9.5; CI already installs stable. Lockfile
 records exact dependency resolutions. ZIP only enables pure-Rust deflate, without unrelated

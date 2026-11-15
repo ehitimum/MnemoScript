@@ -1,4 +1,5 @@
 mod ai;
+mod backup;
 mod project;
 
 use project::{Document, Project, Registry};
@@ -280,6 +281,71 @@ fn load_document(project_id: String, document_id: String) -> ApiResponse<Documen
     }
 }
 
+/// Run compression on a worker so a large backup cannot block the app's UI thread.
+#[tauri::command]
+async fn backup_project(project_id: String) -> ApiResponse<backup::Created> {
+    blocking(move || backup::create(&project_id)).await
+}
+
+#[tauri::command]
+async fn list_backups() -> ApiResponse<Vec<backup::BackupInfo>> {
+    blocking(|| Ok(backup::list())).await
+}
+
+#[tauri::command]
+async fn delete_backup(path: String) -> ApiResponse<()> {
+    blocking(move || backup::delete(&path)).await
+}
+
+async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, String> + Send + 'static) -> ApiResponse<T> {
+    match tauri::async_runtime::spawn_blocking(f).await {
+        Ok(Ok(v)) => ApiResponse::success(v),
+        Ok(Err(e)) => ApiResponse::error(e),
+        Err(e) => ApiResponse::error(e.to_string()),
+    }
+}
+
+/// Open a file the writer picked in a dialog: a path on desktop (which the dialog added to the
+/// fs scope, so nothing else on disk can be named here), or an Android document URI.
+fn open_picked(app: &tauri::AppHandle, picked: &str, write: bool) -> Result<fs::File, String> {
+    use tauri_plugin_fs::{FilePath, FsExt, OpenOptions};
+    let path: FilePath = picked.parse().map_err(|_| "Invalid file location".to_string())?;
+    if let FilePath::Path(p) = &path {
+        if !app.fs_scope().is_allowed(p) {
+            return Err("Choose the file again".into());
+        }
+    }
+    let mut options = OpenOptions::new();
+    options.read(!write).write(write).create(write).truncate(write);
+    app.fs().open(path, options).map_err(|e| e.to_string())
+}
+
+/// Restore reads the archive straight from the chosen file: the bytes never pass through the
+/// web view or sit in memory whole, so large projects restore on phones too.
+#[tauri::command]
+async fn restore_project_backup(app: tauri::AppHandle, path: String) -> ApiResponse<Project> {
+    blocking(move || {
+        let file = open_picked(&app, &path, false)?;
+        if file.metadata().map(|m| m.len()).unwrap_or(0) > backup::MAX_ARCHIVE {
+            return Err("Backup exceeds the 600 MiB archive limit".into());
+        }
+        let project = backup::restore_in(file, &Project::projects_dir())?;
+        Registry::add(&project).map_err(|e| format!("Restored files at {}; registration failed: {e}", project.get_dir().display()))?;
+        Ok(project)
+    })
+    .await
+}
+
+/// "Save a copy": file to file in the backend (works with Android's document picker).
+#[tauri::command]
+async fn save_backup_copy(app: tauri::AppHandle, source: String, destination: String) -> ApiResponse<u64> {
+    blocking(move || {
+        let mut out = open_picked(&app, &destination, true)?;
+        backup::copy_to(&source, &mut out)
+    })
+    .await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -334,6 +400,11 @@ pub fn run() {
             export_file,
             select_directory,
             open_project_by_path,
+            backup_project,
+            restore_project_backup,
+            list_backups,
+            delete_backup,
+            save_backup_copy,
             ai::commands::list_ai_sessions,
             ai::commands::load_ai_session,
             ai::commands::save_ai_session,

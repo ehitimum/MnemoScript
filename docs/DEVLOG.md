@@ -3,6 +3,25 @@
 A running log of substantive changes, so future work needs less re-discovery.
 Newest entries first. Dates are absolute.
 
+## 2026-11-15 — Backups: fixes from the PR #3 review
+
+Each fix has a regression test (`cargo test backup::`, `regression/backup*.regression.test.tsx`).
+- **A problem no longer blocks the backup.** A damaged chapter file is copied as-is and named in a
+  warning; images outside the project or missing are counted in warnings. Restore stays strict
+  about integrity (sizes, checksums, paths, folder tree, every chapter that was valid) and restores
+  the chapters the backup itself recorded as damaged byte for byte, so such a backup still restores.
+- **No source path in archives.** Schema 2 archives store images as `mnemo-asset:<file>` and drop
+  `sourceRoot` (which carried the OS user name). Schema 1 archives still restore.
+- **Backups are visible.** Files are named `<project>-<yyyy-mm-dd-hhmm>.zip`; the settings card
+  lists this project's backups with date and size, "Save a copy…" and a confirmed delete; the newest
+  5 per project are kept.
+- **No whole archive in memory.** Restore and "Save a copy" pass file locations; Rust opens the
+  picked file (desktop path in the fs scope, Android content URI). This also keeps "Save a copy"
+  working with 2.1.1's narrowed webview file access.
+- **One save path.** The backup saves through `flushIfDirty` (the 2.1.1 `persistCurrent` with its
+  guard and error result) instead of its own copy.
+- The card says a restored copy brings AI conversations back but not the AI connection.
+
 ## 2026-11-15 — 2.1.1: fixes from the PR #1 review (security and lost edits)
 
 Items 1–3 were in the released 2.1.0; each fix has a regression test.
@@ -38,6 +57,14 @@ Items 1–3 were in the released 2.1.0; each fix has a regression test.
   and an honest automated/device/visual acceptance matrix. Preserve current AI work and UI shells.
 - Phase 0 implementation begins with checked native ZIP recovery; transports and Smart Merge
   remain gated follow-on work. Baseline `npm run check`: 116 tests, lint/types/build pass.
+- Implemented backup/restore commands, a versioned SHA-256 manifest, defensive bounded extraction,
+  private staging, fresh recovered project identities and image-path relocation with HTML entity
+  handling. Includes saved chapters/maps/assets/sessions/exports; excludes app credentials/grants.
+- Added settings controls using the existing desktop cards and phone rows: create locally, save a
+  separate copy, restore a selected ZIP, progress/errors and retry. Failed local save aborts backup.
+- Final checks after integrating the runtime and undo fixes: 130 frontend tests, 41 regressions, production build/lint/types; cargo check,
+  56 backend tests (3 existing live-AI tests ignored), and Clippy with warnings denied pass.
+  Visual preview remains permission-blocked; packaged Windows/real Android acceptance pending.
 
 ## 2026-11-12 — Isolate AI revisions from nearby typing in undo history
 

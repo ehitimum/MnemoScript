@@ -746,8 +746,28 @@ function App() {
     return `${kind} ${max + 1}`;
   }
 
+  const backupActions = {
+    projectName: selectedProject?.name,
+    projectId: selectedProject?.id,
+    onBackup: async () => {
+      flushCanvases();
+      const project = selectedProjectRef.current;
+      if (!project) throw new Error('Open a project before creating a backup.');
+      // The same save path as everywhere else: a backup never starts from an unsaved chapter.
+      if (!(await flushIfDirty())) throw new Error('The open chapter could not be saved, so no backup was made.');
+      return api.backupProject(project.id);
+    },
+    onRestore: async () => {
+      const restored = await api.restoreProjectBackup();
+      if (!restored) return false;
+      setProjects((previous) => [restored, ...previous.filter((p) => p.id !== restored.id)]);
+      return true;
+    },
+  };
+
   const settingsPanel = (
     <SettingsPanel
+      backup={backupActions}
       theme={theme}
       setTheme={setTheme}
       editorFont={editorFont}
@@ -774,6 +794,7 @@ function App() {
     <div className="h-screen flex flex-col bg-background text-foreground transition-colors duration-300 safe-area-insets">
       {isMobileShell ? (
         <MobileShell
+          backup={backupActions}
           selectedProject={selectedProject}
           selectedDocument={selectedDocument}
           documents={documents}
