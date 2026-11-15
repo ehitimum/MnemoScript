@@ -1,5 +1,9 @@
 # MnemoSync Project Memory (Development Handoff)
 
+> **Kept in the repository on purpose:** these are the MnemoSync working notes (decisions, gates,
+> open questions) for whoever continues this work. They are not end-user documentation; the
+> design itself lives in `docs/MNEMOSYNC_*.md`.
+
 > **Scope:** This is a project-specific handoff note for MnemoScript developers and coding assistants. It is **not** a dump of ChatGPT's private memory, hidden reasoning, credentials, or user profile. Update it alongside implementation.
 
 ## Goal
