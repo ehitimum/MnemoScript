@@ -3,6 +3,25 @@
 A running log of substantive changes, so future work needs less re-discovery.
 Newest entries first. Dates are absolute.
 
+## 2026-11-15 — Backups: fixes from the PR #3 review
+
+Each fix has a regression test (`cargo test backup::`, `regression/backup*.regression.test.tsx`).
+- **A problem no longer blocks the backup.** A damaged chapter file is copied as-is and named in a
+  warning; images outside the project or missing are counted in warnings. Restore stays strict
+  about integrity (sizes, checksums, paths, folder tree, every chapter that was valid) and restores
+  the chapters the backup itself recorded as damaged byte for byte, so such a backup still restores.
+- **No source path in archives.** Schema 2 archives store images as `mnemo-asset:<file>` and drop
+  `sourceRoot` (which carried the OS user name). Schema 1 archives still restore.
+- **Backups are visible.** Files are named `<project>-<yyyy-mm-dd-hhmm>.zip`; the settings card
+  lists this project's backups with date and size, "Save a copy…" and a confirmed delete; the newest
+  5 per project are kept.
+- **No whole archive in memory.** Restore and "Save a copy" pass file locations; Rust opens the
+  picked file (desktop path in the fs scope, Android content URI). This also keeps "Save a copy"
+  working with 2.1.1's narrowed webview file access.
+- **One save path.** The backup saves through `flushIfDirty` (the 2.1.1 `persistCurrent` with its
+  guard and error result) instead of its own copy.
+- The card says a restored copy brings AI conversations back but not the AI connection.
+
 ## 2026-11-15 — 2.1.1: fixes from the PR #1 review (security and lost edits)
 
 Items 1–3 were in the released 2.1.0; each fix has a regression test.

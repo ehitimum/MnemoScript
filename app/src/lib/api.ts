@@ -1,5 +1,6 @@
 import { invoke, Channel } from '@tauri-apps/api/core';
 import type { Project, Document, DocType } from '../types';
+import type { BackupCreated, BackupInfo } from './backupTypes';
 import type {
   AiEvent,
   AiSession,
@@ -147,17 +148,25 @@ export const api = {
   selectDirectory: () => call<string | null>('select_directory'),
 
   /** Native recovery archives are stored outside the project (never recursively backed up). */
-  backupProject: (projectId: string) => call<string>('backup_project', { projectId }),
-  restoreProjectBackup: (bytes: Uint8Array) => callRaw<Project>('restore_project_backup', bytes, {}),
+  backupProject: (projectId: string) => call<BackupCreated>('backup_project', { projectId }),
+  /** Backups in this device's backups folder, newest first (the newest 5 per project are kept). */
+  listBackups: () => call<BackupInfo[]>('list_backups'),
+  deleteBackup: (path: string) => call<void>('delete_backup', { path }),
+  /** Pick a backup ZIP and restore it as a separate project. `null` when the picker is cancelled.
+   *  Only the chosen file's location crosses to the backend, which reads the archive itself. */
+  restoreProjectBackup: async (): Promise<Project | null> => {
+    const { open } = await import('@tauri-apps/plugin-dialog');
+    const picked = await open({ multiple: false, directory: false, filters: [{ name: 'Project backup', extensions: ['zip'] }] });
+    if (!picked || typeof picked !== 'string') return null;
+    return call<Project>('restore_project_backup', { path: picked });
+  },
 
-  /** A separate user-selected copy, suitable for moving off this device. */
-  saveBackupCopy: async (backupPath: string): Promise<string | null> => {
-    const [{ save }, { readFile, writeFile }] = await Promise.all([
-      import('@tauri-apps/plugin-dialog'), import('@tauri-apps/plugin-fs'),
-    ]);
-    const destination = await save({ defaultPath: 'MnemoScript-backup.zip', filters: [{ name: 'Project backup', extensions: ['zip'] }] });
+  /** A separate user-selected copy, suitable for moving off this device (copied by the backend). */
+  saveBackupCopy: async (backupPath: string, suggestedName = 'MnemoScript-backup.zip'): Promise<string | null> => {
+    const { save } = await import('@tauri-apps/plugin-dialog');
+    const destination = await save({ defaultPath: suggestedName, filters: [{ name: 'Project backup', extensions: ['zip'] }] });
     if (!destination) return null;
-    await writeFile(destination, await readFile(backupPath));
+    await call<number>('save_backup_copy', { source: backupPath, destination });
     return destination;
   },
 

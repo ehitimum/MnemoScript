@@ -35,7 +35,7 @@ describe('Backup save boundary (regression)', () => {
     const snapshots: string[] = [];
     const backup = vi.spyOn(api, 'backupProject').mockImplementation(async () => {
       snapshots.push(localStorage.getItem('mnemoscript:projects')!);
-      return '/backup.zip';
+      return { path: '/backup.zip', fileName: 'backup.zip', warnings: [] };
     });
     fireEvent.click(screen.getByRole('button', { name: 'Test backup boundary' }));
     await waitFor(() => expect(backup).toHaveBeenCalledOnce());
@@ -46,7 +46,7 @@ describe('Backup save boundary (regression)', () => {
   it('never produces a successful backup after a failed local save', async () => {
     const api = await openDirtyChapter();
     const save = vi.spyOn(api, 'saveDocument').mockRejectedValueOnce(new Error('Disk full'));
-    const backup = vi.spyOn(api, 'backupProject').mockResolvedValue('/backup.zip');
+    const backup = vi.spyOn(api, 'backupProject').mockResolvedValue({ path: '/backup.zip', fileName: 'backup.zip', warnings: [] });
     fireEvent.click(screen.getByRole('button', { name: 'Test backup boundary' }));
     await waitFor(() => expect(save).toHaveBeenCalledOnce());
     expect(backup).not.toHaveBeenCalled();

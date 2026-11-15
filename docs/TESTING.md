@@ -45,6 +45,16 @@ Three layers, all run by CI (`.github/workflows/ci.yml`) on every push:
 with content-free `project.json`, registry add/forget, corrupt document tolerance, ordering + idempotent
 delete, legacy `project.json` without new fields, missing-document errors.
 
+**Project backups** (Phase 0; review fixes 2026-11-15)
+- Backend `cargo test backup::` — round trip of text/maps/assets/sessions/exports, tamper/missing/
+  extra/truncated files, newer schema, unsafe paths, symlinks, folder cycles, entity escaping;
+  damaged chapters archived as-is with a warning (and restored only when the manifest says so),
+  missing/outside images as warnings, no source folder in schema 2 archives, schema 1 still
+  restores, names + listing + keep-5 pruning per project, only files in the backups folder named.
+- Regression `regression/backup.regression.test.tsx` (create, list, save a copy, confirmed delete,
+  warnings, picker restore and cancel, failures, double click) and
+  `backup-app.regression.test.tsx` (the backup saves through the shared save path first).
+
 **AI assistant** (added 2026-11-12)
 - Unit `lib/ai/ai.test.ts` — model labels/vendors, phone provider list, document → text, tool mode
   enforcement, context replay across models, session reducer, `runTurn` tool round trip, per-project

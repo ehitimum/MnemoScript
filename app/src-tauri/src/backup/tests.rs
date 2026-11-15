@@ -262,19 +262,158 @@ fn rejects_paths_unsafe_on_either_platform_and_case_collisions() {
     }
 }
 
+/// Regression (PR #3 review, item 1): one damaged chapter blocked every backup of the project,
+/// though the app itself opens the project. It is now copied as it is, named in a warning, and
+/// the backup restores; every other chapter is still checked strictly on restore.
 #[test]
-fn does_not_skip_damaged_documents_or_missing_indexed_chapters() {
+fn a_damaged_chapter_is_backed_up_as_is_with_a_warning() {
     let source = fixture();
     put(source.path(), "documents/chapter-1.json", "damaged json");
-    let target = source.path().join("bad.zip");
-    assert!(export_in(source.path(), &target)
-        .unwrap_err()
-        .contains("Damaged document"));
-    assert!(!target.exists());
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("backup.zip");
+    let warnings = export_in(source.path(), &path).unwrap();
+    assert_eq!(warnings, vec!["chapter-1.json could not be read and was copied as it is.".to_string()]);
+    let bytes = fs::read(&path).unwrap();
+    let entries = unpack(&bytes);
+    assert_eq!(entries["documents/chapter-1.json"], b"damaged json");
+    let manifest: Value = serde_json::from_slice(&entries[MANIFEST]).unwrap();
+    assert_eq!(manifest["damaged"], serde_json::json!(["documents/chapter-1.json"]));
+    let destination = tempdir().unwrap();
+    let restored = restore_in(Cursor::new(bytes.clone()), destination.path()).unwrap();
+    assert_eq!(restored.documents.len(), 2, "the readable chapters come back");
+    assert_eq!(fs::read(restored.get_dir().join("documents/chapter-1.json")).unwrap(), b"damaged json");
+
+    // Only files the backup itself marked as damaged may be invalid on restore.
+    let mut files = unpack(&bytes);
+    let mut manifest: Value = serde_json::from_slice(&files[MANIFEST]).unwrap();
+    manifest.as_object_mut().unwrap().remove("damaged");
+    files.insert(MANIFEST.into(), serde_json::to_vec(&manifest).unwrap());
+    assert!(rejected(repack(files)).contains("Invalid document"));
+
+    // A chapter missing from disk but listed in the project file is a warning, not a refusal.
     fs::remove_file(source.path().join("documents/chapter-1.json")).unwrap();
-    assert!(export_in(source.path(), &target)
-        .unwrap_err()
-        .contains("missing an indexed document"));
+    let warnings = export_in(source.path(), &dir.path().join("second.zip")).unwrap();
+    assert!(warnings.iter().any(|w| w.contains("1 chapter listed in the project file was not found")), "{warnings:?}");
+}
+
+/// Regression (PR #3 review, item 1): an image outside the project or a missing one refused the
+/// whole backup. Both are now warnings, counted per image.
+#[test]
+fn missing_and_outside_images_are_warnings_not_refusals() {
+    let source = fixture();
+    fs::remove_file(source.path().join("assets/image.png")).unwrap();
+    let outside = tempdir().unwrap();
+    let external = outside.path().join("photo.png");
+    fs::write(&external, [1, 2]).unwrap();
+    let mut doc: Value = serde_json::from_slice(&fs::read(source.path().join("documents/chapter-1.json")).unwrap()).unwrap();
+    let content = format!(
+        "{}<img src=\"{}\">",
+        doc["content"].as_str().unwrap(),
+        html_escape::encode_double_quoted_attribute(&external.to_string_lossy())
+    );
+    doc["content"] = Value::String(content);
+    put(source.path(), "documents/chapter-1.json", doc.to_string());
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("backup.zip");
+    let warnings = export_in(source.path(), &path).unwrap();
+    assert!(warnings.contains(&"1 image outside this project was not included. Import it into the project to back it up.".to_string()), "{warnings:?}");
+    assert!(warnings.contains(&"1 image is missing from the project's assets folder.".to_string()), "{warnings:?}");
+    let target = tempdir().unwrap();
+    let restored = restore_in(Cursor::new(fs::read(&path).unwrap()), target.path()).unwrap();
+    let chapter = restored.documents.iter().find(|d| d.id == "chapter-1").unwrap();
+    assert!(chapter.content.contains("mnemo-asset:image.png"), "a missing image stays a portable, harmless reference");
+}
+
+/// Regression (PR #3 review, item 2): the archive recorded the project's absolute folder (with
+/// the OS user name), and chapters kept absolute image paths.
+#[test]
+fn archives_are_portable_and_never_record_the_source_folder() {
+    let source = fixture();
+    let bytes = archive(source.path());
+    let entries = unpack(&bytes);
+    let manifest: Value = serde_json::from_slice(&entries[MANIFEST]).unwrap();
+    assert_eq!(manifest["schemaVersion"], 2);
+    assert!(manifest.get("sourceRoot").is_none());
+    let root = source.path().canonicalize().unwrap().to_string_lossy().replace('\\', "/");
+    let root = root.trim_start_matches("//?/").to_string();
+    for name in ["documents/chapter-1.json", "documents/map-1.json", "documents/mind-1.json"] {
+        let doc: Value = serde_json::from_slice(&entries[name]).unwrap();
+        let content = doc["content"].as_str().unwrap().replace("\\\\", "/").replace('\\', "/");
+        assert!(content.contains("mnemo-asset:image.png"), "{name}");
+        assert!(!content.contains(&format!("{root}/assets")), "{name} keeps no absolute image path");
+    }
+    let raw = String::from_utf8_lossy(&entries[MANIFEST]).replace("\\\\", "/");
+    assert!(!raw.contains(&root));
+}
+
+/// Archives made before schema 2 (with `sourceRoot` and absolute paths) still restore.
+#[test]
+fn schema_one_archives_still_restore() {
+    let mut files = BTreeMap::new();
+    let pid = Uuid::new_v4().to_string();
+    let old = r"C:\Users\Writer\Novel";
+    files.insert(
+        "project.json".to_string(),
+        serde_json::json!({"id": pid, "name": "Old", "created_at": "2026", "folders": [], "documents": []}).to_string().into_bytes(),
+    );
+    files.insert("assets/a.png".to_string(), vec![9, 9]);
+    let content = format!("<img src=\"{old}\\assets\\a.png\">");
+    files.insert(
+        "documents/c1.json".to_string(),
+        serde_json::json!({"id": "c1", "title": "C1", "content": content, "updated_at": "now"}).to_string().into_bytes(),
+    );
+    let digests: serde_json::Map<String, Value> =
+        files.iter().map(|(n, b)| (n.clone(), serde_json::json!({"size": b.len(), "sha256": hash(b)}))).collect();
+    let manifest = serde_json::json!({"format": "mnemoscript-project-backup", "schemaVersion": 1, "projectId": pid, "sourceRoot": old, "files": digests});
+    files.insert(MANIFEST.to_string(), serde_json::to_vec(&manifest).unwrap());
+    let destination = tempdir().unwrap();
+    let restored = restore_in(Cursor::new(repack(files)), destination.path()).unwrap();
+    let expected = restored.get_dir().join("assets/a.png").to_string_lossy().into_owned();
+    assert!(restored.documents[0].content.contains(&*html_escape::encode_double_quoted_attribute(&expected)));
+}
+
+/// Regression (PR #3 review, item 3): every backup was `<id>-<uuid>.zip` and they piled up
+/// unseen. Names now carry the project and time, the newest `KEEP` per project are kept, and the
+/// list reads the project from inside each archive.
+#[test]
+fn backups_are_named_listed_and_pruned_per_project() {
+    let source = fixture();
+    let other = fixture();
+    let folder = tempdir().unwrap();
+    let pid = |dir: &TempDir| {
+        serde_json::from_slice::<Value>(&fs::read(dir.path().join("project.json")).unwrap()).unwrap()["id"].as_str().unwrap().to_string()
+    };
+    let theirs = create_in(&pid(&other), other.path(), folder.path()).unwrap();
+    let mut made = Vec::new();
+    for _ in 0..KEEP + 2 {
+        made.push(create_in(&pid(&source), source.path(), folder.path()).unwrap());
+    }
+    let name = &made.last().unwrap().file_name;
+    assert!(name.starts_with("Novel-20") && name.ends_with(".zip"), "{name}");
+    let list = list_in(folder.path());
+    let mine: Vec<_> = list.iter().filter(|b| b.project_id == pid(&source)).collect();
+    assert_eq!(mine.len(), KEEP);
+    assert!(mine.iter().all(|b| b.project_name == "Novel" && b.size > 0));
+    assert!(Path::new(&made.last().unwrap().path).exists(), "the newest is never pruned");
+    assert!(Path::new(&theirs.path).exists(), "other projects' backups are untouched");
+}
+
+/// Only files directly in the backups folder can be copied or deleted by name.
+#[test]
+fn only_backups_in_the_backups_folder_can_be_named() {
+    let folder = tempdir().unwrap();
+    let inside = folder.path().join("Novel-2026-11-15-1200.zip");
+    fs::write(&inside, b"zip").unwrap();
+    assert!(in_folder(folder.path(), &inside.to_string_lossy()).is_ok());
+    let source = fixture();
+    let nested = folder.path().join("sub");
+    fs::create_dir_all(&nested).unwrap();
+    let parent = folder.path().parent().unwrap().join(format!("x-{}.zip", Uuid::new_v4()));
+    for outside in [source.path().join("project.json"), nested.join("x.zip"), parent.clone()] {
+        fs::write(&outside, b"x").unwrap();
+        assert!(in_folder(folder.path(), &outside.to_string_lossy()).is_err(), "{}", outside.display());
+    }
+    let _ = fs::remove_file(parent);
 }
 
 #[test]
@@ -322,17 +461,6 @@ fn asset_remapping_is_structural_and_cross_platform() {
         None
     );
     assert!(asset_reference("file:///private/image.png", "C:\\Novel", target, &files).is_err());
-}
-
-#[test]
-fn refuses_missing_and_external_local_assets_before_creating_archive() {
-    let source = fixture();
-    fs::remove_file(source.path().join("assets/image.png")).unwrap();
-    let target = source.path().join("bad.zip");
-    assert!(export_in(source.path(), &target)
-        .unwrap_err()
-        .contains("missing project asset"));
-    assert!(!target.exists());
 }
 
 #[test]

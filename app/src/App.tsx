@@ -748,25 +748,20 @@ function App() {
 
   const backupActions = {
     projectName: selectedProject?.name,
+    projectId: selectedProject?.id,
     onBackup: async () => {
       flushCanvases();
       const project = selectedProjectRef.current;
       if (!project) throw new Error('Open a project before creating a backup.');
-      // Save directly: persistCurrent handles errors for the editor, but backup must abort on failure.
-      const doc = selectedDocumentRef.current;
-      if (doc && !isSavedRef.current) {
-        await api.saveDocument(project.id, doc);
-        if (selectedDocumentRef.current === doc) {
-          isSavedRef.current = true;
-          setIsSaved(true);
-          setSaveError(null);
-        }
-      }
+      // The same save path as everywhere else: a backup never starts from an unsaved chapter.
+      if (!(await flushIfDirty())) throw new Error('The open chapter could not be saved, so no backup was made.');
       return api.backupProject(project.id);
     },
-    onRestore: async (bytes: Uint8Array) => {
-      const restored = await api.restoreProjectBackup(bytes);
+    onRestore: async () => {
+      const restored = await api.restoreProjectBackup();
+      if (!restored) return false;
       setProjects((previous) => [restored, ...previous.filter((p) => p.id !== restored.id)]);
+      return true;
     },
   };
 
