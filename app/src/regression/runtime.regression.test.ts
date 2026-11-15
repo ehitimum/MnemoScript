@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { expect, it } from 'vitest';
 
 /**
@@ -21,7 +22,7 @@ function satisfies(version: string, range: string): boolean {
 }
 
 it('runs on a Node version inside the declared engines range', () => {
-  const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as { engines: { node: string } };
+  const pkg = JSON.parse(readFileSync(resolve(__dirname, '../../package.json'), 'utf8')) as { engines: { node: string } };
   expect(satisfies(process.versions.node, pkg.engines.node)).toBe(true);
   // The range keeps Node 22.22+ working (jsdom accepts it) and still refuses Node 20.
   expect(satisfies('22.23.0', pkg.engines.node)).toBe(true);
