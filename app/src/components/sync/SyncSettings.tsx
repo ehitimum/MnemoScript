@@ -107,7 +107,10 @@ export default function SyncSettings({ variant, status, setStatus, projects, cur
         {intro}
         {status.message
           ? <p className="text-xs text-muted-foreground">{status.message}</p>
-          : <p className="text-xs text-muted-foreground">This build has no Google sign-in set up yet. Add an OAuth client to <code className="font-mono">app/src-tauri/.env.local</code> and rebuild.</p>}
+          : import.meta.env.DEV
+            ? <p className="text-xs text-muted-foreground">This build has no Google sign-in set up yet. Add an OAuth client to <code className="font-mono">app/src-tauri/.env.local</code> and rebuild.</p>
+            // Writers never see developer setup steps.
+            : <p className="text-xs text-muted-foreground">Google Drive sync isn’t available in this version of MnemoScript yet.</p>}
       </>
     );
   } else if (!status.account) {
