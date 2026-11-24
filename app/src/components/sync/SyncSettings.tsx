@@ -98,8 +98,20 @@ export default function SyncSettings({ variant, status, setStatus, projects, cur
     </p>
   );
 
+  const comingSoon = status.state === 'coming-soon';
   let body: ReactNode;
-  if (status.state === 'unsupported') {
+  if (comingSoon) {
+    // Held back until it is released (backend `sync::service::AVAILABLE`).
+    body = (
+      <>
+        <p className="text-sm text-muted-foreground leading-relaxed">
+          Soon you’ll be able to keep your projects in step between your computer and your phone through your own
+          Google Drive, privately, with no MnemoScript server in between.
+        </p>
+        <p className="text-xs text-muted-foreground">It’s coming in a future update. Until then, your projects stay safely on this device, and you can use Backups to move a copy.</p>
+      </>
+    );
+  } else if (status.state === 'unsupported') {
     body = <p className="text-sm text-muted-foreground leading-relaxed">Google Drive sync is available in the MnemoScript desktop and Android apps.</p>;
   } else if (status.state === 'unconfigured') {
     body = (
@@ -304,7 +316,7 @@ export default function SyncSettings({ variant, status, setStatus, projects, cur
       : 'flex flex-col gap-3'} aria-label="Google Drive sync">
       <h3 className={`${label} flex items-center gap-1.5`}>
         <Cloud className="w-3.5 h-3.5 text-primary" />Sync with Google Drive
-        <span className="ml-1 px-1.5 rounded-full border border-primary/30 text-primary/90 tracking-normal normal-case font-medium">Beta</span>
+        <span className="ml-1 px-1.5 rounded-full border border-primary/30 text-primary/90 tracking-normal normal-case font-medium">{comingSoon ? 'Coming soon' : 'Beta'}</span>
       </h3>
       {body}
       {error && <p role="alert" className="text-sm text-destructive break-words">{error}</p>}

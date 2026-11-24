@@ -3,6 +3,17 @@
 A running log of substantive changes, so future work needs less re-discovery.
 Newest entries first. Dates are absolute.
 
+## 2026-11-24 — 2.2.2: Google Drive sync held back ("Coming soon")
+
+- `sync::service::AVAILABLE = false`: the sync worker never starts (nothing syncs, including projects
+  turned on in 2.2.1), sign-in and other sync actions are refused, and the status is `coming-soon`.
+  Settings shows a Coming soon card on desktop and phone; no status pill or banners. Turning sync off
+  and signing out still work. Sync state in `sync/mnemosync.db` is kept, so releasing it later resumes.
+- To release: set `AVAILABLE = true` (the Google Cloud app, website and Android client stay set up).
+- 2.2.1 downloads were removed from its GitHub release.
+- Tests: `held_back_sync_is_coming_soon_and_refuses_actions` (Rust) and the Coming soon card (sync
+  regression suite).
+
 ## 2026-11-24 — 2.2.1: Google Drive sync switched on
 
 - Release builds now carry the Google sign-in client (from the git-ignored `.env.local`), and the

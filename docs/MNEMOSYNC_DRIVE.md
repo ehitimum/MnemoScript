@@ -1,5 +1,8 @@
 # MnemoDrive: Google Drive sync
 
+> **Status (2.2.2):** built and set up, but held back: `sync::service::AVAILABLE = false` shows
+> "Coming soon" and keeps the worker off. Set it to `true` to release.
+
 Implemented 2026-11-13 on `codex/mnemosync-drive` (stacked on the Phase 0 backup branch).
 Optional and per project: nothing leaves the device until the writer connects Google Drive and
 turns sync on for a project. Local saves never wait for, or depend on, sync.

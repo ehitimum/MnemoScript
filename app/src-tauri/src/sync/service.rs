@@ -91,8 +91,23 @@ fn account(store: &Store) -> Result<Option<Account>, String> {
     store.get_meta("drive.account")?.map(|a| serde_json::from_str(&a).map_err(|e| e.to_string())).transpose()
 }
 
+/// Google Drive sync is built but held back until it is announced: while this is false the worker
+/// never starts (nothing syncs, even projects turned on in 2.2.1), sign-in and other sync actions
+/// are refused, and the status says "coming-soon" so Settings shows a Coming soon card. Turning sync
+/// off and signing out still work. Flip to true to release it.
+pub const AVAILABLE: bool = false;
+
+const COMING_SOON: &str = "Google Drive sync is coming soon.";
+
+fn available() -> Result<(), String> {
+    if AVAILABLE { Ok(()) } else { Err(COMING_SOON.into()) }
+}
+
 /// Start the worker (once, from the Tauri setup hook).
 pub fn start(app: AppHandle) {
+    if !AVAILABLE {
+        return;
+    }
     let svc = Service {
         app: Some(app),
         wake: Mutex::new(Wake { due: Some(Instant::now() + Duration::from_secs(3)), backoff: POLL }),
@@ -443,6 +458,18 @@ fn platform() -> &'static str {
 }
 
 pub fn status() -> Result<SyncStatus, String> {
+    if !AVAILABLE {
+        return Ok(SyncStatus {
+            configured: false,
+            platform: platform(),
+            account: None,
+            message: None,
+            state: "coming-soon".into(),
+            last_round: None,
+            device_name: device_name(),
+            projects: Vec::new(),
+        });
+    }
     let store = open_store()?;
     let g = service().map(|s| lock(&s.global).clone()).unwrap_or_default();
     let acct = account(&store)?;
@@ -538,6 +565,7 @@ pub fn sync_status() -> ApiResponse<SyncStatus> {
 #[tauri::command]
 pub async fn drive_sign_in() -> ApiResponse<SyncStatus> {
     blocking(|| {
+        available()?;
         // A grant from a sign-in whose account check failed (e.g. the Drive API was still off)
         // is reused, so retrying doesn't send the writer through Google's pages again. Only a
         // grant Google no longer accepts leads to a new sign-in; any other failure (API still
@@ -570,6 +598,7 @@ pub fn drive_cancel_sign_in() -> ApiResponse<()> {
 #[tauri::command]
 pub async fn drive_set_access_token(token: String, expires_in: u64) -> ApiResponse<SyncStatus> {
     blocking(move || {
+        available()?;
         if token.trim().is_empty() || token.len() > 4096 {
             return Err("Invalid Google authorization".into());
         }
@@ -602,6 +631,7 @@ pub async fn drive_sign_out() -> ApiResponse<SyncStatus> {
 #[tauri::command]
 pub async fn sync_enable_project(project_id: String) -> ApiResponse<SyncStatus> {
     blocking(move || {
+        available()?;
         valid_project(&project_id)?;
         {
             let _guard = lock(&ENGINE);
@@ -643,6 +673,7 @@ pub struct RemoteEntry {
 #[tauri::command]
 pub async fn drive_remote_projects() -> ApiResponse<Vec<RemoteEntry>> {
     blocking(|| {
+        available()?;
         let store = open_store()?;
         account(&store)?.ok_or("Sign in to Google Drive first")?;
         let enabled: Vec<String> = store.enabled_projects()?.into_iter().map(|(p, _)| p).collect();
@@ -663,6 +694,7 @@ pub async fn drive_remote_projects() -> ApiResponse<Vec<RemoteEntry>> {
 #[tauri::command]
 pub async fn sync_download_project(project_id: String, name: String) -> ApiResponse<Project> {
     blocking(move || {
+        available()?;
         valid_project(&project_id)?;
         {
             let _guard = lock(&ENGINE);
@@ -741,6 +773,7 @@ fn apply_staged_inner(project_id: &str, doc_id: &str) -> Result<SyncReport, Stri
 #[tauri::command]
 pub async fn sync_apply_staged(project_id: String, document_id: String) -> ApiResponse<SyncReport> {
     blocking(move || {
+        available()?;
         valid_ids(&project_id, Some(&document_id))?;
         let report = apply_staged_inner(&project_id, &document_id)?;
         nudge(&project_id);
@@ -752,6 +785,7 @@ pub async fn sync_apply_staged(project_id: String, document_id: String) -> ApiRe
 #[tauri::command]
 pub async fn sync_conflict(project_id: String, document_id: String) -> ApiResponse<Vec<ConflictVersion>> {
     blocking(move || {
+        available()?;
         valid_ids(&project_id, Some(&document_id))?;
         let _guard = lock(&ENGINE);
         let store = open_store()?;
@@ -765,6 +799,7 @@ pub async fn sync_conflict(project_id: String, document_id: String) -> ApiRespon
 #[tauri::command]
 pub async fn sync_resolve_conflict(project_id: String, document_id: String, keep: String, keep_copies: bool) -> ApiResponse<Vec<String>> {
     blocking(move || {
+        available()?;
         valid_ids(&project_id, Some(&document_id))?;
         let created = {
             let _guard = lock(&ENGINE);
@@ -786,6 +821,7 @@ pub async fn sync_resolve_conflict(project_id: String, document_id: String, keep
 #[tauri::command]
 pub async fn drive_usage() -> ApiResponse<u64> {
     blocking(|| {
+        available()?;
         account(&open_store()?)?.ok_or("Sign in to Google Drive first")?;
         Drive::new().usage().map_err(|e| e.to_string())
     })
@@ -810,5 +846,19 @@ mod tests {
             assert!(valid_ids(bad, None).is_err(), "project {bad:?}");
             assert!(valid_ids("6f0e3a52-1b7c-4f43-9d55-0a1b2c3d4e5f", Some(bad)).is_err(), "document {bad:?}");
         }
+    }
+
+    /// 2.2.2: Drive sync is held back ("coming soon"). Nothing may sync or sign in until it is
+    /// released, and the status must not list projects (no pills or banners).
+    #[test]
+    fn held_back_sync_is_coming_soon_and_refuses_actions() {
+        if AVAILABLE {
+            return;
+        }
+        let s = status().unwrap();
+        assert_eq!(s.state, "coming-soon");
+        assert!(s.projects.is_empty() && s.account.is_none() && !s.configured);
+        assert_eq!(available().unwrap_err(), COMING_SOON);
+        assert!(service().is_none(), "the worker must not be running");
     }
 }
