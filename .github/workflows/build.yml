@@ -50,7 +50,9 @@ jobs:
             env:
                 GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
             with:
-                tagName: app-v__VERSION__ 
+                # The app lives in app/ (the repository root has an unrelated prototype package.json).
+                projectPath: ./app
+                tagName: app-v__VERSION__
                 releaseName: 'App v__VERSION__'
                 releaseBody: 'See the assets below to download and install this version.'
                 releaseDraft: true
