@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import type { RefObject } from 'react';
 import type { Editor } from '@tiptap/core';
+import { domCaret } from '../lib/domCaret';
 
 interface Props {
   editor: Editor | null;
@@ -26,8 +27,10 @@ interface Props {
  *     (viewport coords + scroll offset), so scrolling moves it for free and
  *     ancestor transforms (drawers, sheets) can't knock it out of place.
  *   - Movement uses a GPU-composited `transform`, never `top`/`left`.
- *   - IME composition (Android / CJK keyboards) temporarily restores the native
- *     caret so the keyboard's own inline suggestions stay accurate.
+ *   - IME composition: Android keyboards compose every word as it is typed, so
+ *     hiding the overlay while composing (as this once did) meant phones never
+ *     saw it. During composition it follows the browser's own caret instead
+ *     (ProseMirror's selection lags until the word is committed).
  *
  * Works on desktop, web and mobile; the user can turn it off in Settings.
  */
@@ -59,13 +62,16 @@ function SmoothCaret({ editor, scrollRef, enabled }: Props) {
       raf = 0;
       if (editor.isDestroyed) return;
       const { selection } = editor.state;
-      if (!selection.empty || !view.hasFocus() || composing) {
+      // While an IME composes (on Android that is every word being typed), ProseMirror's selection
+      // lags the text, so follow the browser's own caret instead of hiding the smooth caret.
+      const fromDom = composing ? domCaret(dom) : null;
+      if ((!composing && !selection.empty) || (composing && !fromDom) || !view.hasFocus()) {
         hide();
         return;
       }
       let coords: { left: number; top: number; bottom: number };
       try {
-        coords = view.coordsAtPos(selection.head);
+        coords = fromDom ?? view.coordsAtPos(selection.head);
       } catch {
         hide();
         return;
@@ -114,13 +120,15 @@ function SmoothCaret({ editor, scrollRef, enabled }: Props) {
 
     const onCompositionStart = () => {
       composing = true;
-      container.classList.add('is-composing');
-      hide();
+      schedule();
     };
     const onCompositionEnd = () => {
       composing = false;
-      container.classList.remove('is-composing');
       schedule();
+    };
+    // Composition updates the text without a ProseMirror transaction; the browser reports it.
+    const onSelectionChange = () => {
+      if (composing || view.hasFocus()) schedule();
     };
 
     editor.on('transaction', schedule);
@@ -132,6 +140,9 @@ function SmoothCaret({ editor, scrollRef, enabled }: Props) {
     dom.addEventListener('blur', hide);
     dom.addEventListener('compositionstart', onCompositionStart);
     dom.addEventListener('compositionend', onCompositionEnd);
+    dom.addEventListener('compositionupdate', schedule);
+    dom.addEventListener('input', schedule);
+    document.addEventListener('selectionchange', onSelectionChange);
     window.addEventListener('resize', schedule);
     window.addEventListener('focus', schedule);
     window.addEventListener('blur', hide);
@@ -148,6 +159,9 @@ function SmoothCaret({ editor, scrollRef, enabled }: Props) {
       dom.removeEventListener('blur', hide);
       dom.removeEventListener('compositionstart', onCompositionStart);
       dom.removeEventListener('compositionend', onCompositionEnd);
+      dom.removeEventListener('compositionupdate', schedule);
+      dom.removeEventListener('input', schedule);
+      document.removeEventListener('selectionchange', onSelectionChange);
       window.removeEventListener('resize', schedule);
       window.removeEventListener('focus', schedule);
       window.removeEventListener('blur', hide);
@@ -155,7 +169,7 @@ function SmoothCaret({ editor, scrollRef, enabled }: Props) {
       if (raf) cancelAnimationFrame(raf);
       window.clearTimeout(timer);
       window.clearTimeout(blinkTimer);
-      container.classList.remove('mn-smooth-caret', 'is-composing');
+      container.classList.remove('mn-smooth-caret');
     };
   }, [editor, scrollRef, enabled]);
 

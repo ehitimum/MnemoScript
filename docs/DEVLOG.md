@@ -3,6 +3,29 @@
 A running log of substantive changes, so future work needs less re-discovery.
 Newest entries first. Dates are absolute.
 
+## 2026-11-24 — 2.2.0: writer feedback fixes
+
+Merged PRs #1–#4 (AI assistant, MnemoSync strategy, backups, Google Drive sync) into `main`, then:
+- **Phone "+" button scrolled away** with the document list (it was inside the scroll box). It is
+  now a sibling of the list.
+- **Chapter order "1, 2, 4, 3".** New documents got `order = documents.length`, which a delete
+  makes reuse; ties were broken by last-edited time, so editing a chapter moved it. New documents
+  go after the highest order; ties sort by natural title then id (frontend and backend).
+- **Suggestion windows at the edges / off-screen on the last line.** Shared `placeFloating` for the
+  grammar popover, AI card and menu, and slash menu (below, else above, else middle; keyboard-aware).
+- **Grammar too strict, flags stayed after a fix.** Default level instead of `picky`, style checks off,
+  flags drop when their text is edited, Ignore and Add to dictionary.
+- **Formatting in the "/" menu**: bold, italic, underline, strikethrough, inline code, clear, align.
+- **Smooth caret missing on Android**: it hid during IME composition, which Android keyboards use for
+  every word. It now follows the browser caret while composing.
+- **Smart quotes** (“ ” ‘ ’), on by default, toggle in Settings → Writing (desktop and phone).
+- **Windows installer updates older versions.** Only the NSIS setup is built now (no `.msi`); a
+  pre-install hook (`src-tauri/windows/hooks.nsh`) finds a MnemoScript installed with the old MSI
+  (all users) and offers to remove it; older per-user installs use Tauri's update page as before.
+  Found because this PC had 2.0.0 (setup) and 2.1.0 (MSI) installed side by side.
+- Tests: `regression/writer-feedback.regression.test.tsx` (14) and
+  `project::tests::tied_order_sorts_by_natural_title_not_edit_time`.
+
 ## 2026-11-15 — Backups: fixes from the PR #3 review
 
 Each fix has a regression test (`cargo test backup::`, `regression/backup*.regression.test.tsx`).

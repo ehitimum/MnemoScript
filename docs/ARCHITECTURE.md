@@ -142,15 +142,34 @@ desktop settings screen is `SettingsPanel.tsx` (App renders it; the editor no lo
 **Smooth caret (`SmoothCaret.tsx`)** — the Word-style gliding caret, on desktop, web and mobile. A
 ref-driven overlay inside the scroll container (content-space coords via `view.coordsAtPos` + scroll
 offset), moved with a GPU `transform` in one rAF per change (timer fallback while the tab is hidden),
-solid while moving and blinking only after ~450 ms at rest, hidden for non-empty selections/blur and
-during IME composition (`.is-composing` restores the native caret). The native caret is hidden with
+solid while moving and blinking only after ~450 ms at rest, hidden for non-empty selections/blur.
+During IME composition (Android keyboards compose every word) it follows the browser's own caret
+(`lib/domCaret.ts`), because ProseMirror's selection lags until the word is committed; it used to
+hide there, which is why phones never showed it. The native caret is hidden with
 `.mn-smooth-caret .ProseMirror { caret-color: transparent }`. User toggle: `smoothCaret` pref.
+
+**Floating windows (`lib/floating.ts`).** The grammar popover, the inline AI card and menu, and the
+slash menu are placed by `placeFloating` inside the visible editor area (`visibleArea`: the scroll
+box clipped to the visual viewport, so the phone keyboard is excluded): below the text when it fits,
+else above it, else in the middle of the area; never off an edge. The AI card is centred in the area,
+the popover and menus on their text. Sizes are measured in a callback ref and written to the DOM
+(`applyPlacement`), so placement causes no extra render.
+
+**Document order (`lib/docOrder.ts` ↔ `project.rs` `compare_documents`).** `order`, then natural
+title ("Chapter 2" < "Chapter 10"), then id. New documents get `nextDocOrder` (highest + 1).
 
 ## Editor extensions
 `StarterKit` (+ heading/list keymaps) · `Placeholder` · `TextAlign` · **`TaskList`/`TaskItem`**
 (`/todo` checkbox lists, nestable) · `LinguisticCheck` (grammar) · **`ReadAloudHighlight`**
 (karaoke highlight for TTS) · **`ImageWithAsset`** (asset-rendering image node) · **`SlashCommand`**
-(the `/` menu).
+(the `/` menu: blocks, a **Format** group — bold, italic, underline, strikethrough, inline code, clear
+formatting, alignment — and the AI group) · **`SmartQuotes`** (input rules: " ' → “ ” ‘ ’ by the
+preceding character; off in code; Backspace undoes; `smartQuotes` pref, default on).
+
+**Grammar (`LinguisticCheck.ts`, `grammar-service.ts`, `lib/grammarPrefs.ts`).** LanguageTool at its
+default level with style/typography categories and noisy rules disabled. A flag is dropped as soon
+as the writer edits the flagged text (the next check re-flags it if still wrong). The popover offers
+Ignore (rule + word, this session) and, for spelling, Add to dictionary (`mnemo_grammar_dictionary`).
 The slash menu (`SlashCommand.ts` + `SlashMenu.tsx` + `slashItems.ts`) is built on
 `@tiptap/suggestion`; its React popup is positioned at the caret via the suggestion `clientRect`
 (same manual technique as the grammar popover — no tippy.js).

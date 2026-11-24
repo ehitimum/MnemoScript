@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { Project, Document, Folder, DocType } from '../../types';
+import { compareDocs } from '../../lib/docOrder';
 import {
   Plus,
   Search,
@@ -89,9 +90,10 @@ function MobileLibrary({
 
   // Group filtered docs: root (no folder) first, then one section per folder.
   const groups = useMemo(() => {
-    const root = filtered.filter((d) => !d.folderId);
+    const sorted = [...filtered].sort(compareDocs);
+    const root = sorted.filter((d) => !d.folderId);
     const byFolder = folders
-      .map((f) => ({ folder: f, docs: filtered.filter((d) => d.folderId === f.id) }))
+      .map((f) => ({ folder: f, docs: sorted.filter((d) => d.folderId === f.id) }))
       .filter((g) => g.docs.length > 0);
     return { root, byFolder };
   }, [filtered, folders]);
@@ -138,8 +140,11 @@ function MobileLibrary({
   }
 
   // ── Documents view (project open) ────────────────────────────────────────
+  // The + button is a sibling of the scrolling list (not inside it), so it stays put while the
+  // chapters and notes scroll underneath.
   return (
-    <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-4 relative">
+    <div className="flex-1 min-h-0 relative flex flex-col">
+    <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4 flex flex-col gap-4" data-testid="mobile-doc-list">
       <div className="flex items-center gap-2">
         <button
           className="w-9 h-9 flex items-center justify-center rounded-xl bg-secondary/40 text-foreground/80 active:scale-90"
@@ -187,8 +192,9 @@ function MobileLibrary({
           </div>
         ))}
       </div>
+    </div>
 
-      {/* New-document FAB */}
+      {/* New-document FAB (fixed over the list) */}
       <button className="mn-fab" style={{ bottom: 18 }} onClick={() => setNewOpen(true)} title="New document">
         <Plus className="w-6 h-6" />
       </button>

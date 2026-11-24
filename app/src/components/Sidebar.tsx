@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import type { Project, Document, Folder, DocType } from '../types';
+import { compareDocs } from '../lib/docOrder';
 import {
   ChevronDown,
   ChevronRight,
@@ -165,7 +166,7 @@ function Sidebar({
   const childFolders = (parentId: string | null) =>
     folders.filter(f => (f.parentId ?? null) === parentId).sort(sortByOrder);
   const childDocs = (parentId: string | null) =>
-    documents.filter(d => (d.folderId ?? null) === parentId).sort(sortByOrder);
+    documents.filter(d => (d.folderId ?? null) === parentId).sort(compareDocs);
 
   const toggleCollapse = (id: string) => {
     setCollapsed(prev => {

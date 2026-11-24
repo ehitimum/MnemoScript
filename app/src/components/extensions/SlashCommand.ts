@@ -2,8 +2,9 @@ import { Extension } from '@tiptap/core';
 import Suggestion, { type SuggestionProps, type SuggestionKeyDownProps } from '@tiptap/suggestion';
 import { ReactRenderer } from '@tiptap/react';
 import SlashMenu, { type SlashMenuRef } from '../SlashMenu';
-import { getAiSlashItems, getSlashItems, type SlashItem, type SlashOptions } from './slashItems';
+import { getAiSlashItems, getFormatSlashItems, getSlashItems, type SlashItem, type SlashOptions } from './slashItems';
 import { inlineAi } from './AiTarget';
+import { placeFloating, visibleArea } from '../../lib/floating';
 
 /**
  * Notion-style "/" command menu. Built on @tiptap/suggestion; the floating menu
@@ -30,7 +31,7 @@ export const SlashCommand = Extension.create<SlashOptions>({
           props.action(editor, range);
         },
         items: ({ query, editor }) => {
-          const all = [...getSlashItems(this.options), ...(inlineAi(editor) ? getAiSlashItems() : [])];
+          const all = [...getSlashItems(this.options), ...getFormatSlashItems(), ...(inlineAi(editor) ? getAiSlashItems() : [])];
           const q = query.toLowerCase();
           if (!q) return all;
           return all.filter(
@@ -41,14 +42,25 @@ export const SlashCommand = Extension.create<SlashOptions>({
           let component: ReactRenderer<SlashMenuRef> | null = null;
           let popup: HTMLDivElement | null = null;
 
-          const position = (clientRect?: (() => DOMRect | null) | null) => {
-            if (!popup || !clientRect) return;
-            const rect = clientRect();
-            if (!rect) return;
-            // Keep the menu on-screen vertically.
-            const top = rect.bottom + 6;
-            popup.style.left = `${rect.left}px`;
-            popup.style.top = `${top}px`;
+          const position = (props: SuggestionProps<SlashItem>) => {
+            const rect = props.clientRect?.();
+            if (!popup || !rect) return;
+            // Below the caret when it fits, else above it (typing on the last line), never off
+            // an edge or under the phone keyboard.
+            const area = visibleArea(props.editor.view.dom.closest('.mn-editor-scroll'));
+            const menu = popup.querySelector<HTMLElement>('.slash-menu') ?? popup;
+            menu.style.maxHeight = ''; // measure the natural height (CSS caps it at 340px)
+            const p = placeFloating(
+              { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.left + 280 },
+              Math.min(menu.offsetWidth || 280, 320),
+              menu.offsetHeight || 320,
+              area,
+              'target',
+              6,
+            );
+            popup.style.left = `${Math.round(p.left)}px`;
+            popup.style.top = `${Math.round(p.top)}px`;
+            menu.style.maxHeight = `${Math.round(Math.min(340, p.maxHeight))}px`;
           };
 
           return {
@@ -58,11 +70,13 @@ export const SlashCommand = Extension.create<SlashOptions>({
               popup.className = 'slash-popup';
               popup.appendChild(component.element);
               document.body.appendChild(popup);
-              position(props.clientRect);
+              position(props);
+              requestAnimationFrame(() => position(props));
             },
             onUpdate: (props: SuggestionProps<SlashItem>) => {
               component?.updateProps(props);
-              position(props.clientRect);
+              // The list shrinks while filtering: place it once React has rendered the new size.
+              requestAnimationFrame(() => position(props));
             },
             onKeyDown: (props: SuggestionKeyDownProps) => {
               if (props.event.key === 'Escape') {

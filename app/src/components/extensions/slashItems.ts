@@ -15,12 +15,25 @@ import {
   Code,
   Minus,
   Image as ImageIcon,
+  Bold,
+  Italic,
+  Underline,
+  Strikethrough,
+  CodeXml,
+  RemoveFormatting,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  AlignJustify,
 } from 'lucide-react';
 
 export interface SlashItem {
   title: string;
-  /** 'ai' items are listed under an "AI" label (only when the project has an AI). */
-  group?: 'ai';
+  /**
+   * Listed under a label: 'format' = text formatting, 'ai' = inline AI commands (only when the
+   * project has an AI). Ungrouped items are blocks.
+   */
+  group?: 'format' | 'ai';
   description: string;
   icon: LucideIcon;
   keywords: string[];
@@ -46,6 +59,39 @@ export function getAiSlashItems(): SlashItem[] {
       else ai?.start(c.id);
     },
   }));
+}
+
+type Chain = ReturnType<Editor['chain']>;
+
+/**
+ * A formatting command: removes the "/query" and turns the style on (or off) for what is typed
+ * next, like pressing Ctrl+B. Alignment applies to the current paragraph.
+ */
+const fmt = (title: string, description: string, icon: LucideIcon, keywords: string[], apply: (c: Chain) => Chain): SlashItem => ({
+  title,
+  description,
+  icon,
+  keywords,
+  group: 'format',
+  action: (e, r) => {
+    apply(e.chain().focus().deleteRange(r)).run();
+  },
+});
+
+/** Bold, italic … under a "Format" label. */
+export function getFormatSlashItems(): SlashItem[] {
+  return [
+    fmt('Bold', 'Strong emphasis · Ctrl+B', Bold, ['bold', 'strong', 'b'], (c) => c.toggleBold()),
+    fmt('Italic', 'Emphasis · Ctrl+I', Italic, ['italic', 'emphasis', 'em', 'i'], (c) => c.toggleItalic()),
+    fmt('Underline', 'Underlined text · Ctrl+U', Underline, ['underline', 'u'], (c) => c.toggleUnderline()),
+    fmt('Strikethrough', 'Crossed-out text', Strikethrough, ['strike', 'strikethrough', 'del', 's'], (c) => c.toggleStrike()),
+    fmt('Inline code', 'Monospaced words', CodeXml, ['inline', 'mono', 'code'], (c) => c.toggleCode()),
+    fmt('Clear formatting', 'Back to plain text', RemoveFormatting, ['clear', 'plain', 'reset', 'remove'], (c) => c.unsetAllMarks()),
+    fmt('Align left', 'Left-aligned paragraph', AlignLeft, ['left', 'align'], (c) => c.setTextAlign('left')),
+    fmt('Align center', 'Centred paragraph', AlignCenter, ['center', 'centre', 'middle', 'align'], (c) => c.setTextAlign('center')),
+    fmt('Align right', 'Right-aligned paragraph', AlignRight, ['right', 'align'], (c) => c.setTextAlign('right')),
+    fmt('Justify', 'Justified paragraph', AlignJustify, ['justify', 'align'], (c) => c.setTextAlign('justify')),
+  ];
 }
 
 /** The Notion-style command palette items, mapped to TipTap StarterKit nodes. */

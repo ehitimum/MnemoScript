@@ -10,7 +10,10 @@ import type { Editor as CoreEditor, Range } from '@tiptap/core';
 import type { Document } from '../types';
 import type { Editor as TiptapEditor } from '@tiptap/react';
 import { Volume2, Square, Mic, MicOff } from 'lucide-react';
-import { LinguisticCheck, getActiveGrammarError } from './LinguisticCheck';
+import { LinguisticCheck, getActiveGrammarError, dismissGrammarFlag } from './LinguisticCheck';
+import { SmartQuotes, setSmartQuotes } from './extensions/SmartQuotes';
+import { addToDictionary, ignoreMatch, isSpelling } from '../lib/grammarPrefs';
+import { applyPlacement, visibleArea, type Box } from '../lib/floating';
 import { ReadAloudHighlight } from './extensions/ReadAloudHighlight';
 import { SlashCommand } from './extensions/SlashCommand';
 import { ImageWithAsset } from './extensions/ImageWithAsset';
@@ -27,7 +30,9 @@ interface GrammarErrorData {
   match: LTMatch;
   from: number;
   to: number;
-  coords: { top: number; left: number };
+  /** The flagged word on screen (viewport coordinates). */
+  target: Box;
+  word: string;
 }
 
 export interface EditorProps {
@@ -43,6 +48,8 @@ export interface EditorProps {
   spellcheckActive: boolean;
   /** Word-style gliding caret (see SmoothCaret). */
   smoothCaret: boolean;
+  /** Typing " and ' gives “ ” and ‘ ’ (see SmartQuotes). Default on. */
+  smartQuotes?: boolean;
   /** 'mobile' hides the desktop toolbar; the mobile shell provides its own chrome. */
   chrome?: 'desktop' | 'mobile';
   /** The project's AI for inline commands (/polish …). Without it the AI items are hidden. */
@@ -75,6 +82,7 @@ function Editor({
   editorPadding,
   spellcheckActive,
   smoothCaret,
+  smartQuotes = true,
   chrome = 'desktop',
   ai,
 }: EditorProps) {
@@ -141,6 +149,7 @@ function Editor({
       ImageWithAsset,
       SlashCommand.configure({ onImage: handleSlashImage }),
       AiTarget,
+      SmartQuotes,
     ],
     content: doc.content || EMPTY_DOC,
     editorProps: {
@@ -158,12 +167,14 @@ function Editor({
         return;
       }
       try {
-        const coords = ed.view.coordsAtPos(errorData.from);
+        const a = ed.view.coordsAtPos(errorData.from);
+        const b = ed.view.coordsAtPos(errorData.to);
         setGrammarError({
           match: errorData.match,
           from: errorData.from,
           to: errorData.to,
-          coords: { top: coords.bottom + 6, left: coords.left },
+          target: { top: Math.min(a.top, b.top), bottom: Math.max(a.bottom, b.bottom), left: Math.min(a.left, b.left), right: Math.max(a.right, b.right) },
+          word: ed.state.doc.textBetween(errorData.from, errorData.to, ' '),
         });
       } catch {
         setGrammarError(null);
@@ -175,6 +186,25 @@ function Editor({
   useEffect(() => {
     editor?.setOptions({ editorProps: { attributes: { spellcheck: spellcheckActive ? 'true' : 'false' } } });
   }, [editor, spellcheckActive]);
+
+  // Smart quotes follow the setting (read by the input rule on every keystroke).
+  useEffect(() => {
+    if (editor && !editor.isDestroyed) setSmartQuotes(editor, smartQuotes);
+  }, [editor, smartQuotes]);
+
+  // The suggestion popover is placed for the word's position on screen; scrolling moves the
+  // word, so close the popover instead of leaving it floating over the wrong line.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !grammarError) return;
+    const close = () => setGrammarError(null);
+    el.addEventListener('scroll', close, { passive: true });
+    window.addEventListener('resize', close);
+    return () => {
+      el.removeEventListener('scroll', close);
+      window.removeEventListener('resize', close);
+    };
+  }, [grammarError]);
 
   // Read-Aloud (TTS) + Voice-to-Text. Toolbar buttons are quick toggles; full
   // controls live in the RightSidebar / mobile Tools sheet.
@@ -204,6 +234,15 @@ function Editor({
   const applyGrammarFix = (replacement: string) => {
     if (!grammarError || !editor) return;
     editor.chain().focus().insertContentAt({ from: grammarError.from, to: grammarError.to }, replacement).run();
+    setGrammarError(null);
+  };
+
+  // "Ignore" (this word, this rule, this session) and "Add to dictionary" (spelling, kept).
+  const dismissGrammar = (remember: boolean) => {
+    if (!grammarError || !editor) return;
+    if (remember) addToDictionary(grammarError.word);
+    else ignoreMatch(grammarError.match, grammarError.word);
+    dismissGrammarFlag(editor, grammarError.from, grammarError.to);
     setGrammarError(null);
   };
 
@@ -299,8 +338,14 @@ function Editor({
 
         {editor && grammarError && spellcheckActive && (
           <div
-            className="grammar-popover bg-popover text-popover-foreground border border-border/45 shadow-2xl rounded-xl p-4 flex flex-col gap-3 max-w-xs animate-in fade-in zoom-in-95 duration-150 backdrop-blur-xl"
-            style={{ position: 'fixed', top: grammarError.coords.top, left: grammarError.coords.left, zIndex: 9999 }}
+            // Placed (and kept on screen, centred on the word) once its size is known.
+            ref={(el) => {
+              if (el) applyPlacement(el, grammarError.target, visibleArea(scrollRef.current), { width: 320, align: 'target' });
+            }}
+            className="grammar-popover bg-popover text-popover-foreground border border-border/45 shadow-2xl rounded-xl p-4 flex flex-col gap-3 overflow-y-auto animate-in fade-in zoom-in-95 duration-150 backdrop-blur-xl"
+            style={{ position: 'fixed', top: grammarError.target.bottom + 6, left: grammarError.target.left, zIndex: 9999 }}
+            role="dialog"
+            aria-label="Writing suggestion"
             onMouseDown={(e) => e.preventDefault()}
           >
             <span className="text-xs font-medium text-foreground/90 leading-relaxed">{grammarError.match.message}</span>
@@ -322,6 +367,28 @@ function Editor({
             ) : (
               <span className="text-xs italic text-muted-foreground/60">No quick fixes available.</span>
             )}
+            <div className="flex items-center gap-1 -mx-1 -mb-1 pt-1 border-t border-border/30">
+              <button
+                className="text-3xs font-medium px-2 py-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary/60 cursor-pointer transition-colors"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  dismissGrammar(false);
+                }}
+              >
+                Ignore
+              </button>
+              {isSpelling(grammarError.match) && (
+                <button
+                  className="text-3xs font-medium px-2 py-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary/60 cursor-pointer transition-colors"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    dismissGrammar(true);
+                  }}
+                >
+                  Add “{grammarError.word}” to dictionary
+                </button>
+              )}
+            </div>
           </div>
         )}
       </div>

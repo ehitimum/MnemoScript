@@ -3,6 +3,12 @@ import { Plugin, PluginKey } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import { grammarService, type LTMatch } from './grammar-service';
 import { buildFlatText } from '../lib/proseFlatText';
+import { grammarFilter } from '../lib/grammarPrefs';
+
+/** Removes the grammar flag on [from, to) (the writer dismissed it). */
+export function dismissGrammarFlag(editor: Editor, from: number, to: number): void {
+  editor.view.dispatch(editor.state.tr.setMeta('linguisticDismiss', { from, to }));
+}
 
 declare module '@tiptap/core' {
   interface Storage {
@@ -40,7 +46,23 @@ export const LinguisticCheck = Extension.create({
             if (meta) return meta;
             // Keep existing decorations aligned as the user edits. Mapping
             // preserves each decoration's spec (and therefore its `match`).
-            return oldDecorationSet.map(tr.mapping, tr.doc);
+            let set: DecorationSet = oldDecorationSet.map(tr.mapping, tr.doc);
+            const dismiss = tr.getMeta('linguisticDismiss') as { from: number; to: number } | undefined;
+            if (dismiss) set = set.remove(set.find(dismiss.from, dismiss.to));
+            // A flag on text the writer just edited is stale: they are probably fixing it. Drop it
+            // now instead of leaving the underline on the corrected word until the next check
+            // (which re-flags it if it is still wrong).
+            if (tr.docChanged && set !== DecorationSet.empty) {
+              const touched: Decoration[] = [];
+              tr.mapping.maps.forEach((stepMap, i) => {
+                const rest = tr.mapping.slice(i + 1);
+                stepMap.forEach((_a, _b, start, end) => {
+                  touched.push(...set.find(rest.map(start, -1), rest.map(end, 1)));
+                });
+              });
+              if (touched.length) set = set.remove(touched);
+            }
+            return set;
           },
         },
         props: {
@@ -80,6 +102,7 @@ export const LinguisticCheck = Extension.create({
                 if (!view.state.doc.eq(checkedDoc)) return;
 
                 const decorations: Decoration[] = [];
+                const show = grammarFilter();
 
                 matches.forEach((match) => {
                   const start = match.offset;
@@ -100,6 +123,7 @@ export const LinguisticCheck = Extension.create({
                   ) {
                     return;
                   }
+                  if (!show(match, text.slice(start, end))) return;
 
                   const isTypo =
                     match.rule.category.id === 'TYPOS' ||

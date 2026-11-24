@@ -16,6 +16,57 @@ pub fn init_data_dir(dir: PathBuf) {
     let _ = DATA_DIR.set(dir);
 }
 
+/// Document order: the explicit index, then the title compared naturally ("Chapter 2" before
+/// "Chapter 10", case-insensitive), then the id. Ties used to fall back to the last-edited time, so
+/// two chapters sharing an index swapped places whenever one was edited ("1, 2, 4, 3"). Must match
+/// `compareDocs` in `src/lib/docOrder.ts`.
+pub fn compare_documents(a: &Document, b: &Document) -> std::cmp::Ordering {
+    a.order
+        .cmp(&b.order)
+        .then_with(|| natural_cmp(&a.title, &b.title))
+        .then_with(|| a.id.cmp(&b.id))
+}
+
+/// Case-insensitive comparison that orders runs of digits by their value.
+fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    let (mut x, mut y) = (a.chars().peekable(), b.chars().peekable());
+    loop {
+        match (x.peek().copied(), y.peek().copied()) {
+            (None, None) => return Ordering::Equal,
+            (None, Some(_)) => return Ordering::Less,
+            (Some(_), None) => return Ordering::Greater,
+            (Some(c), Some(d)) if c.is_ascii_digit() && d.is_ascii_digit() => {
+                let take = |it: &mut std::iter::Peekable<std::str::Chars>| {
+                    let mut s = String::new();
+                    while let Some(&ch) = it.peek() {
+                        if !ch.is_ascii_digit() {
+                            break;
+                        }
+                        s.push(ch);
+                        it.next();
+                    }
+                    s
+                };
+                let (m, n) = (take(&mut x), take(&mut y));
+                let (m, n) = (m.trim_start_matches('0'), n.trim_start_matches('0'));
+                let ord = m.len().cmp(&n.len()).then_with(|| m.cmp(n));
+                if ord != Ordering::Equal {
+                    return ord;
+                }
+            }
+            (Some(c), Some(d)) => {
+                let ord = c.to_lowercase().cmp(d.to_lowercase());
+                if ord != Ordering::Equal {
+                    return ord;
+                }
+                x.next();
+                y.next();
+            }
+        }
+    }
+}
+
 /// Write a file atomically: the content goes to a sibling `*.tmp` first and is
 /// then renamed over the target, so a crash or power loss mid-write can never
 /// leave a half-written (corrupt) project or document file behind.
@@ -310,8 +361,7 @@ impl Project {
                 }
             }
         }
-        // Order by explicit index first, then fall back to updated time.
-        documents.sort_by(|a, b| a.order.cmp(&b.order).then(a.updated_at.cmp(&b.updated_at)));
+        documents.sort_by(compare_documents);
         Ok(documents)
     }
 
@@ -500,6 +550,31 @@ mod tests {
         Document::delete(&project.id, &first.id).unwrap();
         Document::delete(&project.id, &first.id).unwrap(); // already gone: still Ok
         assert_eq!(Project::load(&project.id).unwrap().documents.len(), 1);
+    }
+
+    /// Regression: chapters sharing an order index (left by the old `order = documents.length`
+    /// after a delete) swapped places whenever one was edited ("1, 2, 4, 3"). Ties now sort by
+    /// natural title, so editing never moves a chapter.
+    #[test]
+    fn tied_order_sorts_by_natural_title_not_edit_time() {
+        let (project, _dir) = project_in("tie");
+        let mut docs = vec![
+            Document::new("Chapter 4".into(), String::new(), "text".into(), 3),
+            Document::new("Chapter 1".into(), String::new(), "text".into(), 0),
+            Document::new("Chapter 10".into(), String::new(), "text".into(), 3),
+            Document::new("Chapter 2".into(), String::new(), "text".into(), 1),
+            Document::new("Chapter 3".into(), String::new(), "text".into(), 3),
+        ];
+        for d in &docs {
+            d.save(&project.id).unwrap();
+        }
+        // Edit Chapter 3 last: it must stay before Chapter 4.
+        docs[4].content = "<p>edited</p>".into();
+        docs[4].updated_at = "2999-01-01T00:00:00Z".into();
+        docs[4].save(&project.id).unwrap();
+        let titles: Vec<String> = Project::load(&project.id).unwrap().documents.into_iter().map(|d| d.title).collect();
+        assert_eq!(titles, ["Chapter 1", "Chapter 2", "Chapter 3", "Chapter 4", "Chapter 10"]);
+        assert_eq!(natural_cmp("chapter 02", "Chapter 2"), std::cmp::Ordering::Equal);
     }
 
     #[test]

@@ -18,6 +18,7 @@ import AiScope from './components/ai/AiScope';
 import type { AiDocumentBridge } from './lib/ai/useAiChat';
 import { flushCanvases } from './lib/canvasFlush';
 import { inlineHostFor } from './lib/ai/inlineHost';
+import { nextDocOrder } from './lib/docOrder';
 import AiPanel from './components/ai/AiPanel';
 import type { ProjectAiConfig } from './lib/ai/types';
 import { api } from './lib/api';
@@ -48,6 +49,7 @@ import {
   Info,
   X,
   PenLine,
+  Quote,
   MousePointer2,
   AlertTriangle,
   Sparkles,
@@ -130,6 +132,7 @@ function App() {
   const [editorPadding, setEditorPadding] = usePref<number>('mnemo_padding', 30);
   const [spellcheckActive, setSpellcheckActive] = usePref<boolean>('mnemo_spellcheck', true);
   const [smoothCaret, setSmoothCaret] = usePref<boolean>('mnemo_smoothcaret', true);
+  const [smartQuotes, setSmartQuotes] = usePref<boolean>('mnemo_smartquotes', true);
   const [autoSaveInterval, setAutoSaveInterval] = usePref<number>('mnemo_interval', 30);
   const [defaultSavePath, setDefaultSavePath] = usePref<string>('mnemo_path', '');
 
@@ -388,7 +391,7 @@ function App() {
     const initialContent =
       docType === 'mindmap' ? '{"nodes":[],"edges":[]}' : docType === 'fantasymap' ? JSON.stringify(createDefaultMapDoc('world')) : '';
     try {
-      const created = await api.createDocument(selectedProject.id, title, initialContent, docType, documents.length);
+      const created = await api.createDocument(selectedProject.id, title, initialContent, docType, nextDocOrder(documents));
       // The backend `create_document` command doesn't take a folder; if the doc
       // is meant to live inside a directory, stamp it and persist once more.
       let newDoc = created;
@@ -533,7 +536,7 @@ function App() {
       const created: Document[] = [];
       for (const src of sources) {
         const target = folderId === undefined ? (src.folderId ?? null) : folderId;
-        const copy = await api.createDocument(selectedProject.id, `${src.title} copy`, src.content, src.docType, documents.length + created.length);
+        const copy = await api.createDocument(selectedProject.id, `${src.title} copy`, src.content, src.docType, nextDocOrder(documents, created.length));
         const placed = { ...copy, folderId: target };
         await api.saveDocument(selectedProject.id, placed);
         created.push(placed);
@@ -636,7 +639,7 @@ function App() {
       createDocument: async (title, docType, content, folderId) => {
         const proj = selectedProjectRef.current;
         if (!proj) throw new Error('No project is open.');
-        let doc = await api.createDocument(proj.id, title, content, docType, documentsRef.current.length);
+        let doc = await api.createDocument(proj.id, title, content, docType, nextDocOrder(documentsRef.current));
         if (folderId) {
           doc = { ...doc, folderId };
           await api.saveDocument(proj.id, doc);
@@ -840,6 +843,13 @@ function App() {
       icon: MousePointer2,
       run: () => setSmoothCaret(!smoothCaret),
     },
+    {
+      id: 'smart-quotes',
+      label: smartQuotes ? 'Disable Smart Quotes' : 'Enable Smart Quotes',
+      group: 'Tools',
+      icon: Quote,
+      run: () => setSmartQuotes(!smartQuotes),
+    },
     { id: 'autosave', label: autoSaveEnabled ? 'Disable Auto-Save' : 'Enable Auto-Save', group: 'Tools', icon: Save, run: () => setAutoSaveEnabled(!autoSaveEnabled) },
     ...themeCommands,
     { id: 'about', label: 'About MnemoScript', group: 'Help', icon: Info, run: () => alert('MnemoScript — a calm, local-first writing studio.') },
@@ -893,6 +903,8 @@ function App() {
       setSpellcheckActive={setSpellcheckActive}
       smoothCaret={smoothCaret}
       setSmoothCaret={setSmoothCaret}
+      smartQuotes={smartQuotes}
+      setSmartQuotes={setSmartQuotes}
       autoSaveInterval={autoSaveInterval}
       setAutoSaveInterval={setAutoSaveInterval}
       defaultSavePath={defaultSavePath}
@@ -940,6 +952,8 @@ function App() {
           setSpellcheckActive={setSpellcheckActive}
           smoothCaret={smoothCaret}
           setSmoothCaret={setSmoothCaret}
+          smartQuotes={smartQuotes}
+          setSmartQuotes={setSmartQuotes}
           autoSaveInterval={autoSaveInterval}
           setAutoSaveInterval={setAutoSaveInterval}
           theme={theme}
@@ -1146,6 +1160,7 @@ function App() {
                   editorPadding={editorPadding}
                   spellcheckActive={spellcheckActive}
                   smoothCaret={smoothCaret}
+                  smartQuotes={smartQuotes}
                   ai={inlineHostFor(chat, () => {
                     setIsAiOpen(true);
                     chat.setView('connect');
