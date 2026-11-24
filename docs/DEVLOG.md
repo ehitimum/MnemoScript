@@ -49,6 +49,74 @@ Items 1–3 were in the released 2.1.0; each fix has a regression test.
   byte-identical, from `node_modules`, no network).
 - Version 2.1.1 in `package.json`, `Cargo.toml`, `tauri.conf.json` (not tagged).
 
+## 2026-11-15 — Drive sync: review fixes (no lost saves)
+
+Addressed the PR #4 reviews (`50e4beb`, `5444c1c`); each fix has a regression test.
+- **Data loss.** A chapter that one device could not read (or a missing `documents/` folder) was
+  recorded as a delete and removed everywhere: unreadable now keeps the last good state with one
+  note. Remote writes could overwrite a save made after the round's scan: every engine write now
+  re-checks the file under `project::files_lock` (also taken by `Document::save/delete` and
+  `Project::save`) and captures a newer save first. Conflict review and resolve scan first, so the
+  latest typing is a version. Delete + two different edits kept only one edit: both stay, as a
+  conflict. Remote deletes and replaced damaged copies go to `<project>/sync-trash/` (30 days).
+- **Sign-in.** A stray request to the loopback port no longer ends the sign-in (error page, keep
+  waiting). Retrying Connect keeps a valid grant unless Google rejects it, so an early retry does
+  not open Google's pages again. Linux desktop is off for Drive sync until a keyring backend exists.
+- **Drive client.** The newer error shape (`error.details[].reason`, e.g. `SERVICE_DISABLED`) is
+  read; release builds say "isn't set up correctly in this build" instead of Cloud console steps.
+  An expired change cursor is detected by status, not message text. The catalogue entry's date
+  moves forward when a round publishes (at most hourly).
+- **Smaller.** Sync commands validate project and document ids. Android names itself by model
+  (`ro.product.model`). The settings card shows the Drive space used, offers "Back up, then sync"
+  when a project is turned on, and carries a Beta label. The live test names its project
+  `zz-live-test-…`, prints its id, and fails when cleanup fails.
+
+
+## 2026-11-15 — First live Google Drive run
+
+- Desktop sign-in worked against the writer's own Cloud project (Testing mode, test user added).
+  First setup surfaced a raw `403: accessNotConfigured` (Drive API not enabled): it now reads as
+  a plain instruction, and a retry reuses the stored grant instead of sending the writer through
+  Google's pages again.
+- New ignored live test `cargo test live_drive -- --ignored --nocapture` plays two devices on the
+  real `appDataFolder` under a throwaway project id: upload with an image, download (image and
+  portable reference intact), edit back through the changes feed, then deletes its files. Passed
+  in 29 s. Android sign-in and real desktop ↔ phone sync are still to be tried.
+
+
+## 2026-11-13 — Google Drive sync (MnemoDrive) on the shared sync engine
+
+- Reviewed PRs #2 (strategy, Node 24 CI, AI undo) and #3 (Phase 0 backup/restore): sound, but
+  the plan's local sync (Phases 1–4) was not built, so Drive could not "reuse" it. Built the
+  transport-neutral engine first (`src-tauri/src/sync/`): per-entity revisions with
+  content-derived ids, SQLite WAL state outside project folders, disk-scan change capture,
+  causal fast-forward, deterministic field merge, preserved text conflicts, edit-beats-delete,
+  tree repair, staged updates for the open chapter, frozen batches for crash-safe publishing,
+  and portable `mnemo-asset:` image references (disk format unchanged).
+- Google Drive transport on the hidden `appDataFolder` (`drive.appdata` only): gzip blobs before
+  immutable batch files, changes feed + listing fallback, duplicate/forged file handling,
+  401/403/429/5xx/quota classes with backoff. Desktop sign-in = loopback + PKCE in the system
+  browser, refresh token in the OS keychain; Android = Google Play services AuthorizationClient via
+  an inline `google-auth` plugin (no refresh token stored). Account switches are refused while
+  projects are bound to the previous account. OAuth client comes from git-ignored `.env.local`.
+- UI: "Sync with Google Drive" card in both settings shells (connect, per-project toggles,
+  download from other devices with a same-name notice, sync notes), a quiet status pill for synced
+  projects only, a floating banner when the open chapter changed elsewhere ("Load it" saves first),
+  and a side-by-side conflict review that keeps the other version as its own chapter by default.
+- Stray fixes: restore left fantasy-map "My Imports" paths on the original project; imported images
+  were written non-atomically (a crash or scan could see half a file); forgotten projects kept
+  syncing; App-mounting Vitest suites and the streamed AI mock timed out with one worker per core.
+- Self-review fixes before the PR: turning a project's sync off and on reset its batch counter
+  (new batches collided with published numbers and were skipped), and re-enabling under another
+  Google account published nothing; both have engine regressions. Desktop status now reports
+  "needs-auth" after signing out while projects stay bound to the account.
+- Checks: `npm run check` (145 tests, 56 regressions, lint, types, build), `cargo test` (90 pass,
+  3 live-AI ignored; 32 sync tests), `cargo clippy -- -D warnings`. `npx tauri android build --apk
+  --debug --target aarch64` builds (Kotlin `GoogleAuthPlugin` + play-services-auth 21.3.0); the
+  three Android-only dead-code warnings in `ai/pair_crypto.rs` are now marked desktop-only.
+  Not verified: live Google OAuth and real desktop ↔ Android sync (needs the writer's own OAuth
+  clients; see `MNEMOSYNC_DRIVE.md`). Browser visual preview is still blocked by permission policy.
+
 ## 2026-11-12 — MnemoSync strategy and initial recovery slice
 
 - Extracted the supplied development plan and MEMORY.md under `docs/mnemosync/`; treated as
@@ -65,6 +133,7 @@ Items 1–3 were in the released 2.1.0; each fix has a regression test.
 - Final checks after integrating the runtime and undo fixes: 130 frontend tests, 41 regressions, production build/lint/types; cargo check,
   56 backend tests (3 existing live-AI tests ignored), and Clippy with warnings denied pass.
   Visual preview remains permission-blocked; packaged Windows/real Android acceptance pending.
+
 
 ## 2026-11-12 — Isolate AI revisions from nearby typing in undo history
 

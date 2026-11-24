@@ -38,6 +38,15 @@ pub fn write_atomic(path: &Path, contents: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Serialises read-modify-write of project files between the app's own saves and the sync
+/// engine, so the engine's "is the file still what I scanned?" check and its write are one
+/// step and a save can never land in between. Writes are short; one lock for all projects.
+static FILES_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+pub fn files_lock() -> std::sync::MutexGuard<'static, ()> {
+    FILES_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 /// A filesystem-safe folder name derived from a project name.
 pub fn safe_dir_name(name: &str) -> String {
     let cleaned: String = name
@@ -241,7 +250,10 @@ impl Project {
         };
         let metadata_path = project_dir.join("project.json");
         let metadata_json = serde_json::to_string_pretty(&snapshot).map_err(|e| e.to_string())?;
-        write_atomic(&metadata_path, &metadata_json)?;
+        {
+            let _files = files_lock();
+            write_atomic(&metadata_path, &metadata_json)?;
+        }
 
         // Add to global project registry
         Registry::add(self)?;
@@ -360,6 +372,7 @@ impl Document {
         fs::create_dir_all(&doc_dir).map_err(|e| e.to_string())?;
         let doc_path = doc_dir.join(format!("{}.json", self.id));
         let doc_json = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
+        let _files = files_lock();
         write_atomic(&doc_path, &doc_json)
     }
 
@@ -381,6 +394,7 @@ impl Document {
         let doc_path = project_dir
             .join("documents")
             .join(format!("{}.json", document_id));
+        let _files = files_lock();
         if doc_path.exists() {
             fs::remove_file(doc_path).map_err(|e| e.to_string())?;
         }

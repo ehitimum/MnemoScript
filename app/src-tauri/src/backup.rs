@@ -274,6 +274,16 @@ fn remap_json(value: &mut Value, map: &dyn Fn(&str) -> Result<Option<String>, St
                             *value = Value::String(mapped);
                         }
                     }
+                } else if key == "imports" {
+                    // Fantasy-map "My Imports" library entries keep their disk path in `path`.
+                    // Only that field of each entry is relocated, never an arbitrary `path` key.
+                    for item in value.as_array_mut().into_iter().flatten() {
+                        if let Some(Value::String(path)) = item.get_mut("path") {
+                            if let Some(mapped) = map(path)? {
+                                *path = mapped;
+                            }
+                        }
+                    }
                 } else {
                     remap_json(value, map)?;
                 }
