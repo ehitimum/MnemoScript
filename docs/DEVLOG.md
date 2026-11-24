@@ -3,6 +3,17 @@
 A running log of substantive changes, so future work needs less re-discovery.
 Newest entries first. Dates are absolute.
 
+## 2026-11-24 — 2.2.1: Google Drive sync switched on
+
+- Release builds now carry the Google sign-in client (from the git-ignored `.env.local`), and the
+  Google Cloud app is published ("In production"): any Google account can connect its Drive.
+- Website for the consent screen: https://mnemoscript.github.io/ (homepage + privacy policy), repo
+  `mnemoscript/mnemoscript.github.io`, domain verified in Search Console.
+- Android needs an Android OAuth client in the same Cloud project: package `com.mnemoscript.app`,
+  release certificate SHA-1 `71:61:A3:9D:2D:47:F3:51:D3:01:A3:08:11:B5:98:AD:FF:E8:BF:F0` (read from the
+  signed APK with `apksigner verify --print-certs`; no keystore password needed).
+- Settings no longer shows developer setup steps to writers when a build has no Google client.
+
 ## 2026-11-24 — 2.2.0: writer feedback fixes
 
 Merged PRs #1–#4 (AI assistant, MnemoSync strategy, backups, Google Drive sync) into `main`, then:
