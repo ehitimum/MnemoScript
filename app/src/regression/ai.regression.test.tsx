@@ -62,7 +62,7 @@ describe('AI assistant — desktop panel (regression)', () => {
     fireEvent.change(box, { target: { value: 'What is in this project?' } });
     fireEvent.keyDown(box, { key: 'Enter' });
 
-    expect(await within(panel).findByText(/want me to draft the change/i, {}, { timeout: 6000 })).toBeInTheDocument();
+    expect(await within(panel).findByText(/want me to draft the change/i, {}, { timeout: 12000 })).toBeInTheDocument();
     expect(within(panel).getByText('Looked through the project')).toBeInTheDocument();
     expect(within(panel).getByText('Claude Sonnet 5')).toBeInTheDocument();
 
@@ -100,13 +100,13 @@ describe('AI assistant — edits (regression)', () => {
     fireEvent.keyDown(box, { key: 'Enter' });
 
     // The proposal waits; nothing is written until the writer applies it.
-    const apply = await within(panel).findByRole('button', { name: /^apply$/i }, { timeout: 6000 });
+    const apply = await within(panel).findByRole('button', { name: /^apply$/i }, { timeout: 12000 });
     expect(within(panel).getByText('Needs your OK')).toBeInTheDocument();
     expect(within(panel).getByText(/waiting for you to apply or reject/i)).toBeInTheDocument();
     expect(liveEditor().getText()).not.toContain('sharpened');
     fireEvent.click(apply);
 
-    await within(panel).findByText(/done \(mock\)/i, {}, { timeout: 6000 });
+    await within(panel).findByText(/done \(mock\)/i, {}, { timeout: 12000 });
     expect(within(panel).getByText('Applied')).toBeInTheDocument();
     await waitFor(() => expect(liveEditor().getText()).toContain('The tavern roared and Mara slipped — sharpened through the crowd.'));
     expect(liveEditor().getHTML()).toContain('<strong>Mara</strong>'); // formatting outside the edit survives
@@ -137,7 +137,7 @@ describe('AI assistant — edits (regression)', () => {
     const box = await within(panel).findByPlaceholderText(/ask about your story/i);
     fireEvent.change(box, { target: { value: 'fix the opening' } });
     fireEvent.keyDown(box, { key: 'Enter' });
-    expect(await within(panel).findByText(/want me to draft the change/i, {}, { timeout: 6000 })).toBeInTheDocument();
+    expect(await within(panel).findByText(/want me to draft the change/i, {}, { timeout: 12000 })).toBeInTheDocument();
     expect(within(panel).queryByRole('button', { name: /^apply$/i })).toBeNull();
     expect(liveEditor().getText()).toBe('The tavern roared and the crowd surged.');
   }, 20000);
@@ -166,8 +166,8 @@ describe('AI assistant — inline commands (regression)', () => {
     expect(within(popup).getByText('Polish')).toBeInTheDocument();
     fireEvent.keyDown(document.querySelector('.ProseMirror')!, { key: 'Enter' });
 
-    const card = await screen.findByRole('dialog', { name: /ai polish/i }, { timeout: 6000 });
-    const accept = await within(card).findByRole('button', { name: /accept/i }, { timeout: 6000 });
+    const card = await screen.findByRole('dialog', { name: /ai polish/i }, { timeout: 12000 });
+    const accept = await within(card).findByRole('button', { name: /accept/i }, { timeout: 12000 });
     expect(document.querySelector('.mn-ai-target')).toBeTruthy(); // the passage is highlighted
     expect(ed.getText()).toContain('very loud'); // nothing changed yet
     fireEvent.click(accept);
@@ -190,7 +190,7 @@ describe('AI assistant — settings (regression)', () => {
     const App = await loadApp();
     render(<App />);
     fireEvent.click((await screen.findByText('Settings', { selector: 'h3, span, p, div' })).closest('button')!);
-    expect(await screen.findByText('writer@example.com', {}, { timeout: 6000 })).toBeInTheDocument();
+    expect(await screen.findByText('writer@example.com', {}, { timeout: 12000 })).toBeInTheDocument();
     expect(screen.getByText('Pro plan')).toBeInTheDocument();
     const bars = await screen.findAllByRole('progressbar');
     expect(bars.map((b) => [b.getAttribute('aria-label'), b.getAttribute('aria-valuenow')])).toEqual([

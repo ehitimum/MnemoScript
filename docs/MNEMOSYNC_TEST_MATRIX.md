@@ -3,6 +3,24 @@
 Baseline on 2026-11-12: `npm run check` passed lint, types, 116 existing tests and production build.
 Large-bundle warnings predate this change. Run required checks again after the implementation.
 
+Implementation verification, 2026-11-12: `npm run check` passes lint, typecheck, all **130 tests**
+and production build; `npm run test:regression` passes **41 regressions** (including the clean
+Node worker runtime test and three fixed-clock AI history regressions). `cargo check`
+passes; `cargo test` passes **56 tests** (including 11 new archive tests), with the 3 existing
+live-AI tests intentionally ignored; `cargo clippy -- -D warnings` passes. The existing pairing
+test needs permission for loopback network access. No live provider usage was consumed.
+Visual preview was retried after user authorization but a saved permission policy still blocks
+the local origin. Generated Rust app artifacts were cleaned after E: filled up; sources and
+saved projects were unaffected. Filesystem hard-link fallback warnings are environmental.
+
+Remote CI initially failed before collection on the inherited Node 20 configuration. Locked
+jsdom/undici require newer APIs; both workflows now read the Node 24.15.0 pin in `.node-version`.
+The fresh-worker regression exercises that startup path; the complete implementation suite
+was rerun after integrating the runtime fix. New remote runs must be checked independently.
+Once CI could start, Linux exposed adjacent typing being grouped into a fast AI rewrite's undo
+event. Shared fix `8b4977b` explicitly closes history before/after AI revisions and continuations;
+fixed-clock regressions exercise the timing window. The combined frontend checks were rerun.
+
 | Layer | Required evidence | Scope |
 |---|---|---|
 | Native archive unit | Exact bytes, hierarchy, Unicode/HTML marks, graph IDs, paths, sessions/exports, repeated restore | `cargo test backup::` |
@@ -13,6 +31,23 @@ Large-bundle warnings predate this change. Run required checks again after the i
 | Visual layout | Desktop and phone settings, theme contrast, long paths, keyboard and touch | Pending: local browser preview access was denied by the permission gate; do not claim screenshots reviewed |
 | Installed Windows | Custom-path project, image and map render after restore, library includes original and copy, external ZIP copy | Pending real app acceptance |
 | Real Android | App-private backup, ZIP chooser, Save a copy provider access, restore, reopen, image/map render | Pending real device acceptance |
+
+### Google Drive sync (2026-11-13)
+
+| Layer | Evidence | Status |
+|---|---|---|
+| Engine simulations | `cargo test sync::engine` — 2–3 devices, reorder/duplicate/offline/held blobs, conflicts, deletes, cycles, forged data | ✅ automated |
+| No-lost-save rules (2026-11-15) | Damaged chapter / missing documents folder never deleted elsewhere; save after scan never overwritten; review and resolve include the latest typing; delete + two edits keeps both; remote delete goes to `sync-trash/` | ✅ automated (engine regressions) |
+| Drive client units | PKCE, scope, redirect state, error classes, gzip, duplicate files | ✅ automated |
+| Mounted UI + App boundary | `sync.regression`, `sync-app.regression` | ✅ automated |
+| Android compile | `npx tauri android build --apk --debug --target aarch64` | ✅ builds 2026-11-13 (not run on a device) |
+| Live Google OAuth (desktop) | Real consent in the browser, loopback + PKCE, keychain grant, account check | ✅ 2026-11-15 on Windows (writer's own Cloud project, Testing mode); Linux is off by design |
+| Live Drive round trip | `cargo test live_drive -- --ignored`: two engines on the real appDataFolder; upload with image, download, edit back through the changes feed, cleanup | ✅ 2026-11-15 (29 s), happy path only: runs the engine directly, so not the worker (`service.rs`), account binding, open-chapter staging or conflicts |
+| Live Google OAuth (Android) | Native AuthorizationClient prompt, silent refresh | ⏳ pending Android OAuth client + device |
+| Real cross-device sync | Same account, desktop ↔ Android, shared appDataFolder across clients | ⏳ pending |
+| 7-day Testing expiry, revoke | Reconnect flow after expiry | ⏳ pending |
+| Quotas / outages | Real 403/429/5xx, Drive full, cursor expiry | ⏳ pending (only classified in unit tests) |
+| Visual layout | Settings card, pill, banner, review on both shells | ⏳ browser preview blocked by permission policy |
 
 ## Synthetic corpus for every storage/merge phase
 

@@ -1,4 +1,6 @@
 mod ai;
+mod backup;
+mod sync;
 mod project;
 
 use project::{Document, Project, Registry};
@@ -84,7 +86,10 @@ fn create_project(
 #[tauri::command]
 fn save_project(project: Project) -> ApiResponse<()> {
     match project.save() {
-        Ok(()) => ApiResponse::success(()),
+        Ok(()) => {
+            sync::service::nudge(&project.id);
+            ApiResponse::success(())
+        }
         Err(e) => ApiResponse::error(e),
     }
 }
@@ -101,7 +106,10 @@ fn rename_project(project_id: String, name: String) -> ApiResponse<Project> {
         Ok(mut project) => {
             project.name = name;
             match project.save() {
-                Ok(()) => ApiResponse::success(project),
+                Ok(()) => {
+                    sync::service::nudge(&project.id);
+                    ApiResponse::success(project)
+                }
                 Err(e) => ApiResponse::error(e),
             }
         }
@@ -120,7 +128,11 @@ fn delete_project(project_id: String, delete_files: Option<bool>) -> ApiResponse
         }
     }
     match Registry::remove(&project_id) {
-        Ok(()) => ApiResponse::success(()),
+        Ok(()) => {
+            // A forgotten or deleted project stops syncing on this device (Drive keeps its copy).
+            sync::service::forget(&project_id);
+            ApiResponse::success(())
+        }
         Err(e) => ApiResponse::error(e),
     }
 }
@@ -156,7 +168,10 @@ fn create_document(
         order.unwrap_or(0),
     );
     match doc.save(&project_id) {
-        Ok(()) => ApiResponse::success(doc),
+        Ok(()) => {
+            sync::service::nudge(&project_id);
+            ApiResponse::success(doc)
+        }
         Err(e) => ApiResponse::error(e),
     }
 }
@@ -226,10 +241,25 @@ fn save_asset(request: Request<'_>) -> ApiResponse<String> {
     }
 
     let dest = assets_dir.join(format!("{}.{}", Uuid::new_v4(), safe_ext));
-    match fs::write(&dest, &bytes) {
-        Ok(_) => ApiResponse::success(dest.to_string_lossy().to_string()),
-        Err(e) => ApiResponse::error(e.to_string()),
+    match write_bytes_atomic(&dest, &bytes) {
+        Ok(()) => {
+            sync::service::nudge(&project_id);
+            ApiResponse::success(dest.to_string_lossy().to_string())
+        }
+        Err(e) => ApiResponse::error(e),
     }
+}
+
+/// Write bytes via a temp file + rename so a crash, or a sync scan, never sees a half-written
+/// image. Asset files are treated as immutable once they have their final name.
+fn write_bytes_atomic(dest: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
+    let name = dest.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let tmp = dest.with_file_name(format!(".{name}.{}.tmp", Uuid::new_v4()));
+    fs::write(&tmp, bytes).map_err(|e| e.to_string())?;
+    fs::rename(&tmp, dest).map_err(|e| {
+        let _ = fs::remove_file(&tmp);
+        e.to_string()
+    })
 }
 
 /// Write an exported file (e.g. a rendered map PNG) into `<project>/exports/`
@@ -259,7 +289,10 @@ fn export_file(request: Request<'_>) -> ApiResponse<String> {
 #[tauri::command]
 fn save_document(project_id: String, document: Document) -> ApiResponse<()> {
     match document.save(&project_id) {
-        Ok(()) => ApiResponse::success(()),
+        Ok(()) => {
+            sync::service::nudge(&project_id);
+            ApiResponse::success(())
+        }
         Err(e) => ApiResponse::error(e),
     }
 }
@@ -267,7 +300,10 @@ fn save_document(project_id: String, document: Document) -> ApiResponse<()> {
 #[tauri::command]
 fn delete_document(project_id: String, document_id: String) -> ApiResponse<()> {
     match Document::delete(&project_id, &document_id) {
-        Ok(()) => ApiResponse::success(()),
+        Ok(()) => {
+            sync::service::nudge(&project_id);
+            ApiResponse::success(())
+        }
         Err(e) => ApiResponse::error(e),
     }
 }
@@ -280,9 +316,87 @@ fn load_document(project_id: String, document_id: String) -> ApiResponse<Documen
     }
 }
 
+/// Run compression on a worker so a large backup cannot block the app's UI thread.
+#[tauri::command]
+async fn backup_project(project_id: String) -> ApiResponse<backup::Created> {
+    blocking(move || backup::create(&project_id)).await
+}
+
+#[tauri::command]
+async fn list_backups() -> ApiResponse<Vec<backup::BackupInfo>> {
+    blocking(|| Ok(backup::list())).await
+}
+
+#[tauri::command]
+async fn delete_backup(path: String) -> ApiResponse<()> {
+    blocking(move || backup::delete(&path)).await
+}
+
+async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, String> + Send + 'static) -> ApiResponse<T> {
+    match tauri::async_runtime::spawn_blocking(f).await {
+        Ok(Ok(v)) => ApiResponse::success(v),
+        Ok(Err(e)) => ApiResponse::error(e),
+        Err(e) => ApiResponse::error(e.to_string()),
+    }
+}
+
+/// Open a file the writer picked in a dialog: a path on desktop (which the dialog added to the
+/// fs scope, so nothing else on disk can be named here), or an Android document URI.
+fn open_picked(app: &tauri::AppHandle, picked: &str, write: bool) -> Result<fs::File, String> {
+    use tauri_plugin_fs::{FilePath, FsExt, OpenOptions};
+    let path: FilePath = picked.parse().map_err(|_| "Invalid file location".to_string())?;
+    if let FilePath::Path(p) = &path {
+        if !app.fs_scope().is_allowed(p) {
+            return Err("Choose the file again".into());
+        }
+    }
+    let mut options = OpenOptions::new();
+    options.read(!write).write(write).create(write).truncate(write);
+    app.fs().open(path, options).map_err(|e| e.to_string())
+}
+
+/// Restore reads the archive straight from the chosen file: the bytes never pass through the
+/// web view or sit in memory whole, so large projects restore on phones too.
+#[tauri::command]
+async fn restore_project_backup(app: tauri::AppHandle, path: String) -> ApiResponse<Project> {
+    blocking(move || {
+        let file = open_picked(&app, &path, false)?;
+        if file.metadata().map(|m| m.len()).unwrap_or(0) > backup::MAX_ARCHIVE {
+            return Err("Backup exceeds the 600 MiB archive limit".into());
+        }
+        let project = backup::restore_in(file, &Project::projects_dir())?;
+        Registry::add(&project).map_err(|e| format!("Restored files at {}; registration failed: {e}", project.get_dir().display()))?;
+        Ok(project)
+    })
+    .await
+}
+
+/// "Save a copy": file to file in the backend (works with Android's document picker).
+#[tauri::command]
+async fn save_backup_copy(app: tauri::AppHandle, source: String, destination: String) -> ApiResponse<u64> {
+    blocking(move || {
+        let mut out = open_picked(&app, &destination, true)?;
+        backup::copy_to(&source, &mut out)
+    })
+    .await
+}
+
+/// Google's native Drive authorization on Android (Kotlin: `GoogleAuthPlugin`). Desktop signs
+/// in through the loopback flow in `sync::drive::auth` instead, so nothing registers there.
+fn google_auth_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
+    tauri::plugin::Builder::new("google-auth")
+        .setup(|_app, _api| {
+            #[cfg(target_os = "android")]
+            _api.register_android_plugin("com.mnemoscript.app", "GoogleAuthPlugin")?;
+            Ok(())
+        })
+        .build()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(google_auth_plugin())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .setup(|app| {
@@ -306,6 +420,8 @@ pub fn run() {
             };
             fs::create_dir_all(&base).ok();
             project::init_data_dir(base);
+            // MnemoSync worker: idle until the writer connects Google Drive and picks projects.
+            sync::service::start(app.handle().clone());
             // Phone pairing listens again at launch if the writer turned it on (desktop only).
             #[cfg(desktop)]
             ai::pair_server::autostart();
@@ -334,6 +450,27 @@ pub fn run() {
             export_file,
             select_directory,
             open_project_by_path,
+            backup_project,
+            restore_project_backup,
+            list_backups,
+            delete_backup,
+            save_backup_copy,
+            sync::service::sync_status,
+            sync::service::drive_sign_in,
+            sync::service::drive_cancel_sign_in,
+            sync::service::drive_set_access_token,
+            sync::service::drive_sign_out,
+            sync::service::sync_enable_project,
+            sync::service::sync_disable_project,
+            sync::service::drive_remote_projects,
+            sync::service::drive_usage,
+            sync::service::sync_download_project,
+            sync::service::sync_now,
+            sync::service::sync_set_active,
+            sync::service::sync_apply_staged,
+            sync::service::sync_conflict,
+            sync::service::sync_resolve_conflict,
+            sync::service::sync_dismiss_notice,
             ai::commands::list_ai_sessions,
             ai::commands::load_ai_session,
             ai::commands::save_ai_session,

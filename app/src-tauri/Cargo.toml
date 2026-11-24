@@ -6,7 +6,7 @@ authors = ["ehitimum"]
 license = ""
 repository = "https://github.com/ehitimum/MnemoScript"
 edition = "2021"
-rust-version = "1.77.2"
+rust-version = "1.88"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -38,13 +38,26 @@ dirs = "5"
 # AI assistant: async runtime pieces (process spawn, channels), HTTPS streaming to the
 # provider APIs (rustls/ring — no OpenSSL or CMake needed on Windows/Android).
 tokio = { version = "1", features = ["process", "io-util", "sync", "time", "macros", "rt"] }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json", "blocking"] }
 futures-util = "0.3"
 # Phone ↔ PC pairing: SPAKE2 turns the short pairing code into a strong shared key (no offline
 # guessing), XChaCha20-Poly1305 encrypts and authenticates every message, base64 for the wire.
 spake2 = "0.4"
 chacha20poly1305 = "0.10"
 base64 = "0.22"
+# Versioned, checksummed local recovery archives; only pure-Rust ZIP deflate.
+zip = { version = "9.5", default-features = false, features = ["deflate"] }
+sha2 = "0.10"
+lol_html = "3"
+html-escape = "0.2"
+# MnemoSync state (revisions, outbox, conflicts, Drive cursors). Bundled SQLite: no system
+# library on Windows/Android. Project JSON files stay the source of truth.
+rusqlite = { version = "0.32", features = ["bundled"] }
+flate2 = "1"
+url = "2"
+
+[dev-dependencies]
+tempfile = "3"
 
 # Native folder picker — desktop only (rfd has no Android/iOS backend). Mobile
 # uses the dialog/fs plugins instead.
@@ -54,4 +67,6 @@ rfd = "0.15"
 keyring = { version = "3", features = ["windows-native", "apple-native"] }
 # Tiny local HTTP server for the in-app MCP endpoint the Claude Code CLI connects to.
 tiny_http = "0.12"
+# Opens Google sign-in in the writer's own browser (desktop OAuth loopback flow).
+open = "5"
 

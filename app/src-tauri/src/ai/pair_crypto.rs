@@ -20,6 +20,7 @@ pub const PROTOCOL: &str = "mnemoscript-pair-v1";
 pub const DEFAULT_PORT: u16 = 47815;
 pub const DISCOVER_PROBE: &[u8] = b"MNEMOSCRIPT-DISCOVER v1";
 /// Accept requests whose clock is within this window (phones and PCs sync time, loosely).
+#[cfg_attr(not(desktop), allow(dead_code))] // used by the PC-side server only
 pub const MAX_SKEW_MS: i64 = 10 * 60 * 1000;
 
 pub fn b64(bytes: &[u8]) -> String {
@@ -30,6 +31,7 @@ pub fn unb64(s: &str) -> Result<Vec<u8>, String> {
     B64.decode(s.trim()).map_err(|_| "Malformed message".to_string())
 }
 
+#[cfg_attr(not(desktop), allow(dead_code))]
 pub fn random_key() -> [u8; 32] {
     let k = XChaCha20Poly1305::generate_key(&mut OsRng);
     let mut out = [0u8; 32];
@@ -44,6 +46,7 @@ pub fn random_id() -> String {
 }
 
 /// "4821 7730": 8 random digits, shown with a space for readability.
+#[cfg_attr(not(desktop), allow(dead_code))]
 pub fn pairing_code() -> String {
     let n = OsRng.next_u64() % 100_000_000;
     let s = format!("{n:08}");

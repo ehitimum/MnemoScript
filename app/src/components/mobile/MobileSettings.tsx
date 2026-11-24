@@ -1,7 +1,9 @@
+import type { ReactNode } from 'react';
 import type { ThemeType } from '../../App';
 import { Check } from 'lucide-react';
 import { THEMES, FONTS } from '../../lib/prefs';
 import AiSettings from '../ai/AiSettings';
+import BackupSettings, { type BackupActions } from '../sync/BackupSettings';
 
 interface Props {
   theme: ThemeType;
@@ -18,6 +20,8 @@ interface Props {
   setSmoothCaret: (b: boolean) => void;
   autoSaveInterval: number;
   setAutoSaveInterval: (n: number) => void;
+  backup?: BackupActions;
+  sync?: ReactNode;
 }
 
 const label = 'text-3xs font-semibold tracking-[0.12em] text-muted-foreground/70 uppercase';
@@ -38,6 +42,8 @@ function MobileSettings({
   setSmoothCaret,
   autoSaveInterval,
   setAutoSaveInterval,
+  backup,
+  sync,
 }: Props) {
   return (
     <div className="flex-1 overflow-y-auto px-4 py-5 flex flex-col gap-7 pb-10">
@@ -129,6 +135,8 @@ function MobileSettings({
       </section>
 
       <AiSettings variant="mobile" />
+      {sync}
+      {backup && <BackupSettings variant="mobile" {...backup} />}
 
       <p className="text-3xs text-muted-foreground/50 text-center pt-2">MnemoScript · local-first writing studio</p>
     </div>

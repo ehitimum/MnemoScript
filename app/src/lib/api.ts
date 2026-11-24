@@ -1,5 +1,6 @@
 import { invoke, Channel } from '@tauri-apps/api/core';
 import type { Project, Document, DocType } from '../types';
+import type { BackupCreated, BackupInfo } from './backupTypes';
 import type {
   AiEvent,
   AiSession,
@@ -12,6 +13,9 @@ import type {
   PairStatus,
   KeyStatus,
 } from './ai/types';
+import { UNSUPPORTED_STATUS } from './sync/types';
+import { mockSync, syncMockEnabled } from './sync/devMock';
+import type { ConflictVersion, RemoteProject, SyncReport, SyncStatus } from './sync/types';
 
 /**
  * Typed wrapper around the Tauri backend commands defined in
@@ -146,6 +150,53 @@ export const api = {
 
   selectDirectory: () => call<string | null>('select_directory'),
 
+  /** Native recovery archives are stored outside the project (never recursively backed up). */
+  backupProject: (projectId: string) => call<BackupCreated>('backup_project', { projectId }),
+  /** Backups in this device's backups folder, newest first (the newest 5 per project are kept). */
+  listBackups: () => call<BackupInfo[]>('list_backups'),
+  deleteBackup: (path: string) => call<void>('delete_backup', { path }),
+  /** Pick a backup ZIP and restore it as a separate project. `null` when the picker is cancelled.
+   *  Only the chosen file's location crosses to the backend, which reads the archive itself. */
+  restoreProjectBackup: async (): Promise<Project | null> => {
+    const { open } = await import('@tauri-apps/plugin-dialog');
+    const picked = await open({ multiple: false, directory: false, filters: [{ name: 'Project backup', extensions: ['zip'] }] });
+    if (!picked || typeof picked !== 'string') return null;
+    return call<Project>('restore_project_backup', { path: picked });
+  },
+
+  /** A separate user-selected copy, suitable for moving off this device (copied by the backend). */
+  saveBackupCopy: async (backupPath: string, suggestedName = 'MnemoScript-backup.zip'): Promise<string | null> => {
+    const { save } = await import('@tauri-apps/plugin-dialog');
+    const destination = await save({ defaultPath: suggestedName, filters: [{ name: 'Project backup', extensions: ['zip'] }] });
+    if (!destination) return null;
+    await call<number>('save_backup_copy', { source: backupPath, destination });
+    return destination;
+  },
+
+  /* ------------------------- MnemoSync (Google Drive) ------------------------- */
+  // Sync runs in the native backend; tokens never reach the web view. A plain browser reports
+  // `unsupported` so the UI can explain where sync lives.
+  syncStatus: () => call<SyncStatus>('sync_status'),
+  driveSignIn: () => call<SyncStatus>('drive_sign_in'),
+  driveCancelSignIn: () => call<void>('drive_cancel_sign_in'),
+  /** Android: hand the backend an access token from Google's native authorization prompt. */
+  driveSetAccessToken: (token: string, expiresIn: number) => call<SyncStatus>('drive_set_access_token', { token, expiresIn }),
+  driveSignOut: () => call<SyncStatus>('drive_sign_out'),
+  syncEnableProject: (projectId: string) => call<SyncStatus>('sync_enable_project', { projectId }),
+  syncDisableProject: (projectId: string) => call<SyncStatus>('sync_disable_project', { projectId }),
+  driveRemoteProjects: () => call<RemoteProject[]>('drive_remote_projects'),
+  syncDownloadProject: (projectId: string, name: string) => call<Project>('sync_download_project', { projectId, name }),
+  syncNow: () => call<void>('sync_now'),
+  syncSetActive: (projectId: string | null, documentId: string | null) =>
+    call<void>('sync_set_active', { projectId, documentId }),
+  syncApplyStaged: (projectId: string, documentId: string) => call<SyncReport>('sync_apply_staged', { projectId, documentId }),
+  syncConflict: (projectId: string, documentId: string) => call<ConflictVersion[]>('sync_conflict', { projectId, documentId }),
+  syncResolveConflict: (projectId: string, documentId: string, keep: string, keepCopies: boolean) =>
+    call<string[]>('sync_resolve_conflict', { projectId, documentId, keep, keepCopies }),
+  syncDismissNotice: (id: number) => call<void>('sync_dismiss_notice', { id }),
+  /** Bytes MnemoScript keeps in the writer's Google Drive (all devices and projects). */
+  driveUsage: () => call<number>('drive_usage'),
+
   /* ---------------------------- AI assistant ---------------------------- */
   // Sessions are stored per project (`<project>/ai/sessions/`), so one project never sees another's.
 
@@ -278,6 +329,9 @@ function findProject(projects: Project[], id: string): Project {
 async function browserBackend<T>(cmd: string, args: Record<string, unknown>): Promise<T> {
   const projects = loadStore();
   const now = () => new Date().toISOString();
+  if ((cmd.startsWith('sync_') || cmd.startsWith('drive_')) && syncMockEnabled()) {
+    return mockSync(cmd, args, projects) as T;
+  }
 
   switch (cmd) {
     case 'create_project': {
@@ -448,6 +502,27 @@ async function browserBackend<T>(cmd: string, args: Record<string, unknown>): Pr
     case 'import_image':
     case 'select_directory':
       return null as T;
+
+    // MnemoSync lives in the installed apps (OAuth tokens never enter the web view).
+    case 'sync_status':
+      return UNSUPPORTED_STATUS as T;
+    case 'sync_set_active':
+    case 'sync_now':
+      return undefined as T;
+    case 'drive_sign_in':
+    case 'drive_set_access_token':
+    case 'drive_sign_out':
+    case 'sync_enable_project':
+    case 'sync_disable_project':
+    case 'drive_remote_projects':
+    case 'sync_download_project':
+    case 'sync_apply_staged':
+    case 'sync_conflict':
+    case 'sync_resolve_conflict':
+    case 'sync_dismiss_notice':
+    case 'drive_cancel_sign_in':
+    case 'drive_usage':
+      throw new Error('Google Drive sync is available in the MnemoScript desktop and Android apps.');
 
     default:
       throw new Error(`Browser fallback: unsupported command "${cmd}"`);

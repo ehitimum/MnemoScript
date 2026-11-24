@@ -11,6 +11,30 @@ The serverless sync strategy and dependency gates live in
 and [test matrix](./MNEMOSYNC_TEST_MATRIX.md). Start from current AI feature HEAD, not stale main.
 Phase 0 introduces recovery archives; LAN/Drive and Smart Merge remain later gated phases.
 
+- `src-tauri/src/backup.rs` streams allowlisted files to `<project name>-<yyyy-mm-dd-hhmm>.zip`
+  in app-level `backups/` (the newest 5 per project are kept), records SHA-256/lengths of the
+  archived bytes, validates paths and bounds, and stages restores as independent copies. Image
+  references are archived as portable `mnemo-asset:<file>` (no source folder recorded); damaged
+  chapter files are copied as-is and reported as warnings. Commands: `backup_project` (returns
+  path + warnings), `list_backups`, `delete_backup`, `save_backup_copy` (file to file) and
+  `restore_project_backup({path})`, which opens the dialog-picked file (desktop path in the fs
+  scope, or an Android content URI) in Rust, so the archive never passes through the web view.
+  Restored projects are registered only after activation. `src/components/sync/BackupSettings.tsx`
+  is shared by the two settings shells. `App.tsx` saves through `flushIfDirty` before a backup.
+- Recovery rewrites image attributes and known map asset fields (including fantasy-map
+  "My Imports" paths), preserving manuscript/graph identity and the original archive. Browser
+  ZIP recovery remains explicitly native-only.
+- **Google Drive sync** ([MNEMOSYNC_DRIVE.md](./MNEMOSYNC_DRIVE.md)): `src-tauri/src/sync/` holds the
+  transport-neutral engine (`model.rs` entity revisions, `engine.rs` scan/apply/merge/conflicts,
+  `store.rs` SQLite state in `<data dir>/sync/mnemosync.db`, `portable.rs` `mnemo-asset:` refs),
+  the Drive transport and OAuth (`drive/api.rs`, `drive/auth.rs`) and the worker + commands
+  (`service.rs`). Save commands in `lib.rs` only call `sync::service::nudge`; the worker scans
+  disk, pulls, applies and publishes. Frontend: `src/lib/sync/*` (types, `useSyncStatus`, events
+  `sync://status` / `sync://applied`, Android `google-auth` plugin calls) and
+  `src/components/sync/*` (settings card for both shells, `SyncPill`, `DocumentSyncBanner`,
+  `ConflictReview`). `App.tsx` reports the open chapter (`sync_set_active`), reloads changed
+  projects, and merges remote title/folder/order into the open document without losing typing.
+
 ## Stack
 - **Shell:** Tauri 2 (Rust backend + system WebView).
 - **Frontend:** React 19 + TypeScript + Vite 8, Tailwind CSS v4.
@@ -42,7 +66,10 @@ A project is a folder (custom path, or `~/.mnemoscript/projects/<id>` by default
   assets/<uuid>.<ext>     # imported images
   ai/sessions/<id>.json   # AI chat sessions (per project — see "AI assistant")
 ```
-A global registry at `~/.mnemoscript/registry.json` maps project id → folder path.
+A global registry at `~/.mnemoscript/registry.json` maps project id → folder path. Sync state
+(revisions, outbox, conflicts, Drive cursors) lives in `~/.mnemoscript/sync/mnemosync.db`, never in a
+project folder; the Google refresh token is in the OS keychain (`MnemoScript[-dev]` /
+`google-drive-refresh`).
 **Debug builds use `~/.mnemoscript-dev`** (Android: `<app data>/dev`), so `tauri dev` never reads or
 rewrites the installed app's projects.
 `list_projects` reads metadata only; **opening a project uses `load_project`**, which reads the
@@ -55,10 +82,17 @@ All return an `ApiResponse<T>` = `{ success, data, error }` envelope.
 `save_document` · `load_document` · `delete_document` · **`save_asset`** (raw binary body + `x-project-id`
 / `x-ext` headers → copies into `assets/`, returns the absolute path) · **`export_file`** (raw body →
 `<project>/exports/<name>`) · `select_directory`.
+Sync (`sync::service`): `sync_status` · `drive_sign_in` / `drive_cancel_sign_in` /
+`drive_set_access_token` (Android) / `drive_sign_out` · `sync_enable_project` / `sync_disable_project` ·
+`drive_remote_projects` · `sync_download_project` · `sync_now` · `sync_set_active` · `sync_apply_staged` ·
+`sync_conflict` / `sync_resolve_conflict` · `sync_dismiss_notice` · `drive_usage`. Forgetting/deleting a
+project stops syncing it on this device. `project::files_lock` serialises project file writes between
+the save commands and the sync engine (the engine re-checks a file under it before replacing it).
+Chapters removed by sync go to `<project>/sync-trash/` (30 days; not synced or backed up).
 **Webview limits:** the `fs` plugin may read/write only paths the writer picked in a dialog (no
 `**` scope), and `tauri.conf.json` sets a CSP (self, `wasm-unsafe-eval`, blob workers, asset/IPC
 hosts, LanguageTool). Add a host there before the webview may contact it.
-All file writes go through `write_atomic` (tmp + rename). `project.json` stores folders + a
+All file writes go through `write_atomic` (tmp + rename); imported images use a temp file + rename too. `project.json` stores folders + a
 **content-free** document index; document bodies live only in `documents/<id>.json`. Unreadable or
 corrupt document files are skipped with a warning so one bad file never blocks a project.
 

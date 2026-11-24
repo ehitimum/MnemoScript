@@ -45,6 +45,16 @@ Three layers, all run by CI (`.github/workflows/ci.yml`) on every push:
 with content-free `project.json`, registry add/forget, corrupt document tolerance, ordering + idempotent
 delete, legacy `project.json` without new fields, missing-document errors.
 
+**Project backups** (Phase 0; review fixes 2026-11-15)
+- Backend `cargo test backup::` — round trip of text/maps/assets/sessions/exports, tamper/missing/
+  extra/truncated files, newer schema, unsafe paths, symlinks, folder cycles, entity escaping;
+  damaged chapters archived as-is with a warning (and restored only when the manifest says so),
+  missing/outside images as warnings, no source folder in schema 2 archives, schema 1 still
+  restores, names + listing + keep-5 pruning per project, only files in the backups folder named.
+- Regression `regression/backup.regression.test.tsx` (create, list, save a copy, confirmed delete,
+  warnings, picker restore and cancel, failures, double click) and
+  `backup-app.regression.test.tsx` (the backup saves through the shared save path first).
+
 **AI assistant** (added 2026-11-12)
 - Unit `lib/ai/ai.test.ts` — model labels/vendors, phone provider list, document → text, tool mode
   enforcement, context replay across models, session reducer, `runTurn` tool round trip, per-project
@@ -85,6 +95,38 @@ delete, legacy `project.json` without new fields, missing-document errors.
 - The App-mounting suites warm `import('../App')` in `beforeAll`: a cold parallel import could exceed
   the 15 s test timeout and cascade into duplicate-render failures.
 
+**MnemoSync / Google Drive** (added 2026-11-13)
+- Backend `cargo test sync::` (42 tests) — canonical JSON and content-derived revision ids, entity-key
+  validation, symmetric field merge and edit-beats-delete, portable `mnemo-asset:` round trips
+  (Windows paths, map JSON incl. "My Imports", untouched bytes, hostile names), PKCE (RFC 7636 vector),
+  authorize URL scope, redirect state check, Drive error classification, gzip, duplicate batch files.
+  `sync::engine::tests` simulate 2–3 devices over an in-memory transport: download with images, move +
+  edit, concurrent edits → preserved conflict → resolve with copy, delete vs edit, offline delete
+  without resurrection, duplicated/reordered deliveries, staged open chapter (accept / typing → conflict
+  / remote delete), missing blobs held then applied, frozen batch retry, folder cycles, shuffled
+  three-device convergence, forged revisions rejected. Review regressions (2026-11-15): a damaged
+  chapter or missing documents folder is never deleted elsewhere, a save made after the scan is
+  never overwritten, conflict review/resolve include the latest typing, delete + two edits keeps
+  both, remote deletes go to `sync-trash/`; stray loopback requests, the newer Google error shape,
+  cursor expiry by status, Linux off, id validation in sync commands.
+- Live (ignored, needs the dev app signed in to Drive): `cargo test live_drive -- --ignored --nocapture`
+  runs two engines against the real `appDataFolder` under a throwaway `zz-live-test-…` project and
+  deletes its files (a failed cleanup fails the test). Windows/macOS only.
+- Backend `cargo test backup::` adds the restore regression for fantasy-map "My Imports" paths and
+  rejection of imports outside the project.
+- Regression `sync.regression.test.tsx` — settings states (browser, unconfigured, signed out with
+  privacy notes, sign-in with cancel and no double submit, Android token hand-off, per-project toggles,
+  download with same-name notice, reconnect + errors, Linux reason, Drive space used, "Back up,
+  then sync" with cancel and a failed backup), open-chapter banner, pill hidden for local-only
+  projects, conflict review (inert plain-text preview, differences marked, keep with/without copy).
+- Regression `sync-app.regression.test.tsx` — App reports the open chapter, merges a remote rename into
+  the open chapter without losing unsaved typing (and the next save keeps both), and saves before
+  loading a held-back update.
+- UI in a browser: `?syncMock=1` turns on `lib/sync/devMock.ts` (signed-in account, one synced project
+  with a conflict, a remote project). Browser fallback only, never in the installed apps.
+- Vitest runs on half the cores (`maxWorkers: '50%'`); the App-mounting suites and the streamed AI mock
+  timed out when a busy desktop ran one worker per core.
+
 ## jsdom notes
 `src/test/setup.ts` stubs `ResizeObserver`, `matchMedia`, `fetch` (LanguageTool is never contacted),
 `scrollIntoView` and `elementFromPoint` (ProseMirror's viewport plugin). Konva needs a real canvas, so
@@ -101,3 +143,7 @@ Things jsdom cannot prove — run on Windows (packaged app) and an Android phone
    PNG export lands in `<project>/exports/`. Desktop: export opens Save-as.
 4. Read-aloud and dictation still start (WebView permission prompts).
 5. Web build in a phone browser gets the bottom-tab shell; a narrow desktop window keeps the desktop UI.
+6. Google Drive sync (needs your own OAuth clients, see `MNEMOSYNC_DRIVE.md`): connect on desktop and
+   phone with the same account; sync a project, download it on the other device (images and maps
+   render); edit while offline and reconnect; edit the same chapter on both → review; rename/move on
+   one while typing on the other; disconnect and reconnect without duplicates.
