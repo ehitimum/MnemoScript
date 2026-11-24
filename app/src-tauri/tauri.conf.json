@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "MnemoScript",
-  "version": "2.1.1",
+  "version": "2.2.0",
   "mainBinaryName": "MnemoScript",
   "identifier": "com.mnemoscript.app",
   "build": {
@@ -38,7 +38,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis", "app", "dmg", "deb", "appimage", "rpm"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -58,6 +58,7 @@
       },
       "nsis": {
         "installMode": "currentUser",
+        "installerHooks": "./windows/hooks.nsh",
         "languages": [
           "English"
         ],

@@ -21,6 +21,8 @@ export interface SettingsProps {
   setSpellcheckActive: (b: boolean) => void;
   smoothCaret: boolean;
   setSmoothCaret: (b: boolean) => void;
+  smartQuotes: boolean;
+  setSmartQuotes: (b: boolean) => void;
   autoSaveInterval: number;
   setAutoSaveInterval: (n: number) => void;
   defaultSavePath: string;
@@ -98,6 +100,12 @@ function SettingsPanel(p: SettingsProps) {
               onChange={p.setSmoothCaret}
               title="Smooth caret"
               hint="The cursor glides between letters as you type (Word-style)."
+            />
+            <Toggle
+              checked={p.smartQuotes}
+              onChange={p.setSmartQuotes}
+              title="Smart quotes"
+              hint={'Typing " and \' gives “ ” and ‘ ’. Backspace right after restores the straight quote.'}
             />
             <Toggle
               checked={p.spellcheckActive}

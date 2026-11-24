@@ -1096,9 +1096,8 @@ textarea,
 
 /* ── Smooth (Word-style) caret ────────────────────────────────────
    The overlay rendered by SmoothCaret.tsx. The native caret is hidden
-   while it is active, except during IME composition. */
+   while it is active (also while a phone keyboard composes a word). */
 .mn-smooth-caret .ProseMirror { caret-color: transparent; }
-.mn-smooth-caret.is-composing .ProseMirror { caret-color: var(--accent-color); }
 .mn-caret {
   position: absolute;
   top: 0;

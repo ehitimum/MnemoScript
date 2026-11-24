@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { applyPlacement, visibleArea, type Align, type Box } from '../../lib/floating';
 import type { Editor as TiptapEditor } from '@tiptap/react';
 import type { EditorState } from '@tiptap/pm/state';
 import { ArrowLeft, Check, ChevronRight, KeyRound, RotateCcw, Sparkles, X } from 'lucide-react';
@@ -22,7 +23,7 @@ interface Props {
   editor: TiptapEditor | null;
   /** The project's AI (absent outside a project, e.g. in isolated tests). */
   host?: InlineAiHost;
-  /** Phone: the card docks to the bottom of the editor; no selection bubble or menu. */
+  /** Phone: full-width card, bigger buttons; no selection bubble or menu. */
   mobile: boolean;
   scrollRef: RefObject<HTMLDivElement | null>;
 }
@@ -41,14 +42,11 @@ interface Job {
   showDiff: boolean;
 }
 
-interface Anchor {
-  left: number;
-  top?: number;
-  bottom?: number;
-}
+/** The text a card or menu belongs to, on screen (viewport coordinates). */
+type Anchor = Box;
 
 interface Menu {
-  anchor: Anchor;
+  anchor: Anchor | null;
   tone: boolean;
   index: number;
   scope: 'selection' | 'paragraph';
@@ -93,19 +91,29 @@ export default function InlineAi({ editor, host, mobile, scrollRef }: Props) {
 
   const place = useCallback(
     (from: number, to: number): Anchor | null => {
-      if (!editor || mobile || editor.isDestroyed) return null;
+      if (!editor || editor.isDestroyed) return null;
       try {
-        const start = editor.view.coordsAtPos(from);
-        const end = editor.view.coordsAtPos(to);
-        const w = Math.min(CARD_W, window.innerWidth - 16);
-        const left = Math.max(8, Math.min(start.left, window.innerWidth - w - 8));
-        return window.innerHeight - end.bottom > 280 ? { left, top: end.bottom + 8 } : { left, bottom: window.innerHeight - start.top + 8 };
+        const a = editor.view.coordsAtPos(from);
+        const b = editor.view.coordsAtPos(to);
+        return { top: Math.min(a.top, b.top), bottom: Math.max(a.bottom, b.bottom), left: Math.min(a.left, b.left), right: Math.max(a.right, b.right) };
       } catch {
         return null;
       }
     },
-    [editor, mobile],
+    [editor],
   );
+
+  /**
+   * Positions a card or menu once its size is known: centred in the writing area (the card) or
+   * on the text (the menu), below the text when there is room, else above it, else in the middle
+   * of the visible area — never off an edge or under the phone keyboard.
+   */
+  const placeEl = (el: HTMLElement | null, a: Anchor | null, width: number, align: Align, maxHeight?: number, reserve?: number) => {
+    if (!el) return;
+    const area = visibleArea(scrollRef.current);
+    const target = a ?? { top: area.top, bottom: area.top, left: area.left, right: area.right };
+    applyPlacement(el, target, area, { width, align, maxHeight, reserve });
+  };
 
   const start = useCallback(
     (cmd: InlineCommandId, opts?: { tone?: ToneId; range?: { from: number; to: number } }) => {
@@ -230,7 +238,7 @@ export default function InlineAi({ editor, host, mobile, scrollRef }: Props) {
       }
       const { from, to, empty } = editor.state.selection;
       setBubble(null);
-      setMenu({ anchor: place(from, to) ?? { left: 24, top: 96 }, tone: !!opts?.tone, index: 0, scope: empty ? 'paragraph' : 'selection' });
+      setMenu({ anchor: place(from, to), tone: !!opts?.tone, index: 0, scope: empty ? 'paragraph' : 'selection' });
     },
     [editor, mobile, place, start],
   );
@@ -276,7 +284,8 @@ export default function InlineAi({ editor, host, mobile, scrollRef }: Props) {
   const hasJob = !!job;
   const hasMenu = !!menu;
   useEffect(() => {
-    if (!editor || mobile || (!hasJob && !hasMenu)) return;
+    if (!editor || (!hasJob && !hasMenu)) return;
+    const vv = window.visualViewport;
     const update = () => {
       const t = getAiTarget(editor);
       if (t) setAnchor(place(t.from, t.to));
@@ -286,14 +295,17 @@ export default function InlineAi({ editor, host, mobile, scrollRef }: Props) {
     const el = scrollRef.current;
     el?.addEventListener('scroll', update, { passive: true });
     window.addEventListener('resize', update);
+    // Phones: the keyboard opening/closing changes the visible area without a window resize.
+    vv?.addEventListener('resize', update);
     return () => {
       el?.removeEventListener('scroll', update);
       window.removeEventListener('resize', update);
+      vv?.removeEventListener('resize', update);
     };
-  }, [editor, mobile, hasJob, hasMenu, place, scrollRef]);
+  }, [editor, hasJob, hasMenu, place, scrollRef]);
 
-  // Phone: the card docks over the bottom of the page. Give the page room to scroll past it and
-  // bring the passage into view above the card.
+  // Phone: give the page room to scroll past its last line and bring the passage into the upper
+  // part of the screen, so the card fits below it instead of covering it (even on the last line).
   useEffect(() => {
     const el = scrollRef.current;
     if (!mobile || !hasJob || !el || !editor) return;
@@ -373,9 +385,6 @@ export default function InlineAi({ editor, host, mobile, scrollRef }: Props) {
     };
   }, [hasMenu, menuItems]);
 
-  const fixed = (a: Anchor | null, width: number): CSSProperties =>
-    a ? { position: 'fixed', left: a.left, top: a.top, bottom: a.bottom, width, zIndex: 60 } : { position: 'fixed', left: 24, top: 96, width, zIndex: 60 };
-
   return (
     <>
       {bubble && !job && !menu && (
@@ -393,7 +402,17 @@ export default function InlineAi({ editor, host, mobile, scrollRef }: Props) {
       )}
 
       {menu && (
-        <div ref={menuRef} className="slash-menu" role="menu" aria-label="AI commands" style={fixed(menu.anchor, 256)} onMouseDown={(e) => e.preventDefault()}>
+        <div
+          ref={(el) => {
+            menuRef.current = el;
+            placeEl(el, menu.anchor, 256, 'target');
+          }}
+          className="slash-menu"
+          role="menu"
+          aria-label="AI commands"
+          style={{ position: 'fixed', zIndex: 60 }}
+          onMouseDown={(e) => e.preventDefault()}
+        >
           <div className="flex items-center gap-1.5 px-2.5 pt-1 pb-1.5 text-3xs font-medium uppercase tracking-wider text-muted-foreground/70">
             {menu.tone ? (
               <button className="inline-flex items-center gap-1 hover:text-foreground cursor-pointer" onClick={() => setMenu({ ...menu, tone: false, index: 0 })}>
@@ -439,7 +458,7 @@ export default function InlineAi({ editor, host, mobile, scrollRef }: Props) {
         <InlineCard
           job={job}
           mobile={mobile}
-          style={mobile ? undefined : fixed(anchor, Math.min(CARD_W, typeof window !== 'undefined' ? window.innerWidth - 16 : CARD_W))}
+          placeRef={(el) => placeEl(el, anchor, mobile ? 640 : CARD_W, 'center', mobile ? 380 : 440, 240)}
           modelLabel={host?.modelLabel}
           onAccept={accept}
           onDiscard={discard}
@@ -458,7 +477,8 @@ export default function InlineAi({ editor, host, mobile, scrollRef }: Props) {
 interface CardProps {
   job: Job;
   mobile: boolean;
-  style?: CSSProperties;
+  /** Positions the card (see `placeEl`). */
+  placeRef: (el: HTMLDivElement | null) => void;
   modelLabel?: string;
   onAccept: () => void;
   onDiscard: () => void;
@@ -467,7 +487,7 @@ interface CardProps {
   onConnect: () => void;
 }
 
-function InlineCard({ job, mobile, style, modelLabel, onAccept, onDiscard, onRetry, onToggleDiff, onConnect }: CardProps) {
+function InlineCard({ job, mobile, placeRef, modelLabel, onAccept, onDiscard, onRetry, onToggleDiff, onConnect }: CardProps) {
   const cmd = inlineCommand(job.cmd);
   const Icon = INLINE_ICONS[job.cmd];
   const unchanged = job.status === 'done' && job.cmd !== 'continue' && job.result === job.original;
@@ -479,10 +499,9 @@ function InlineCard({ job, mobile, style, modelLabel, onAccept, onDiscard, onRet
     <div
       role="dialog"
       aria-label={`AI ${cmd.label}`}
-      style={style}
-      className={`mn-ai-card flex flex-col overflow-hidden rounded-xl border border-border/50 bg-popover text-popover-foreground shadow-2xl ${
-        mobile ? 'absolute left-2 right-2 bottom-2 z-30 max-h-[55%]' : 'max-h-[min(60vh,440px)]'
-      }`}
+      ref={placeRef}
+      style={{ position: 'fixed', zIndex: 60 }}
+      className="mn-ai-card flex flex-col overflow-hidden rounded-xl border border-border/50 bg-popover text-popover-foreground shadow-2xl"
       onMouseDown={(e) => e.preventDefault()}
     >
       <div className="flex items-center gap-2 px-3 h-9 shrink-0 border-b border-border/30">

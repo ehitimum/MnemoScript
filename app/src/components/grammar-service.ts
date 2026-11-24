@@ -1,3 +1,5 @@
+import { DISABLED_CATEGORIES, DISABLED_RULES } from '../lib/grammarPrefs';
+
 export interface LTMatch {
   message: string;
   shortMessage: string;
@@ -20,7 +22,9 @@ class GrammarService {
     const params = new URLSearchParams();
     params.append('text', text);
     params.append('language', lang);
-    params.append('level', 'picky');
+    // Default level (not "picky"): flag mistakes, not style. Style-only checks are off too.
+    params.append('disabledCategories', DISABLED_CATEGORIES.join(','));
+    params.append('disabledRules', DISABLED_RULES.join(','));
 
     try {
       const response = await fetch(this.apiUrl, {

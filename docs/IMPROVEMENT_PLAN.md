@@ -121,6 +121,12 @@ phone shell.
 - ESLint ignores vendored `public/`; **0 lint errors** now. Sidebar icons follow `docType` (a mind map
   called "Ideas" no longer shows as a note). Jargon sweep in the project modal.
 
+### 2.2.0 writer feedback (2026-11-24) — done
+Phone + button, chapter order, floating-window placement, gentler grammar (ignore / dictionary),
+Format group in the slash menu, smooth caret on Android, smart quotes, installer upgrade of MSI
+installs. Still to check on real hardware: the Android caret with Gboard/Samsung keyboards, and the
+installer replacing an MSI install on a clean machine.
+
 ## 3. Roadmap (not done in this pass)
 
 ### AI assistant (in progress on `feature/ai-assistant`)

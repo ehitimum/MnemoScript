@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Project, Document, DocType } from '../types';
 import { resolveImagesInHtml } from '../lib/assets';
+import { compareDocs } from '../lib/docOrder';
 import {
   BookOpen,
   ChevronUp,
@@ -156,7 +157,7 @@ function BookCompiler({ onClose, project, documents }: BookCompilerProps) {
   const [includeCover, setIncludeCover] = useState(true);
   const [includeToc, setIncludeToc] = useState(true);
   const [chapters, setChapters] = useState<Chapter[]>(() =>
-    documents.map((d) => ({
+    [...documents].sort(compareDocs).map((d) => ({
       id: d.id,
       title: d.title,
       content: d.content,

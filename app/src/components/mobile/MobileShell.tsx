@@ -56,6 +56,8 @@ interface Props {
   setSpellcheckActive: (b: boolean) => void;
   smoothCaret: boolean;
   setSmoothCaret: (b: boolean) => void;
+  smartQuotes: boolean;
+  setSmartQuotes: (b: boolean) => void;
   autoSaveInterval: number;
   setAutoSaveInterval: (n: number) => void;
   theme: ThemeType;
@@ -179,6 +181,7 @@ function MobileShell(props: Props) {
         editorPadding={props.editorPadding}
         spellcheckActive={props.spellcheckActive}
         smoothCaret={props.smoothCaret}
+        smartQuotes={props.smartQuotes}
         chrome="mobile"
         ai={
           chat
@@ -286,6 +289,8 @@ function MobileShell(props: Props) {
             setSpellcheckActive={props.setSpellcheckActive}
             smoothCaret={props.smoothCaret}
             setSmoothCaret={props.setSmoothCaret}
+            smartQuotes={props.smartQuotes}
+            setSmartQuotes={props.setSmartQuotes}
             autoSaveInterval={props.autoSaveInterval}
             setAutoSaveInterval={props.setAutoSaveInterval}
           />

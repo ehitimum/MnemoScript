@@ -18,6 +18,8 @@ interface Props {
   setSpellcheckActive: (b: boolean) => void;
   smoothCaret: boolean;
   setSmoothCaret: (b: boolean) => void;
+  smartQuotes: boolean;
+  setSmartQuotes: (b: boolean) => void;
   autoSaveInterval: number;
   setAutoSaveInterval: (n: number) => void;
   backup?: BackupActions;
@@ -40,6 +42,8 @@ function MobileSettings({
   setSpellcheckActive,
   smoothCaret,
   setSmoothCaret,
+  smartQuotes,
+  setSmartQuotes,
   autoSaveInterval,
   setAutoSaveInterval,
   backup,
@@ -109,6 +113,19 @@ function MobileSettings({
             className="w-5 h-5 rounded accent-primary"
             checked={smoothCaret}
             onChange={(e) => setSmoothCaret(e.target.checked)}
+          />
+        </label>
+        <label className="mn-row justify-between">
+          <span className="flex flex-col">
+            <span className="text-sm">Smart quotes</span>
+            <span className="text-3xs text-muted-foreground/70">Type " and ' to get “ ” and ‘ ’</span>
+          </span>
+          <input
+            type="checkbox"
+            className="w-5 h-5 rounded accent-primary"
+            aria-label="Smart quotes"
+            checked={smartQuotes}
+            onChange={(e) => setSmartQuotes(e.target.checked)}
           />
         </label>
         <label className="mn-row justify-between">
