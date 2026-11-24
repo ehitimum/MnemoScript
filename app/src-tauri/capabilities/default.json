@@ -9,9 +9,10 @@
     "core:default",
     "dialog:default",
     "fs:default",
-    {
-      "identifier": "fs:allow-read-file",
-      "allow": [{ "path": "**" }]
-    }
+    "fs:allow-read-file",
+    "core:window:allow-close",
+    "core:window:allow-destroy",
+    "dialog:allow-save",
+    "fs:allow-write-file"
   ]
 }
