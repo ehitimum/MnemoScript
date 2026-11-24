@@ -1,6 +1,7 @@
 /** MnemoSync (Google Drive) shapes returned by the Rust backend (`src-tauri/src/sync/service.rs`). */
 
 export type SyncGlobalState =
+  | 'coming-soon' // built but held back until it is released (backend `AVAILABLE = false`)
   | 'unsupported' // plain browser: sync lives in the installed apps
   | 'unconfigured' // this build has no Google OAuth client
   | 'signed-out'

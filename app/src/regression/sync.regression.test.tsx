@@ -56,6 +56,19 @@ function settings(s: SyncStatus, extra: Partial<Parameters<typeof SyncSettings>[
 }
 
 describe('Google Drive sync settings (regression)', () => {
+  it('2.2.2: while sync is held back, desktop and phone show Coming soon and nothing to connect', () => {
+    for (const variant of ['desktop', 'mobile'] as const) {
+      const { unmount } = render(
+        <SyncSettings variant={variant} status={status({ state: 'coming-soon', configured: false, account: null, projects: [] })}
+          setStatus={vi.fn()} projects={[]} onDownloaded={vi.fn()} />,
+      );
+      expect(screen.getByText('Coming soon')).toBeVisible();
+      expect(screen.getByText(/coming in a future update/)).toBeVisible();
+      expect(screen.queryByRole('button')).toBeNull();
+      unmount();
+    }
+  });
+
   it('explains where sync lives in a plain browser and in builds without a Google client', () => {
     const { unmount } = render(<SyncSettings variant="mobile" status={status({ state: 'unsupported', account: null, projects: [] })} setStatus={vi.fn()} projects={[]} onDownloaded={vi.fn()} />);
     expect(screen.getByText(/available in the MnemoScript desktop and Android apps/)).toBeVisible();
